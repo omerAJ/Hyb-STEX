@@ -163,6 +163,8 @@ class Discriminator(nn.Module):
 ####################
 ## ST Encoder
 ####################
+### self.encoder = STEncoder(Kt=3, Ks=3, blocks=[[2, int(args.d_model//2), args.d_model], [args.d_model, int(args.d_model//2), args.d_model]], 
+                       ### input_length=args.input_length, num_nodes=args.num_nodes, droprate=args.dropout)
 class STEncoder(nn.Module):
     def __init__(self, Kt, Ks, blocks, input_length, num_nodes, droprate=0.1):
         super(STEncoder, self).__init__()
