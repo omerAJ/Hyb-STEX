@@ -1,0 +1,77 @@
+2024-01-24 14:05:57: Experiment log path in: D:\omer\ST-SSL\experiments\NYCBike1\20240124-140557
+2024-01-24 14:05:57: Experiment configs are: Namespace(batch_size=32, best_path='None', d_input=1, d_model=64, d_output=1, data_dir='data', dataset='NYCBike1', debug=False, device='cuda', dropout=0.2, early_stop=True, early_stop_patience=15, epochs=100, grad_norm=True, graph_file='data/NYCBike1/adj_mx.npz', input_length=19, log_dir='D:\\omer\\ST-SSL\\experiments\\NYCBike1\\20240124-140557', lr_init=0.001, max_grad_norm=5, mode='train', nmb_prototype=6, num_nodes=128, percent=0.1, seed=31, shm_temp=0.5, temp=4, test_batch_size=32, use_dwa=True, yita=1)
+2024-01-24 14:05:59: *******Train Epoch 1: averaged Loss : 12.762910
+2024-01-24 14:05:59: *******Val Epoch 1: averaged Loss : 10.065087
+2024-01-24 14:05:59: **************Current best model saved to D:\omer\ST-SSL\experiments\NYCBike1\20240124-140557\best_model.pth
+2024-01-24 14:06:01: *******Train Epoch 2: averaged Loss : 9.854223
+2024-01-24 14:06:02: *******Val Epoch 2: averaged Loss : 8.874462
+2024-01-24 14:06:02: **************Current best model saved to D:\omer\ST-SSL\experiments\NYCBike1\20240124-140557\best_model.pth
+2024-01-24 14:06:04: *******Train Epoch 3: averaged Loss : 8.912934
+2024-01-24 14:06:04: *******Val Epoch 3: averaged Loss : 8.172182
+2024-01-24 14:06:04: **************Current best model saved to D:\omer\ST-SSL\experiments\NYCBike1\20240124-140557\best_model.pth
+2024-01-24 14:06:06: *******Train Epoch 4: averaged Loss : 8.592392
+2024-01-24 14:06:06: *******Val Epoch 4: averaged Loss : 7.837231
+2024-01-24 14:06:06: **************Current best model saved to D:\omer\ST-SSL\experiments\NYCBike1\20240124-140557\best_model.pth
+2024-01-24 14:06:09: *******Train Epoch 5: averaged Loss : 8.383951
+2024-01-24 14:06:09: *******Val Epoch 5: averaged Loss : 7.760073
+2024-01-24 14:06:09: **************Current best model saved to D:\omer\ST-SSL\experiments\NYCBike1\20240124-140557\best_model.pth
+2024-01-24 14:06:11: *******Train Epoch 6: averaged Loss : 8.156140
+2024-01-24 14:06:12: *******Val Epoch 6: averaged Loss : 7.718070
+2024-01-24 14:06:12: **************Current best model saved to D:\omer\ST-SSL\experiments\NYCBike1\20240124-140557\best_model.pth
+2024-01-24 14:06:14: *******Train Epoch 7: averaged Loss : 8.064402
+2024-01-24 14:06:14: *******Val Epoch 7: averaged Loss : 7.620510
+2024-01-24 14:06:14: **************Current best model saved to D:\omer\ST-SSL\experiments\NYCBike1\20240124-140557\best_model.pth
+2024-01-24 14:06:16: *******Train Epoch 8: averaged Loss : 7.966863
+2024-01-24 14:06:17: *******Val Epoch 8: averaged Loss : 7.717450
+2024-01-24 14:06:19: *******Train Epoch 9: averaged Loss : 7.852148
+2024-01-24 14:06:19: *******Val Epoch 9: averaged Loss : 7.349233
+2024-01-24 14:06:19: **************Current best model saved to D:\omer\ST-SSL\experiments\NYCBike1\20240124-140557\best_model.pth
+2024-01-24 14:06:22: *******Train Epoch 10: averaged Loss : 7.803226
+2024-01-24 14:06:22: *******Val Epoch 10: averaged Loss : 7.449073
+2024-01-24 14:06:24: *******Train Epoch 11: averaged Loss : 7.732275
+2024-01-24 14:06:24: *******Val Epoch 11: averaged Loss : 7.368339
+2024-01-24 14:06:27: *******Train Epoch 12: averaged Loss : 7.630294
+2024-01-24 14:06:27: *******Val Epoch 12: averaged Loss : 7.210369
+2024-01-24 14:06:27: **************Current best model saved to D:\omer\ST-SSL\experiments\NYCBike1\20240124-140557\best_model.pth
+2024-01-24 14:06:29: *******Train Epoch 13: averaged Loss : 7.554393
+2024-01-24 14:06:29: *******Val Epoch 13: averaged Loss : 7.277506
+2024-01-24 14:06:32: *******Train Epoch 14: averaged Loss : 7.498935
+2024-01-24 14:06:32: *******Val Epoch 14: averaged Loss : 7.208416
+2024-01-24 14:06:32: **************Current best model saved to D:\omer\ST-SSL\experiments\NYCBike1\20240124-140557\best_model.pth
+2024-01-24 14:06:34: *******Train Epoch 15: averaged Loss : 7.495050
+2024-01-24 14:06:35: *******Val Epoch 15: averaged Loss : 7.489992
+2024-01-24 14:06:37: *******Train Epoch 16: averaged Loss : 7.453945
+2024-01-24 14:06:37: *******Val Epoch 16: averaged Loss : 7.165214
+2024-01-24 14:06:37: **************Current best model saved to D:\omer\ST-SSL\experiments\NYCBike1\20240124-140557\best_model.pth
+2024-01-24 14:06:40: *******Train Epoch 17: averaged Loss : 7.326703
+2024-01-24 14:06:40: *******Val Epoch 17: averaged Loss : 7.092223
+2024-01-24 14:06:40: **************Current best model saved to D:\omer\ST-SSL\experiments\NYCBike1\20240124-140557\best_model.pth
+2024-01-24 14:06:42: *******Train Epoch 18: averaged Loss : 7.344299
+2024-01-24 14:06:42: *******Val Epoch 18: averaged Loss : 7.145234
+2024-01-24 14:06:45: *******Train Epoch 19: averaged Loss : 7.272829
+2024-01-24 14:06:45: *******Val Epoch 19: averaged Loss : 7.059261
+2024-01-24 14:06:45: **************Current best model saved to D:\omer\ST-SSL\experiments\NYCBike1\20240124-140557\best_model.pth
+2024-01-24 14:06:47: *******Train Epoch 20: averaged Loss : 7.303077
+2024-01-24 14:06:47: *******Val Epoch 20: averaged Loss : 7.043939
+2024-01-24 14:06:47: **************Current best model saved to D:\omer\ST-SSL\experiments\NYCBike1\20240124-140557\best_model.pth
+2024-01-24 14:06:49: Traceback (most recent call last):
+  File "main.py", line 59, in model_supervisor
+    results = trainer.train() # best_eval_loss, best_epoch
+  File "D:\omer\ST-SSL\model\trainer.py", line 109, in train
+    train_epoch_loss, loss_t = self.train_epoch(epoch, loss_weights)
+  File "D:\omer\ST-SSL\model\trainer.py", line 67, in train_epoch
+    self.optimizer.step()
+  File "C:\Users\IST\.conda\envs\ST-SSL\lib\site-packages\torch\optim\optimizer.py", line 373, in wrapper
+    out = func(*args, **kwargs)
+  File "C:\Users\IST\.conda\envs\ST-SSL\lib\site-packages\torch\optim\optimizer.py", line 76, in _use_grad
+    ret = func(self, *args, **kwargs)
+  File "C:\Users\IST\.conda\envs\ST-SSL\lib\site-packages\torch\optim\adam.py", line 163, in step
+    adam(
+  File "C:\Users\IST\.conda\envs\ST-SSL\lib\site-packages\torch\optim\adam.py", line 311, in adam
+    func(params,
+  File "C:\Users\IST\.conda\envs\ST-SSL\lib\site-packages\torch\optim\adam.py", line 551, in _multi_tensor_adam
+    bias_correction1 = [1 - beta1 ** _get_value(step) for step in device_state_steps]
+  File "C:\Users\IST\.conda\envs\ST-SSL\lib\site-packages\torch\optim\adam.py", line 551, in <listcomp>
+    bias_correction1 = [1 - beta1 ** _get_value(step) for step in device_state_steps]
+KeyboardInterrupt
+

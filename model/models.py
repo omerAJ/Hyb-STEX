@@ -16,7 +16,7 @@ class STSSL(nn.Module):
     def __init__(self, args):
         super(STSSL, self).__init__()
         # spatial temporal encoder
-        self.encoder = STEncoder(Kt=3, Ks=3, blocks=[[2, int(args.d_model//2), args.d_model], [args.d_model, int(args.d_model//2), args.d_model]], 
+        self.encoder = STEncoder(Kt=3, Ks=3, blocks=[[1, int(args.d_model//2), args.d_model], [args.d_model, int(args.d_model//2), args.d_model]], 
                         input_length=args.input_length, num_nodes=args.num_nodes, droprate=args.dropout)
         
         # traffic flow prediction branch
@@ -76,8 +76,7 @@ class STSSL(nn.Module):
         y_pred = scaler.inverse_transform(self.predict(z1, z2))
         y_true = scaler.inverse_transform(y_true)
  
-        loss = self.args.yita * self.mae(y_pred[..., 0], y_true[..., 0]) + \
-                (1 - self.args.yita) * self.mae(y_pred[..., 1], y_true[..., 1])
+        loss = self.args.yita * self.mae(y_pred[..., 0], y_true[..., 0])
         return loss
     
     def temporal_loss(self, z1, z2):
