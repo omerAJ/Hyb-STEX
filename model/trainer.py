@@ -182,9 +182,9 @@ class Trainer(object):
         logger.info("INFLOW, MAE: {:.2f}, MAPE: {:.4f}%".format(mae, mape*100))
         test_results.append([mae, mape])
         # outflow 
-        mae, mape = test_metrics(y_pred[..., 1], y_true[..., 1])
-        logger.info("OUTFLOW, MAE: {:.2f}, MAPE: {:.4f}%".format(mae, mape*100))
-        test_results.append([mae, mape]) 
+        # mae, mape = test_metrics(y_pred[..., 1], y_true[..., 1])
+        # logger.info("OUTFLOW, MAE: {:.2f}, MAPE: {:.4f}%".format(mae, mape*100))
+        # test_results.append([mae, mape]) 
 
         return np.stack(test_results, axis=0)
 
