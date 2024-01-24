@@ -58,9 +58,10 @@ class MinMax11Scaler:
         return ((data + 1.) / 2.) * (self.max - self.min) + self.min
 
 def STDataloader(X, Y, batch_size, shuffle=True, drop_last=True):
+    print(f"X.shape: {X.shape}, Y.shape: {Y.shape}")
     cuda = True if torch.cuda.is_available() else False
     TensorFloat = torch.cuda.FloatTensor if cuda else torch.FloatTensor
-    X, Y = TensorFloat(X), TensorFloat(Y)
+    X, Y = TensorFloat(X[:, :, :, 0]), TensorFloat(Y[:, :, :, 0])
     data = torch.utils.data.TensorDataset(X, Y)
     dataloader = torch.utils.data.DataLoader(
         data, 
