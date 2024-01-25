@@ -20,14 +20,14 @@ d_model: 64
 dropout: 0.2
 percent: 0.1                # augumentation percentage  
 shm_temp: 0.5               # temperature for loss of spatial heterogeneity modeling  , 0.5 is best for NYCBike
-nmb_prototype: 6            # number of cluster 
+nmb_prototype: 2            # number of cluster 
 yita: 1                   # balance for inflow loss and outflow loss, $yita * inflow + (1 - yita) * outflow$
 
 ## train
-epochs: 100
+epochs: 200
 lr_init: 0.001
 early_stop: True
-early_stop_patience: 15
+early_stop_patience: 150
 grad_norm: True
 max_grad_norm: 5
 use_dwa: True         # whether to use dwa for loss balance

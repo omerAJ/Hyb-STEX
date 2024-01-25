@@ -1,0 +1,190 @@
+2024-01-24 20:45:25: Experiment log path in: D:\omer\ST-SSL\experiments\Careem\20240124-204525
+2024-01-24 20:45:25: Experiment configs are: Namespace(seed=31, device='cuda', mode='train', best_path='None', debug=False, data_dir='data', dataset='Careem', input_length=19, batch_size=32, test_batch_size=32, graph_file='data/Careem/adj_mx.npz', d_input=1, d_output=1, d_model=64, dropout=0.2, percent=0.1, shm_temp=0.5, nmb_prototype=2, yita=1, epochs=100, lr_init=0.001, early_stop=True, early_stop_patience=15, grad_norm=True, max_grad_norm=5, use_dwa=True, temp=4, num_nodes=285, log_dir='D:\\omer\\ST-SSL\\experiments\\Careem\\20240124-204525')
+2024-01-24 20:45:29: *******Train Epoch 1: averaged Loss : 9.338346
+2024-01-24 20:45:29: *******Val Epoch 1: averaged Loss : 7.831002
+2024-01-24 20:45:29: **************Current best model saved to D:\omer\ST-SSL\experiments\Careem\20240124-204525\best_model.pth
+2024-01-24 20:45:31: *******Train Epoch 2: averaged Loss : 8.093474
+2024-01-24 20:45:32: *******Val Epoch 2: averaged Loss : 7.530341
+2024-01-24 20:45:32: **************Current best model saved to D:\omer\ST-SSL\experiments\Careem\20240124-204525\best_model.pth
+2024-01-24 20:45:34: *******Train Epoch 3: averaged Loss : 8.189453
+2024-01-24 20:45:34: *******Val Epoch 3: averaged Loss : 7.597423
+2024-01-24 20:45:36: *******Train Epoch 4: averaged Loss : 7.913093
+2024-01-24 20:45:36: *******Val Epoch 4: averaged Loss : 7.395703
+2024-01-24 20:45:36: **************Current best model saved to D:\omer\ST-SSL\experiments\Careem\20240124-204525\best_model.pth
+2024-01-24 20:45:38: *******Train Epoch 5: averaged Loss : 7.744342
+2024-01-24 20:45:38: *******Val Epoch 5: averaged Loss : 7.359596
+2024-01-24 20:45:38: **************Current best model saved to D:\omer\ST-SSL\experiments\Careem\20240124-204525\best_model.pth
+2024-01-24 20:45:40: *******Train Epoch 6: averaged Loss : 7.625295
+2024-01-24 20:45:40: *******Val Epoch 6: averaged Loss : 7.243713
+2024-01-24 20:45:40: **************Current best model saved to D:\omer\ST-SSL\experiments\Careem\20240124-204525\best_model.pth
+2024-01-24 20:45:42: *******Train Epoch 7: averaged Loss : 7.604492
+2024-01-24 20:45:42: *******Val Epoch 7: averaged Loss : 7.317271
+2024-01-24 20:45:45: *******Train Epoch 8: averaged Loss : 7.560404
+2024-01-24 20:45:45: *******Val Epoch 8: averaged Loss : 7.185377
+2024-01-24 20:45:45: **************Current best model saved to D:\omer\ST-SSL\experiments\Careem\20240124-204525\best_model.pth
+2024-01-24 20:45:47: *******Train Epoch 9: averaged Loss : 7.514569
+2024-01-24 20:45:47: *******Val Epoch 9: averaged Loss : 7.273711
+2024-01-24 20:45:49: *******Train Epoch 10: averaged Loss : 7.400332
+2024-01-24 20:45:49: *******Val Epoch 10: averaged Loss : 7.210121
+2024-01-24 20:45:51: *******Train Epoch 11: averaged Loss : 7.556885
+2024-01-24 20:45:51: *******Val Epoch 11: averaged Loss : 7.144935
+2024-01-24 20:45:51: **************Current best model saved to D:\omer\ST-SSL\experiments\Careem\20240124-204525\best_model.pth
+2024-01-24 20:45:53: *******Train Epoch 12: averaged Loss : 7.413764
+2024-01-24 20:45:54: *******Val Epoch 12: averaged Loss : 7.280193
+2024-01-24 20:45:56: *******Train Epoch 13: averaged Loss : 7.310611
+2024-01-24 20:45:56: *******Val Epoch 13: averaged Loss : 7.068938
+2024-01-24 20:45:56: **************Current best model saved to D:\omer\ST-SSL\experiments\Careem\20240124-204525\best_model.pth
+2024-01-24 20:45:58: *******Train Epoch 14: averaged Loss : 7.295776
+2024-01-24 20:45:58: *******Val Epoch 14: averaged Loss : 7.142312
+2024-01-24 20:46:00: *******Train Epoch 15: averaged Loss : 7.319868
+2024-01-24 20:46:00: *******Val Epoch 15: averaged Loss : 7.067225
+2024-01-24 20:46:00: **************Current best model saved to D:\omer\ST-SSL\experiments\Careem\20240124-204525\best_model.pth
+2024-01-24 20:46:02: *******Train Epoch 16: averaged Loss : 7.233082
+2024-01-24 20:46:02: *******Val Epoch 16: averaged Loss : 7.231625
+2024-01-24 20:46:04: *******Train Epoch 17: averaged Loss : 7.241164
+2024-01-24 20:46:05: *******Val Epoch 17: averaged Loss : 7.039259
+2024-01-24 20:46:05: **************Current best model saved to D:\omer\ST-SSL\experiments\Careem\20240124-204525\best_model.pth
+2024-01-24 20:46:07: *******Train Epoch 18: averaged Loss : 7.246558
+2024-01-24 20:46:07: *******Val Epoch 18: averaged Loss : 7.105964
+2024-01-24 20:46:09: *******Train Epoch 19: averaged Loss : 7.205711
+2024-01-24 20:46:09: *******Val Epoch 19: averaged Loss : 6.981017
+2024-01-24 20:46:09: **************Current best model saved to D:\omer\ST-SSL\experiments\Careem\20240124-204525\best_model.pth
+2024-01-24 20:46:11: *******Train Epoch 20: averaged Loss : 7.172084
+2024-01-24 20:46:11: *******Val Epoch 20: averaged Loss : 6.990586
+2024-01-24 20:46:13: *******Train Epoch 21: averaged Loss : 7.241811
+2024-01-24 20:46:13: *******Val Epoch 21: averaged Loss : 6.958910
+2024-01-24 20:46:13: **************Current best model saved to D:\omer\ST-SSL\experiments\Careem\20240124-204525\best_model.pth
+2024-01-24 20:46:15: *******Train Epoch 22: averaged Loss : 7.104925
+2024-01-24 20:46:16: *******Val Epoch 22: averaged Loss : 6.963421
+2024-01-24 20:46:18: *******Train Epoch 23: averaged Loss : 7.125681
+2024-01-24 20:46:18: *******Val Epoch 23: averaged Loss : 6.921868
+2024-01-24 20:46:18: **************Current best model saved to D:\omer\ST-SSL\experiments\Careem\20240124-204525\best_model.pth
+2024-01-24 20:46:20: *******Train Epoch 24: averaged Loss : 7.085381
+2024-01-24 20:46:20: *******Val Epoch 24: averaged Loss : 7.082403
+2024-01-24 20:46:22: *******Train Epoch 25: averaged Loss : 7.011415
+2024-01-24 20:46:22: *******Val Epoch 25: averaged Loss : 6.896542
+2024-01-24 20:46:22: **************Current best model saved to D:\omer\ST-SSL\experiments\Careem\20240124-204525\best_model.pth
+2024-01-24 20:46:24: *******Train Epoch 26: averaged Loss : 7.049767
+2024-01-24 20:46:24: *******Val Epoch 26: averaged Loss : 7.019266
+2024-01-24 20:46:26: *******Train Epoch 27: averaged Loss : 7.082348
+2024-01-24 20:46:26: *******Val Epoch 27: averaged Loss : 6.957774
+2024-01-24 20:46:28: *******Train Epoch 28: averaged Loss : 7.086621
+2024-01-24 20:46:29: *******Val Epoch 28: averaged Loss : 6.914042
+2024-01-24 20:46:31: *******Train Epoch 29: averaged Loss : 7.048324
+2024-01-24 20:46:31: *******Val Epoch 29: averaged Loss : 6.857092
+2024-01-24 20:46:31: **************Current best model saved to D:\omer\ST-SSL\experiments\Careem\20240124-204525\best_model.pth
+2024-01-24 20:46:33: *******Train Epoch 30: averaged Loss : 6.996073
+2024-01-24 20:46:33: *******Val Epoch 30: averaged Loss : 6.873566
+2024-01-24 20:46:35: *******Train Epoch 31: averaged Loss : 6.990882
+2024-01-24 20:46:35: *******Val Epoch 31: averaged Loss : 6.932130
+2024-01-24 20:46:37: *******Train Epoch 32: averaged Loss : 6.955213
+2024-01-24 20:46:37: *******Val Epoch 32: averaged Loss : 6.842784
+2024-01-24 20:46:37: **************Current best model saved to D:\omer\ST-SSL\experiments\Careem\20240124-204525\best_model.pth
+2024-01-24 20:46:39: *******Train Epoch 33: averaged Loss : 6.916272
+2024-01-24 20:46:39: *******Val Epoch 33: averaged Loss : 6.857032
+2024-01-24 20:46:41: *******Train Epoch 34: averaged Loss : 6.918032
+2024-01-24 20:46:42: *******Val Epoch 34: averaged Loss : 6.811928
+2024-01-24 20:46:42: **************Current best model saved to D:\omer\ST-SSL\experiments\Careem\20240124-204525\best_model.pth
+2024-01-24 20:46:44: *******Train Epoch 35: averaged Loss : 6.867419
+2024-01-24 20:46:44: *******Val Epoch 35: averaged Loss : 6.821499
+2024-01-24 20:46:46: *******Train Epoch 36: averaged Loss : 7.052830
+2024-01-24 20:46:46: *******Val Epoch 36: averaged Loss : 6.904715
+2024-01-24 20:46:48: *******Train Epoch 37: averaged Loss : 6.867758
+2024-01-24 20:46:48: *******Val Epoch 37: averaged Loss : 6.829633
+2024-01-24 20:46:50: *******Train Epoch 38: averaged Loss : 6.802579
+2024-01-24 20:46:50: *******Val Epoch 38: averaged Loss : 6.711955
+2024-01-24 20:46:50: **************Current best model saved to D:\omer\ST-SSL\experiments\Careem\20240124-204525\best_model.pth
+2024-01-24 20:46:52: *******Train Epoch 39: averaged Loss : 6.912546
+2024-01-24 20:46:53: *******Val Epoch 39: averaged Loss : 6.907476
+2024-01-24 20:46:55: *******Train Epoch 40: averaged Loss : 6.860647
+2024-01-24 20:46:55: *******Val Epoch 40: averaged Loss : 6.800669
+2024-01-24 20:46:57: *******Train Epoch 41: averaged Loss : 6.816025
+2024-01-24 20:46:57: *******Val Epoch 41: averaged Loss : 6.745354
+2024-01-24 20:46:59: *******Train Epoch 42: averaged Loss : 6.767176
+2024-01-24 20:46:59: *******Val Epoch 42: averaged Loss : 6.694286
+2024-01-24 20:46:59: **************Current best model saved to D:\omer\ST-SSL\experiments\Careem\20240124-204525\best_model.pth
+2024-01-24 20:47:01: *******Train Epoch 43: averaged Loss : 6.756510
+2024-01-24 20:47:01: *******Val Epoch 43: averaged Loss : 6.710357
+2024-01-24 20:47:03: *******Train Epoch 44: averaged Loss : 6.736504
+2024-01-24 20:47:03: *******Val Epoch 44: averaged Loss : 6.715208
+2024-01-24 20:47:06: *******Train Epoch 45: averaged Loss : 6.707105
+2024-01-24 20:47:06: *******Val Epoch 45: averaged Loss : 6.754550
+2024-01-24 20:47:08: *******Train Epoch 46: averaged Loss : 6.740578
+2024-01-24 20:47:08: *******Val Epoch 46: averaged Loss : 6.668510
+2024-01-24 20:47:08: **************Current best model saved to D:\omer\ST-SSL\experiments\Careem\20240124-204525\best_model.pth
+2024-01-24 20:47:10: *******Train Epoch 47: averaged Loss : 6.663375
+2024-01-24 20:47:10: *******Val Epoch 47: averaged Loss : 6.688425
+2024-01-24 20:47:12: *******Train Epoch 48: averaged Loss : 6.653271
+2024-01-24 20:47:12: *******Val Epoch 48: averaged Loss : 6.664297
+2024-01-24 20:47:12: **************Current best model saved to D:\omer\ST-SSL\experiments\Careem\20240124-204525\best_model.pth
+2024-01-24 20:47:15: *******Train Epoch 49: averaged Loss : 6.692375
+2024-01-24 20:47:15: *******Val Epoch 49: averaged Loss : 6.811608
+2024-01-24 20:47:18: *******Train Epoch 50: averaged Loss : 6.666814
+2024-01-24 20:47:18: *******Val Epoch 50: averaged Loss : 6.666721
+2024-01-24 20:47:20: *******Train Epoch 51: averaged Loss : 6.637175
+2024-01-24 20:47:20: *******Val Epoch 51: averaged Loss : 6.734258
+2024-01-24 20:47:23: *******Train Epoch 52: averaged Loss : 6.672210
+2024-01-24 20:47:23: *******Val Epoch 52: averaged Loss : 6.710811
+2024-01-24 20:47:26: *******Train Epoch 53: averaged Loss : 6.594449
+2024-01-24 20:47:26: *******Val Epoch 53: averaged Loss : 6.718404
+2024-01-24 20:47:28: *******Train Epoch 54: averaged Loss : 6.595001
+2024-01-24 20:47:28: *******Val Epoch 54: averaged Loss : 6.665598
+2024-01-24 20:47:31: *******Train Epoch 55: averaged Loss : 6.651043
+2024-01-24 20:47:31: *******Val Epoch 55: averaged Loss : 6.673729
+2024-01-24 20:47:34: *******Train Epoch 56: averaged Loss : 6.636513
+2024-01-24 20:47:34: *******Val Epoch 56: averaged Loss : 6.727361
+2024-01-24 20:47:36: *******Train Epoch 57: averaged Loss : 6.572595
+2024-01-24 20:47:37: *******Val Epoch 57: averaged Loss : 6.663607
+2024-01-24 20:47:37: **************Current best model saved to D:\omer\ST-SSL\experiments\Careem\20240124-204525\best_model.pth
+2024-01-24 20:47:39: *******Train Epoch 58: averaged Loss : 6.600747
+2024-01-24 20:47:39: *******Val Epoch 58: averaged Loss : 6.682123
+2024-01-24 20:47:42: *******Train Epoch 59: averaged Loss : 6.595900
+2024-01-24 20:47:42: *******Val Epoch 59: averaged Loss : 6.732140
+2024-01-24 20:47:44: *******Train Epoch 60: averaged Loss : 6.574829
+2024-01-24 20:47:45: *******Val Epoch 60: averaged Loss : 6.789490
+2024-01-24 20:47:47: *******Train Epoch 61: averaged Loss : 6.564559
+2024-01-24 20:47:47: *******Val Epoch 61: averaged Loss : 6.667627
+2024-01-24 20:47:50: *******Train Epoch 62: averaged Loss : 6.519020
+2024-01-24 20:47:50: *******Val Epoch 62: averaged Loss : 6.627831
+2024-01-24 20:47:50: **************Current best model saved to D:\omer\ST-SSL\experiments\Careem\20240124-204525\best_model.pth
+2024-01-24 20:47:52: *******Train Epoch 63: averaged Loss : 6.551834
+2024-01-24 20:47:53: *******Val Epoch 63: averaged Loss : 6.618023
+2024-01-24 20:47:53: **************Current best model saved to D:\omer\ST-SSL\experiments\Careem\20240124-204525\best_model.pth
+2024-01-24 20:47:55: *******Train Epoch 64: averaged Loss : 6.496718
+2024-01-24 20:47:55: *******Val Epoch 64: averaged Loss : 6.573231
+2024-01-24 20:47:55: **************Current best model saved to D:\omer\ST-SSL\experiments\Careem\20240124-204525\best_model.pth
+2024-01-24 20:47:58: *******Train Epoch 65: averaged Loss : 6.490582
+2024-01-24 20:47:58: *******Val Epoch 65: averaged Loss : 6.718684
+2024-01-24 20:48:00: *******Train Epoch 66: averaged Loss : 6.483546
+2024-01-24 20:48:01: *******Val Epoch 66: averaged Loss : 6.639946
+2024-01-24 20:48:03: *******Train Epoch 67: averaged Loss : 6.497625
+2024-01-24 20:48:03: *******Val Epoch 67: averaged Loss : 6.723933
+2024-01-24 20:48:05: *******Train Epoch 68: averaged Loss : 6.511899
+2024-01-24 20:48:05: *******Val Epoch 68: averaged Loss : 6.720023
+2024-01-24 20:48:07: *******Train Epoch 69: averaged Loss : 6.464591
+2024-01-24 20:48:08: *******Val Epoch 69: averaged Loss : 6.670691
+2024-01-24 20:48:10: *******Train Epoch 70: averaged Loss : 6.456907
+2024-01-24 20:48:10: *******Val Epoch 70: averaged Loss : 6.695706
+2024-01-24 20:48:12: *******Train Epoch 71: averaged Loss : 6.439581
+2024-01-24 20:48:12: *******Val Epoch 71: averaged Loss : 6.614659
+2024-01-24 20:48:14: *******Train Epoch 72: averaged Loss : 6.463363
+2024-01-24 20:48:14: *******Val Epoch 72: averaged Loss : 6.592268
+2024-01-24 20:48:16: *******Train Epoch 73: averaged Loss : 6.444669
+2024-01-24 20:48:16: *******Val Epoch 73: averaged Loss : 6.641343
+2024-01-24 20:48:18: *******Train Epoch 74: averaged Loss : 6.432477
+2024-01-24 20:48:18: *******Val Epoch 74: averaged Loss : 6.656857
+2024-01-24 20:48:20: *******Train Epoch 75: averaged Loss : 6.423796
+2024-01-24 20:48:20: *******Val Epoch 75: averaged Loss : 6.742390
+2024-01-24 20:48:23: *******Train Epoch 76: averaged Loss : 6.438035
+2024-01-24 20:48:23: *******Val Epoch 76: averaged Loss : 6.738334
+2024-01-24 20:48:25: *******Train Epoch 77: averaged Loss : 6.387527
+2024-01-24 20:48:25: *******Val Epoch 77: averaged Loss : 6.680359
+2024-01-24 20:48:27: *******Train Epoch 78: averaged Loss : 6.347674
+2024-01-24 20:48:27: *******Val Epoch 78: averaged Loss : 6.630373
+2024-01-24 20:48:29: *******Train Epoch 79: averaged Loss : 6.393272
+2024-01-24 20:48:29: *******Val Epoch 79: averaged Loss : 6.701051
+2024-01-24 20:48:29: Validation performance didn't improve for 15 epochs. Training stops.
+2024-01-24 20:48:29: == Training finished.
+Total training time: 3.06 min	best loss: 6.5732	best epoch: 64	
+2024-01-24 20:48:29: == Test results.
+2024-01-24 20:48:29: INFLOW, MAE: 6.05, MAPE: 31.2352%
