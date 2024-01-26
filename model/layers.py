@@ -210,8 +210,7 @@ class STEncoder(nn.Module):
         x = self.tconv11(x)    # nclv
         x, x_agg, self.t_sim_mx = self.pooler(x)
         self.s_sim_mx = sim_global(x_agg, sim_type='cos')
-
-        x = self.sconv12(x, Lk)   # nclv
+        x = self.sconv12(x, Lk)   # nclv       
         x = self.tconv13(x)  
         x = self.dropout1(self.ln1(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2))
         

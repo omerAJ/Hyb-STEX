@@ -1,0 +1,33 @@
+2024-01-25 21:17:35: Experiment log path in: D:\omer\ST-SSL\experiments\Careem\20240125-211735
+2024-01-25 21:17:35: Experiment configs are: Namespace(seed=31, device='cuda', mode='train', best_path='None', debug=False, data_dir='data', dataset='Careem', input_length=19, batch_size=32, test_batch_size=32, graph_file='data/Careem/adj_mx.npz', d_input=1, d_output=1, d_model=64, dropout=0.2, percent=0.1, shm_temp=0.5, nmb_prototype=2, yita=1, epochs=10, lr_init=0.001, early_stop=True, early_stop_patience=150, grad_norm=True, max_grad_norm=5, use_dwa=True, temp=4, num_nodes=285, log_dir='D:\\omer\\ST-SSL\\experiments\\Careem\\20240125-211735')
+2024-01-25 21:17:42: *******Train Epoch 1: averaged Loss : 9.893017
+2024-01-25 21:17:43: *******Val Epoch 1: averaged Loss : 8.211249
+2024-01-25 21:17:43: **************Current best model saved to D:\omer\ST-SSL\experiments\Careem\20240125-211735\best_model.pth
+2024-01-25 21:17:46: *******Train Epoch 2: averaged Loss : 8.407385
+2024-01-25 21:17:46: *******Val Epoch 2: averaged Loss : 7.984055
+2024-01-25 21:17:46: **************Current best model saved to D:\omer\ST-SSL\experiments\Careem\20240125-211735\best_model.pth
+2024-01-25 21:17:50: *******Train Epoch 3: averaged Loss : 8.255388
+2024-01-25 21:17:50: *******Val Epoch 3: averaged Loss : 7.994989
+2024-01-25 21:17:54: *******Train Epoch 4: averaged Loss : 7.997260
+2024-01-25 21:17:54: *******Val Epoch 4: averaged Loss : 7.781051
+2024-01-25 21:17:54: **************Current best model saved to D:\omer\ST-SSL\experiments\Careem\20240125-211735\best_model.pth
+2024-01-25 21:17:58: *******Train Epoch 5: averaged Loss : 7.880932
+2024-01-25 21:17:58: *******Val Epoch 5: averaged Loss : 7.821465
+2024-01-25 21:18:02: *******Train Epoch 6: averaged Loss : 7.777599
+2024-01-25 21:18:02: *******Val Epoch 6: averaged Loss : 7.586417
+2024-01-25 21:18:02: **************Current best model saved to D:\omer\ST-SSL\experiments\Careem\20240125-211735\best_model.pth
+2024-01-25 21:18:06: *******Train Epoch 7: averaged Loss : 7.768634
+2024-01-25 21:18:06: *******Val Epoch 7: averaged Loss : 7.648270
+2024-01-25 21:18:10: *******Train Epoch 8: averaged Loss : 7.625065
+2024-01-25 21:18:10: *******Val Epoch 8: averaged Loss : 7.567254
+2024-01-25 21:18:10: **************Current best model saved to D:\omer\ST-SSL\experiments\Careem\20240125-211735\best_model.pth
+2024-01-25 21:18:14: *******Train Epoch 9: averaged Loss : 7.537763
+2024-01-25 21:18:14: *******Val Epoch 9: averaged Loss : 7.467580
+2024-01-25 21:18:14: **************Current best model saved to D:\omer\ST-SSL\experiments\Careem\20240125-211735\best_model.pth
+2024-01-25 21:18:18: *******Train Epoch 10: averaged Loss : 7.515500
+2024-01-25 21:18:18: *******Val Epoch 10: averaged Loss : 7.078636
+2024-01-25 21:18:18: **************Current best model saved to D:\omer\ST-SSL\experiments\Careem\20240125-211735\best_model.pth
+2024-01-25 21:18:18: == Training finished.
+Total training time: 0.72 min	best loss: 7.0786	best epoch: 10	
+2024-01-25 21:18:18: == Test results.
+2024-01-25 21:18:19: INFLOW, MAE: 6.74, MAPE: 38.1855%

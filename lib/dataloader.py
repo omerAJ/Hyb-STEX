@@ -110,14 +110,14 @@ def get_dataloader(data_dir, dataset, batch_size, test_batch_size, scalar_type='
         data['x_val'], 
         data['y_val'], 
         test_batch_size, 
-        shuffle=False
+        shuffle=True
     )
     dataloader['test'] = STDataloader(
         data['x_test'], 
         data['y_test'], 
         test_batch_size, 
         shuffle=False, 
-        drop_last=False
+        drop_last=True
     )
     dataloader['scaler'] = scaler
     return dataloader
