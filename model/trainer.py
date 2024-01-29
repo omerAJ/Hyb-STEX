@@ -2,7 +2,7 @@ import os
 import time
 import numpy as np
 import torch
-torch.autograd.set_detect_anomaly(True)
+# torch.autograd.set_detect_anomaly(True)
 
 from lib.logger import (
     get_logger, 
@@ -155,43 +155,46 @@ class Trainer(object):
         self.logger.info("== Test results.")
         test_results = self.test(self.model, self.test_loader, self.scaler, 
                                 self.graph, self.logger, self.args)
+        test_rolling_results = self.test_rolling(self.model, self.test_loader, self.scaler, 
+                                self.graph, self.logger, self.args)
         results = {
             'best_val_loss': best_loss, 
             'best_val_epoch': best_epoch, 
             'test_results': test_results,
+            'test_rolling_results': test_rolling_results,
         }
         return results
 
-    # @staticmethod
-    # def test(model, dataloader, scaler, graph, logger, args):
-    #     model.eval()
-    #     y_pred = []
-    #     y_true = []
-    #     with torch.no_grad():
-    #         for batch_idx, (data, target) in enumerate(dataloader):
-    #             repr1, repr2 = model(data, graph)                
-    #             pred_output = model.predict(repr1, repr2)
+    @staticmethod
+    def test(model, dataloader, scaler, graph, logger, args):
+        model.eval()
+        y_pred = []
+        y_true = []
+        with torch.no_grad():
+            for batch_idx, (data, target) in enumerate(dataloader):
+                repr1, repr2 = model(data, graph)                
+                pred_output = model.predict(repr1, repr2)
 
-    #             y_true.append(target)
-    #             y_pred.append(pred_output)
-    #     y_true = scaler.inverse_transform(torch.cat(y_true, dim=0))
-    #     y_pred = scaler.inverse_transform(torch.cat(y_pred, dim=0))
+                y_true.append(target)
+                y_pred.append(pred_output)
+        y_true = scaler.inverse_transform(torch.cat(y_true, dim=0))
+        y_pred = scaler.inverse_transform(torch.cat(y_pred, dim=0))
 
-    #     test_results = []
-    #     # inflow
-    #     mae, mape = test_metrics(y_pred[..., 0], y_true[..., 0])
-    #     logger.info("INFLOW, MAE: {:.2f}, MAPE: {:.4f}%".format(mae, mape*100))
-    #     test_results.append([mae, mape])
-    #     # outflow 
-    #     # mae, mape = test_metrics(y_pred[..., 1], y_true[..., 1])
-    #     # logger.info("OUTFLOW, MAE: {:.2f}, MAPE: {:.4f}%".format(mae, mape*100))
-    #     # test_results.append([mae, mape]) 
+        test_results = []
+        # inflow
+        mae, mape = test_metrics(y_pred[..., 0], y_true[..., 0])
+        logger.info("test, MAE: {:.2f}, test MAPE: {:.4f}%".format(mae, mape*100))
+        test_results.append([mae, mape])
+        # outflow 
+        # mae, mape = test_metrics(y_pred[..., 1], y_true[..., 1])
+        # logger.info("OUTFLOW, MAE: {:.2f}, MAPE: {:.4f}%".format(mae, mape*100))
+        # test_results.append([mae, mape]) 
 
-    #     return np.stack(test_results, axis=0)
+        return np.stack(test_results, axis=0)
     
     # test_rolling
     @staticmethod
-    def test(model, dataloader, scaler, graph, logger, args):
+    def test_rolling(model, dataloader, scaler, graph, logger, args):
         model.eval()
         y_pred = []
         y_true = []
@@ -199,14 +202,16 @@ class Trainer(object):
 
         # torch.Size([batch_size=1, time_steps=19, no.ofnodes=285, features=1]) data shape
         # torch.Size([1, 1, 285, 1]) pred_output shape
+        # print("len(dataloader): ", len(dataloader))
         with torch.no_grad():
             for idx, (data, target) in enumerate(dataloader):
+                # print(f"idx: {idx}, data.shape: {data.shape}, target.shape: {target.shape}")
                 # Update data with predictions from buffer
                 if prediction_buffer is not None:
                     for t in range(len(prediction_buffer)):
-                        if t < data.shape[1]:  # Ensure the time step exists in the data
+                        if t <= data.shape[1]:  # Ensure the time step exists in the data
                             # print("data.shape: ", data.shape, "data[:, t, :, :].shape: ", data[:, t, :, :].shape, "prediction_buffer[t].shape: ", prediction_buffer[t].shape)
-                            print(f"for data at index {idx} replacing data[:, {t}, :, :] with prediction_buffer[{t}]")
+                            # print(f"for data at index {idx} replacing data[:, {t}, :, :] with prediction_buffer[{t}]")
                             data[:, t, :, :] = prediction_buffer[t].squeeze(1)
 
                 repr1, repr2 = model(data, graph)
@@ -228,7 +233,7 @@ class Trainer(object):
         test_results = []
         # inflow
         mae, mape = test_metrics(y_pred[..., 0], y_true[..., 0])
-        logger.info("INFLOW, MAE: {:.2f}, MAPE: {:.4f}%".format(mae, mape*100))
+        logger.info("rolling, MAE: {:.2f}, rolling MAPE: {:.4f}%".format(mae, mape*100))
         test_results.append([mae, mape])
 
         return np.stack(test_results, axis=0)

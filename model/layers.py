@@ -102,7 +102,9 @@ class TemporalHeteroModel(nn.Module):
         :param z1, z2 (tensor): shape nlvc, i.e., (batch_size, seq_len, num_nodes, feat_dim)
         :return loss: loss of generative branch. nclv
         '''
+        # print("z1.shape: ", z1.shape, "z2.shape: ", z2.shape)
         h = (z1 * self.W1 + z2 * self.W2).squeeze(1) # nlvc->nvc
+        # print("h.shape: ", h.shape)
         s = self.read(h) # s: summary of h, nc
 
         # select another region in batch
@@ -196,6 +198,7 @@ class STEncoder(nn.Module):
         self.receptive_field = input_length + Kt -1
 
     def forward(self, x0, graph):
+        # print("x0.shape: ", x0.shape, "graph.shape: ", graph.shape)
         lap_mx = self._cal_laplacian(graph)
         Lk = self._cheb_polynomial(lap_mx, self.Ks)
         

@@ -30,7 +30,7 @@ class STSSL(nn.Module):
     
     def forward(self, view1, graph):
         repr1 = self.encoder(view1, graph) # view1: n,l,v,c; graph: v,v 
-
+        
         s_sim_mx = self.fetch_spatial_sim()
         graph2 = aug_topology(s_sim_mx, graph, percent=self.args.percent*2)
         

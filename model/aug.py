@@ -83,6 +83,7 @@ def aug_traffic(t_sim_mx, flow_data, percent=0.2):
     :param t_sim_mx: temporal similarity matrix after softmax, [l,n,v]
     :param flow_data: input flow data, [n,l,v,c]
     """
+    # print('=============>> t_sim_mx.shape: ', t_sim_mx.shape, 'flow_data.shape: ', flow_data.shape)
     l, n, v = t_sim_mx.shape
     mask_num = int(n * l * v * percent)
     aug_flow = copy.deepcopy(flow_data)

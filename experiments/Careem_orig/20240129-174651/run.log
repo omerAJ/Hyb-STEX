@@ -1,0 +1,55 @@
+2024-01-29 17:46:51: Experiment log path in: D:\omer\ST-SSL\experiments\Careem_orig\20240129-174651
+2024-01-29 17:46:51: Experiment configs are: Namespace(seed=31, device='cuda', mode='train', best_path='None', debug=False, data_dir='data', dataset='Careem_orig', input_length=19, batch_size=32, test_batch_size=32, graph_file='data/Careem/adj_mx.npz', d_input=1, d_output=1, d_model=64, dropout=0.2, percent=0.1, shm_temp=0.5, nmb_prototype=2, yita=1, epochs=10, lr_init=0.001, early_stop=True, early_stop_patience=150, grad_norm=True, max_grad_norm=5, use_dwa=True, temp=4, num_nodes=285, log_dir='D:\\omer\\ST-SSL\\experiments\\Careem_orig\\20240129-174651')
+2024-01-29 17:46:55: Traceback (most recent call last):
+  File "D:\omer\ST-SSL\main.py", line 60, in model_supervisor
+    results = trainer.train() # best_eval_loss, best_epoch
+              ^^^^^^^^^^^^^^^
+  File "D:\omer\ST-SSL\model\trainer.py", line 110, in train
+    train_epoch_loss, loss_t = self.train_epoch(epoch, loss_weights)
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\omer\ST-SSL\model\trainer.py", line 58, in train_epoch
+    repr1, repr2 = self.model(data, self.graph) # nvc
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\CITY3\.conda\envs\i-jepaVENV\Lib\site-packages\torch\nn\modules\module.py", line 1518, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\CITY3\.conda\envs\i-jepaVENV\Lib\site-packages\torch\nn\modules\module.py", line 1527, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\omer\ST-SSL\model\models.py", line 40, in forward
+    repr2 = self.encoder(view2, graph2)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\CITY3\.conda\envs\i-jepaVENV\Lib\site-packages\torch\nn\modules\module.py", line 1518, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\CITY3\.conda\envs\i-jepaVENV\Lib\site-packages\torch\nn\modules\module.py", line 1527, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\omer\ST-SSL\model\layers.py", line 215, in forward
+    x = self.tconv13(x)
+      ^^^^^^^^^^^^^^^
+  File "C:\Users\CITY3\.conda\envs\i-jepaVENV\Lib\site-packages\torch\nn\modules\module.py", line 1518, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\CITY3\.conda\envs\i-jepaVENV\Lib\site-packages\torch\nn\modules\module.py", line 1527, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\omer\ST-SSL\model\layers.py", line 301, in forward
+    x_in = self.align(x)[:, :, self.kt - 1:, :]
+         ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\CITY3\.conda\envs\i-jepaVENV\Lib\site-packages\torch\fx\traceback.py", line 68, in format_stack
+    return traceback.format_list(traceback.extract_stack()[:-1])
+                                 ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\CITY3\.conda\envs\i-jepaVENV\Lib\traceback.py", line 231, in extract_stack
+    stack = StackSummary.extract(walk_stack(f), limit=limit)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\CITY3\.conda\envs\i-jepaVENV\Lib\traceback.py", line 393, in extract
+    return klass._extract_from_extended_frame_gen(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\CITY3\.conda\envs\i-jepaVENV\Lib\traceback.py", line 432, in _extract_from_extended_frame_gen
+    linecache.checkcache(filename)
+  File "C:\Users\CITY3\.conda\envs\i-jepaVENV\Lib\linecache.py", line 72, in checkcache
+    stat = os.stat(fullname)
+           ^^^^^^^^^^^^^^^^^
+KeyboardInterrupt
+

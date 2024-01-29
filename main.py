@@ -1,7 +1,7 @@
 import warnings 
 warnings.filterwarnings('ignore')
 import os
-os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
+# os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 import sys
 sys.path.append('.')
 sys.path.append('..')
@@ -55,6 +55,7 @@ def model_supervisor(args):
         args=args
     )
     results = None
+    results_rolling = None
     try:
         if args.mode == 'train':
             results = trainer.train() # best_eval_loss, best_epoch
@@ -68,11 +69,13 @@ def model_supervisor(args):
             print("Load saved model")
             results = trainer.test(model, dataloader['test'], dataloader['scaler'],
                         graph, trainer.logger, trainer.args)
+            results_rolling = trainer.test_rolling(model, dataloader['test'], dataloader['scaler'],
+                        graph, trainer.logger, trainer.args)
         else:
             raise ValueError
     except:
         trainer.logger.info(traceback.format_exc())
-    return results
+    return results, results_rolling
 
 if __name__=='__main__':
     parser = argparse.ArgumentParser()
