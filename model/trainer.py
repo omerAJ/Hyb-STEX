@@ -206,7 +206,7 @@ class Trainer(object):
                     for t in range(len(prediction_buffer)):
                         if t < data.shape[1]:  # Ensure the time step exists in the data
                             # print("data.shape: ", data.shape, "data[:, t, :, :].shape: ", data[:, t, :, :].shape, "prediction_buffer[t].shape: ", prediction_buffer[t].shape)
-                            
+                            print(f"for data at index {idx} replacing data[:, {t}, :, :] with prediction_buffer[{t}]")
                             data[:, t, :, :] = prediction_buffer[t].squeeze(1)
 
                 repr1, repr2 = model(data, graph)
@@ -219,7 +219,7 @@ class Trainer(object):
                 if prediction_buffer is None:
                     prediction_buffer = [pred_output]
                 else:
-                    prediction_buffer.insert(0, pred_output)
+                    prediction_buffer.insert(0, pred_output)  ## insert at 0th index
                     prediction_buffer = prediction_buffer[:data.shape[1]]  # Keep buffer size same as the number of time steps
 
         y_true = scaler.inverse_transform(torch.cat(y_true, dim=0))

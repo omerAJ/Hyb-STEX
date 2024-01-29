@@ -1,6 +1,7 @@
 import warnings 
 warnings.filterwarnings('ignore')
-
+import os
+os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 import sys
 sys.path.append('.')
 sys.path.append('..')
@@ -75,7 +76,7 @@ def model_supervisor(args):
 
 if __name__=='__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--config_filename', default='configs/NYCBike1.yaml', 
+    parser.add_argument('--config_filename', default='D:\\omer\\ST-SSL\\configs\\Careeem.yaml', 
                     type=str, help='the configuration to use')
     args = parser.parse_args()
     
