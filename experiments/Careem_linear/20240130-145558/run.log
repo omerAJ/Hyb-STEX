@@ -1,2 +1,5 @@
 2024-01-30 14:55:58: Experiment log path in: D:\omer\ST-SSL\experiments\Careem_linear\20240130-145558
 2024-01-30 14:55:58: Experiment configs are: Namespace(seed=31, device='cuda', mode='train', best_path='None', debug=False, data_dir='data', dataset='Careem_linear', input_length=12, batch_size=32, val_batch_size=32, test_batch_size=1, graph_file='data/Careem/adj_mx.npz', d_input=1, d_output=1, d_model=64, dropout=0.2, percent=0.1, shm_temp=0.5, nmb_prototype=2, yita=1, epochs=1000, lr_init=0.001, early_stop=True, early_stop_patience=500, grad_norm=True, max_grad_norm=5, use_dwa=True, temp=4, num_nodes=285, log_dir='D:\\omer\\ST-SSL\\experiments\\Careem_linear\\20240130-145558')
+2024-01-30 14:56:01: test, MAE: 12.54, test MAPE: 43.9535%
+2024-01-30 14:56:34: test, MAE: 6.32, test MAPE: 31.3048%
+2024-01-30 14:56:37: rolling, MAE: 33.49, rolling MAPE: 217.6308%
