@@ -7,7 +7,7 @@ debug: False
 
 ## data 
 data_dir: data
-dataset: Careem
+dataset: Careem_linear
 input_length: 12 # 4+5*3
 batch_size: 32  # 32
 val_batch_size: 32  # 32
@@ -25,10 +25,10 @@ nmb_prototype: 2            # number of cluster
 yita: 1                   # balance for inflow loss and outflow loss, $yita * inflow + (1 - yita) * outflow$
 
 ## train
-epochs: 1
+epochs: 1000
 lr_init: 0.001
 early_stop: True
-early_stop_patience: 150
+early_stop_patience: 500
 grad_norm: True
 max_grad_norm: 5
 use_dwa: True         # whether to use dwa for loss balance
