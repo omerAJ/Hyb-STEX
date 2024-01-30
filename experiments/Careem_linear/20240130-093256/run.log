@@ -1,2 +1,20 @@
 2024-01-30 09:32:56: Experiment log path in: D:\omer\ST-SSL\experiments\Careem_linear\20240130-093256
 2024-01-30 09:32:56: Experiment configs are: Namespace(seed=31, device='cuda', mode='train', best_path='None', debug=False, data_dir='data', dataset='Careem_linear', input_length=12, batch_size=64, val_batch_size=64, test_batch_size=1, graph_file='data/Careem/adj_mx.npz', d_input=1, d_output=1, d_model=64, dropout=0.2, percent=0.1, shm_temp=0.5, nmb_prototype=2, yita=1, epochs=100, lr_init=0.001, early_stop=True, early_stop_patience=150, grad_norm=True, max_grad_norm=5, use_dwa=True, temp=4, num_nodes=285, log_dir='D:\\omer\\ST-SSL\\experiments\\Careem_linear\\20240130-093256')
+2024-01-30 09:35:24: test, MAE: 6.25, test MAPE: 31.8751%
+2024-01-30 09:35:27: rolling, MAE: 38.59, rolling MAPE: 271.9271%
+2024-01-30 09:44:16: test, MAE: 6.25, test MAPE: 31.8751%
+2024-01-30 09:44:55: test, MAE: 6.25, test MAPE: 31.8751%
+2024-01-30 09:46:07: test, MAE: 6.25, test MAPE: 31.8751%
+2024-01-30 09:46:44: test, MAE: 6.25, test MAPE: 31.8751%
+2024-01-30 09:47:27: test, MAE: 6.25, test MAPE: 31.8751%
+2024-01-30 09:47:49: test, MAE: 6.25, test MAPE: 31.8751%
+2024-01-30 09:50:14: test, MAE: 6.25, test MAPE: 31.8751%
+2024-01-30 09:50:38: test, MAE: 6.25, test MAPE: 31.8751%
+2024-01-30 09:55:44: rolling, MAE: 38.59, rolling MAPE: 271.9271%
+2024-01-30 09:57:52: test, MAE: 6.25, test MAPE: 31.8751%
+2024-01-30 09:58:05: test, MAE: 6.25, test MAPE: 31.8751%
+2024-01-30 09:58:29: test, MAE: 6.25, test MAPE: 31.8751%
+2024-01-30 10:15:32: test, MAE: 6.32, test MAPE: 31.3048%
+2024-01-30 10:15:35: rolling, MAE: 33.49, rolling MAPE: 217.6308%
+2024-01-30 10:15:44: test, MAE: 6.32, test MAPE: 31.3048%
+2024-01-30 10:15:53: rolling, MAE: 33.49, rolling MAPE: 217.6308%
