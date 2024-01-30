@@ -30,7 +30,7 @@ class STSSL(nn.Module):
     
     def forward(self, view1, graph):
         repr1 = self.encoder(view1, graph) # view1: n,l,v,c; graph: v,v 
-        
+
         s_sim_mx = self.fetch_spatial_sim()
         graph2 = aug_topology(s_sim_mx, graph, percent=self.args.percent*2)
         
@@ -73,8 +73,12 @@ class STSSL(nn.Module):
         return loss, sep_loss
 
     def pred_loss(self, z1, z2, y_true, scaler):
-        y_pred = scaler.inverse_transform(self.predict(z1, z2))
-        y_true = scaler.inverse_transform(y_true)
+        
+        # y_pred = scaler.inverse_transform(self.predict(z1, z2))
+        # y_true = scaler.inverse_transform(y_true)
+        
+        y_pred = self.predict(z1, z2)
+        y_true = y_true
  
         loss = self.args.yita * self.mae(y_pred[..., 0], y_true[..., 0])
         return loss

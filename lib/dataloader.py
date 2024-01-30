@@ -92,12 +92,13 @@ def get_dataloader(data_dir, dataset, batch_size, test_batch_size, scalar_type='
         cat_data = np.load(os.path.join(data_dir, dataset, category + '.npz'))
         data['x_' + category] = cat_data['x']
         data['y_' + category] = cat_data['y']
-    scaler = normalize_data(np.concatenate([data['x_train'], data['x_val']], axis=0), scalar_type)
+    scaler = normalize_data(np.concatenate([data['x_train'], data['x_val']], axis=0), scalar_type)    #remove test set from scaler
     
     # Data format
-    for category in ['train', 'val', 'test']:
-        data['x_' + category] = scaler.transform(data['x_' + category])
-        data['y_' + category] = scaler.transform(data['y_' + category])
+    ## scaler the data
+    # for category in ['train', 'val', 'test']:
+        # data['x_' + category] = scaler.transform(data['x_' + category])
+        # data['y_' + category] = scaler.transform(data['y_' + category])
     # Construct dataloader
     dataloader = {}
     dataloader['train'] = STDataloader(

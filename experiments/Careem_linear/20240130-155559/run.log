@@ -1,0 +1,44 @@
+2024-01-30 15:55:59: Experiment log path in: D:\omer\ST-SSL\experiments\Careem_linear\20240130-155559
+2024-01-30 15:55:59: Experiment configs are: Namespace(seed=31, device='cuda', mode='train', best_path='None', debug=False, data_dir='data', dataset='Careem_linear', input_length=12, batch_size=32, val_batch_size=32, test_batch_size=1, graph_file='data/Careem/adj_mx.npz', d_input=1, d_output=1, d_model=64, dropout=0.2, percent=0.1, shm_temp=0.5, nmb_prototype=2, yita=1, epochs=5, lr_init=0.001, early_stop=True, early_stop_patience=500, grad_norm=True, max_grad_norm=5, use_dwa=True, temp=4, num_nodes=285, log_dir='D:\\omer\\ST-SSL\\experiments\\Careem_linear\\20240130-155559')
+2024-01-30 15:56:05: *******Train Epoch 1: averaged Loss : 19.364256
+2024-01-30 15:56:05: *******Val Epoch 1: averaged Loss : 19.345060
+2024-01-30 15:56:05: **************Current best model saved to D:\omer\ST-SSL\experiments\Careem_linear\20240130-155559\best_model.pth
+2024-01-30 15:56:07: *******Train Epoch 2: averaged Loss : 17.211345
+2024-01-30 15:56:07: *******Val Epoch 2: averaged Loss : 17.127141
+2024-01-30 15:56:07: **************Current best model saved to D:\omer\ST-SSL\experiments\Careem_linear\20240130-155559\best_model.pth
+2024-01-30 15:56:08: *******Train Epoch 3: averaged Loss : 15.971730
+2024-01-30 15:56:08: *******Val Epoch 3: averaged Loss : 16.390106
+2024-01-30 15:56:08: **************Current best model saved to D:\omer\ST-SSL\experiments\Careem_linear\20240130-155559\best_model.pth
+2024-01-30 15:56:10: *******Train Epoch 4: averaged Loss : 14.407957
+2024-01-30 15:56:10: *******Val Epoch 4: averaged Loss : 14.795393
+2024-01-30 15:56:10: **************Current best model saved to D:\omer\ST-SSL\experiments\Careem_linear\20240130-155559\best_model.pth
+2024-01-30 15:56:11: *******Train Epoch 5: averaged Loss : 13.496394
+2024-01-30 15:56:11: *******Val Epoch 5: averaged Loss : 14.377789
+2024-01-30 15:56:11: **************Current best model saved to D:\omer\ST-SSL\experiments\Careem_linear\20240130-155559\best_model.pth
+2024-01-30 15:56:11: == Training finished.
+Total training time: 0.21 min	best loss: 14.3778	best epoch: 5	
+2024-01-30 15:56:28: == Test results.
+2024-01-30 15:56:30: Traceback (most recent call last):
+  File "D:\omer\ST-SSL\main.py", line 61, in model_supervisor
+    results = trainer.train() # best_eval_loss, best_epoch
+              ^^^^^^^^^^^^^^^
+  File "D:\omer\ST-SSL\model\trainer.py", line 184, in train
+    test_results = self.test(self.model, self.test_loader, self.scaler,
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\omer\ST-SSL\model\trainer.py", line 203, in test
+    repr1, repr2 = model(data, graph)
+    ^^^^^^^^^^^^^^^^^^
+  File "C:\Users\CITY3\.conda\envs\i-jepaVENV\Lib\site-packages\torch\nn\modules\module.py", line 1518, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\CITY3\.conda\envs\i-jepaVENV\Lib\site-packages\torch\nn\modules\module.py", line 1527, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\omer\ST-SSL\model\models.py", line 35, in forward
+    graph2 = aug_topology(s_sim_mx, graph, percent=self.args.percent*2)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\omer\ST-SSL\model\aug.py", line 60, in aug_topology
+    zeros = torch.zeros_like(aug_graph[0, 0])
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+KeyboardInterrupt
+

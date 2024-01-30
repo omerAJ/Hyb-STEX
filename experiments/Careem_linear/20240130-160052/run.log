@@ -1,0 +1,71 @@
+2024-01-30 16:00:52: Experiment log path in: D:\omer\ST-SSL\experiments\Careem_linear\20240130-160052
+2024-01-30 16:00:52: Experiment configs are: Namespace(seed=31, device='cuda', mode='train', best_path='None', debug=False, data_dir='data', dataset='Careem_linear', input_length=12, batch_size=32, val_batch_size=32, test_batch_size=1, graph_file='data/Careem/adj_mx.npz', d_input=1, d_output=1, d_model=64, dropout=0.2, percent=0.1, shm_temp=0.5, nmb_prototype=2, yita=1, epochs=500, lr_init=0.001, early_stop=True, early_stop_patience=250, grad_norm=True, max_grad_norm=5, use_dwa=True, temp=4, num_nodes=285, log_dir='D:\\omer\\ST-SSL\\experiments\\Careem_linear\\20240130-160052')
+2024-01-30 16:00:56: *******Train Epoch 1: averaged Loss : 19.364256
+2024-01-30 16:00:57: *******Val Epoch 1: averaged Loss : 19.345060
+2024-01-30 16:00:57: **************Current best model saved to D:\omer\ST-SSL\experiments\Careem_linear\20240130-160052\best_model.pth
+2024-01-30 16:00:59: *******Train Epoch 2: averaged Loss : 17.211345
+2024-01-30 16:00:59: *******Val Epoch 2: averaged Loss : 17.127141
+2024-01-30 16:00:59: **************Current best model saved to D:\omer\ST-SSL\experiments\Careem_linear\20240130-160052\best_model.pth
+2024-01-30 16:01:01: *******Train Epoch 3: averaged Loss : 15.971730
+2024-01-30 16:01:01: *******Val Epoch 3: averaged Loss : 16.390106
+2024-01-30 16:01:01: **************Current best model saved to D:\omer\ST-SSL\experiments\Careem_linear\20240130-160052\best_model.pth
+2024-01-30 16:01:03: *******Train Epoch 4: averaged Loss : 14.407957
+2024-01-30 16:01:03: *******Val Epoch 4: averaged Loss : 14.795393
+2024-01-30 16:01:03: **************Current best model saved to D:\omer\ST-SSL\experiments\Careem_linear\20240130-160052\best_model.pth
+2024-01-30 16:01:05: *******Train Epoch 5: averaged Loss : 13.496394
+2024-01-30 16:01:05: *******Val Epoch 5: averaged Loss : 14.377789
+2024-01-30 16:01:05: **************Current best model saved to D:\omer\ST-SSL\experiments\Careem_linear\20240130-160052\best_model.pth
+2024-01-30 16:01:07: *******Train Epoch 6: averaged Loss : 12.971261
+2024-01-30 16:01:07: *******Val Epoch 6: averaged Loss : 14.019582
+2024-01-30 16:01:07: **************Current best model saved to D:\omer\ST-SSL\experiments\Careem_linear\20240130-160052\best_model.pth
+2024-01-30 16:01:09: *******Train Epoch 7: averaged Loss : 12.486327
+2024-01-30 16:01:09: *******Val Epoch 7: averaged Loss : 13.356091
+2024-01-30 16:01:09: **************Current best model saved to D:\omer\ST-SSL\experiments\Careem_linear\20240130-160052\best_model.pth
+2024-01-30 16:01:11: *******Train Epoch 8: averaged Loss : 12.136731
+2024-01-30 16:01:11: *******Val Epoch 8: averaged Loss : 12.808339
+2024-01-30 16:01:11: **************Current best model saved to D:\omer\ST-SSL\experiments\Careem_linear\20240130-160052\best_model.pth
+2024-01-30 16:01:13: *******Train Epoch 9: averaged Loss : 11.733374
+2024-01-30 16:01:13: *******Val Epoch 9: averaged Loss : 12.675992
+2024-01-30 16:01:13: **************Current best model saved to D:\omer\ST-SSL\experiments\Careem_linear\20240130-160052\best_model.pth
+2024-01-30 16:01:15: *******Train Epoch 10: averaged Loss : 11.475181
+2024-01-30 16:01:15: *******Val Epoch 10: averaged Loss : 12.370592
+2024-01-30 16:01:15: **************Current best model saved to D:\omer\ST-SSL\experiments\Careem_linear\20240130-160052\best_model.pth
+2024-01-30 16:01:17: *******Train Epoch 11: averaged Loss : 11.286876
+2024-01-30 16:01:17: *******Val Epoch 11: averaged Loss : 12.125844
+2024-01-30 16:01:17: **************Current best model saved to D:\omer\ST-SSL\experiments\Careem_linear\20240130-160052\best_model.pth
+2024-01-30 16:01:19: *******Train Epoch 12: averaged Loss : 11.031513
+2024-01-30 16:01:19: *******Val Epoch 12: averaged Loss : 12.004508
+2024-01-30 16:01:19: **************Current best model saved to D:\omer\ST-SSL\experiments\Careem_linear\20240130-160052\best_model.pth
+2024-01-30 16:01:21: *******Train Epoch 13: averaged Loss : 10.805983
+2024-01-30 16:01:21: *******Val Epoch 13: averaged Loss : 11.788099
+2024-01-30 16:01:21: **************Current best model saved to D:\omer\ST-SSL\experiments\Careem_linear\20240130-160052\best_model.pth
+2024-01-30 16:01:23: *******Train Epoch 14: averaged Loss : 10.551277
+2024-01-30 16:01:23: *******Val Epoch 14: averaged Loss : 11.409345
+2024-01-30 16:01:23: **************Current best model saved to D:\omer\ST-SSL\experiments\Careem_linear\20240130-160052\best_model.pth
+2024-01-30 16:01:25: *******Train Epoch 15: averaged Loss : 10.403616
+2024-01-30 16:01:25: *******Val Epoch 15: averaged Loss : 11.291745
+2024-01-30 16:01:25: **************Current best model saved to D:\omer\ST-SSL\experiments\Careem_linear\20240130-160052\best_model.pth
+2024-01-30 16:01:27: *******Train Epoch 16: averaged Loss : 10.224200
+2024-01-30 16:01:27: *******Val Epoch 16: averaged Loss : 11.110186
+2024-01-30 16:01:27: **************Current best model saved to D:\omer\ST-SSL\experiments\Careem_linear\20240130-160052\best_model.pth
+2024-01-30 16:01:29: *******Train Epoch 17: averaged Loss : 10.016400
+2024-01-30 16:01:29: *******Val Epoch 17: averaged Loss : 10.849642
+2024-01-30 16:01:29: **************Current best model saved to D:\omer\ST-SSL\experiments\Careem_linear\20240130-160052\best_model.pth
+2024-01-30 16:01:31: *******Train Epoch 18: averaged Loss : 9.858374
+2024-01-30 16:01:31: *******Val Epoch 18: averaged Loss : 10.599055
+2024-01-30 16:01:31: **************Current best model saved to D:\omer\ST-SSL\experiments\Careem_linear\20240130-160052\best_model.pth
+2024-01-30 16:01:33: *******Train Epoch 19: averaged Loss : 9.582042
+2024-01-30 16:01:33: *******Val Epoch 19: averaged Loss : 10.419326
+2024-01-30 16:01:33: **************Current best model saved to D:\omer\ST-SSL\experiments\Careem_linear\20240130-160052\best_model.pth
+2024-01-30 16:01:33: Traceback (most recent call last):
+  File "D:\omer\ST-SSL\main.py", line 61, in model_supervisor
+    results = trainer.train() # best_eval_loss, best_epoch
+              ^^^^^^^^^^^^^^^
+  File "D:\omer\ST-SSL\model\trainer.py", line 118, in train
+    train_epoch_loss, loss_t, epoch_losses, sep_epoch_losses = self.train_epoch(epoch, loss_weights, epoch_losses, sep_epoch_losses)
+                                                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\omer\ST-SSL\model\trainer.py", line 72, in train_epoch
+    total_loss += loss.item()
+                  ^^^^^^^^^^^
+KeyboardInterrupt
+
