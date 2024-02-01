@@ -93,7 +93,8 @@ def get_dataloader(data_dir, dataset, batch_size, test_batch_size, scalar_type='
         data['x_' + category] = cat_data['x']
         data['y_' + category] = cat_data['y']
     scaler = normalize_data(np.concatenate([data['x_train'], data['x_val']], axis=0), scalar_type)    #remove test set from scaler
-    
+    scaler = None
+    # print("\n\n\n\n\n not scaling data \n\n\n\n\n")
     # Data format
     ## scaler the data
     # for category in ['train', 'val', 'test']:

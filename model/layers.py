@@ -105,14 +105,16 @@ class TemporalHeteroModel(nn.Module):
         # print("z1.shape: ", z1.shape, "z2.shape: ", z2.shape)
         h = (z1 * self.W1 + z2 * self.W2).squeeze(1) # nlvc->nvc
         # print("h.shape: ", h.shape)
-        s = self.read(h) # s: summary of h, nc
-
+        s = self.read(h) # s: summary of h, nc   ## city level representation s_t
+        # print("s.shape: ", s.shape)
         # select another region in batch
         idx = torch.randperm(self.n)
         shuf_h = h[idx]
-
-        logits = self.disc(s, h, shuf_h)
-        loss = self.b_xent(logits, self.lbl)
+        # print("shuf_h.shape: ", shuf_h.shape)   
+        logits = self.disc(s, h, shuf_h)  ## discriminator  
+        # print("logits.shape: ", logits.shape)
+        # print("self.lbl.shape: ", self.lbl.shape)
+        loss = self.b_xent(logits, self.lbl)  ## BCEWithLogitsLoss
         return loss
 
 class AvgReadout(nn.Module):
@@ -132,7 +134,7 @@ class AvgReadout(nn.Module):
 class Discriminator(nn.Module):
     def __init__(self, n_h):
         super(Discriminator, self).__init__()
-        self.net = nn.Bilinear(n_h, n_h, 1) # similar to score of CPC
+        self.net = nn.Bilinear(n_h, n_h, 1) # similar to score of CPC  ## (in_1 features, in_2 features, out_features, bias=True) applies a blinear transformation to the incoming data: y = x1^TAx2 + b
 
         for m in self.modules():
             self.weights_init(m)
@@ -152,7 +154,7 @@ class Discriminator(nn.Module):
         :return logits: prediction scores, (batch_size, num_nodes, 2)
         '''
         s = torch.unsqueeze(summary, dim=1)
-        s = s.expand_as(h_rl).contiguous()
+        s = s.expand_as(h_rl).contiguous()  ## repeat s to match the shape of h_rl
 
         # score of real and fake, (batch_size, num_nodes)
         sc_rl = torch.squeeze(self.net(h_rl, s), dim=2) 
@@ -198,34 +200,46 @@ class STEncoder(nn.Module):
         self.receptive_field = input_length + Kt -1
 
     def forward(self, x0, graph):
-        # print("x0.shape: ", x0.shape, "graph.shape: ", graph.shape)
+        # print("x0.shape:", x0.shape)
         lap_mx = self._cal_laplacian(graph)
         Lk = self._cheb_polynomial(lap_mx, self.Ks)
         
         in_len = x0.size(1) # x0, nlvc
         if in_len < self.receptive_field:
-            x = F.pad(x0, (0,0,0,0,self.receptive_field-in_len,0))
+            x = F.pad(x0, (0,0,0,0,self.receptive_field-in_len,0))      ## padding l with 2 from left/top/start.     ## first two values==>pad the last dimension from left and right, second two values==>pad the second last dimension from top and bottom
         else:
             x = x0
         x = x.permute(0, 3, 1, 2)  # (batch_size, feature_dim, input_length, num_nodes), nclv 
         
         ## ST block 1
+        # print("x before tconv11:", x.shape)
         x = self.tconv11(x)    # nclv
+        # print("x after tconv11:", x.shape)
         x, x_agg, self.t_sim_mx = self.pooler(x)
+        # print("x after pooler:", x.shape)
         self.s_sim_mx = sim_global(x_agg, sim_type='cos')
         x = self.sconv12(x, Lk)   # nclv       
+        # print("x after sconv12:", x.shape)
         x = self.tconv13(x)  
+        # print("x after tconv13:", x.shape)
         x = self.dropout1(self.ln1(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2))
+        # print("x after dropout1 and ln1:", x.shape)
         
         ## ST block 2
         x = self.tconv21(x)
+        # print("x after tconv21:", x.shape)
         x = self.sconv22(x, Lk)
+        # print("x after sconv22:", x.shape)
         x = self.tconv23(x)
+        # print("x after tconv23:", x.shape)
         x = self.dropout2(self.ln2(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2))
+        # print("x after dropout2 and ln2:", x.shape)
 
         ## out block
         x = self.out_conv(x) # ncl(=1)v
+        # print("x after out_conv:", x.shape)
         x = self.dropout3(self.ln3(x.permute(0, 2, 3, 1))) # nlvc
+        # print("x after dropout3 and ln3:", x.shape)
         return x # nl(=1)vc
 
     def _cheb_polynomial(self, laplacian, K):
@@ -364,6 +378,7 @@ class Pooler(nn.Module):
         A = self.att(x) # x: nclv, A: nqlv 
         A = F.softmax(A, dim=2) # nqlv
 
+        """"the general idea is to label every dimension of the input operands with some subscript and define which subscripts are part of the output. The output is then computed by summing the product of the elements of the operands along the dimensions whose subscripts are not part of the output. For example, matrix multiplication can be computed using einsum as torch.einsum(“ij,jk->ik”, A, B). Here, j is the summation subscript and i and k the output subscripts"""
         # calculate region embeding using attention matrix A
         x = torch.einsum('nclv,nqlv->ncqv', x, A)
         x_agg = self.agg(x).squeeze(2) # ncqv->ncv

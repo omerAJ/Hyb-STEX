@@ -34,6 +34,7 @@ class Trainer(object):
         
         # log
         args.log_dir = get_log_dir(args)
+        
         if os.path.isdir(args.log_dir) == False and not args.debug:
             os.makedirs(args.log_dir, exist_ok=True)
         self.logger = get_logger(args.log_dir, name=args.log_dir, debug=args.debug)
@@ -114,7 +115,7 @@ class Trainer(object):
                     loss_weights = dwa(loss_tm1, loss_tm1, self.args.temp)
                 else:
                     loss_weights  = dwa(loss_tm1, loss_tm2, self.args.temp)
-            # self.logger.info('loss weights: {}'.format(loss_weights))
+            self.logger.info('loss weights: {}'.format(loss_weights))
             train_epoch_loss, loss_t, epoch_losses, sep_epoch_losses = self.train_epoch(epoch, loss_weights, epoch_losses, sep_epoch_losses)
             if train_epoch_loss > 1e6:
                 self.logger.warning('Gradient explosion detected. Ending...')
@@ -173,7 +174,8 @@ class Trainer(object):
             plt.ylabel('Loss')
             plt.title('Training Losses')
             plt.legend()
-            plt.show()
+            # plt.show()
+            plt.savefig(os.path.join(self.args.log_dir, 'losses.png'))
 
 
         # test
@@ -191,7 +193,7 @@ class Trainer(object):
             'test_results': test_results,
             'test_rolling_results': test_rolling_results,
         }
-        
+
         plot_losses(epoch_losses, sep_epoch_losses)
         return results
 
