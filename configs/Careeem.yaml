@@ -4,13 +4,13 @@ device: cuda
 mode: train
 best_path: None 
 debug: False  
-experiment_name: bs=4
+experiment_name: bs=64(noShuffle)
 
 ## data 
 data_dir: data
 dataset: Careem_linear
 input_length: 12  # 4+5*3
-batch_size: 4  # 32
+batch_size: 64  # 32
 val_batch_size: 32  # 32
 test_batch_size: 1  # 32
 graph_file: data/Careem/adj_mx.npz # 128 x 128
