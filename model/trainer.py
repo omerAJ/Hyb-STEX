@@ -2,6 +2,8 @@ import os
 import time
 import numpy as np
 import torch
+# torch.autograd.set_detect_anomaly(True)
+import matplotlib.pyplot as plt
 
 from lib.logger import (
     get_logger, 
@@ -45,7 +47,7 @@ class Trainer(object):
         self.logger.info('Experiment log path in: {}'.format(args.log_dir))
         self.logger.info('Experiment configs are: {}'.format(args))
     
-    def train_epoch(self, epoch, loss_weights):
+    def train_epoch(self, epoch, loss_weights, epoch_losses, sep_epoch_losses):
         self.model.train()
         
         total_loss = 0
@@ -59,6 +61,7 @@ class Trainer(object):
             assert not torch.isnan(loss)
             loss.backward()
 
+            
             # gradient clipping
             if self.args.grad_norm:
                 torch.nn.utils.clip_grad_norm_(
@@ -70,9 +73,12 @@ class Trainer(object):
 
         train_epoch_loss = total_loss/self.train_per_epoch
         total_sep_loss = total_sep_loss/self.train_per_epoch
+        # Save losses for plotting
+        epoch_losses.append(train_epoch_loss)
+        sep_epoch_losses.append(total_sep_loss)
         self.logger.info('*******Train Epoch {}: averaged Loss : {:.6f}'.format(epoch, train_epoch_loss))
 
-        return train_epoch_loss, total_sep_loss
+        return train_epoch_loss, total_sep_loss, epoch_losses, sep_epoch_losses
     
     def val_epoch(self, epoch, val_dataloader, loss_weights):
         self.model.eval()
@@ -90,6 +96,8 @@ class Trainer(object):
         return val_loss
 
     def train(self):
+        epoch_losses = []
+        sep_epoch_losses = []
         best_loss = float('inf')
         best_epoch = 0
         not_improved_count = 0
@@ -105,8 +113,8 @@ class Trainer(object):
                     loss_weights = dwa(loss_tm1, loss_tm1, self.args.temp)
                 else:
                     loss_weights  = dwa(loss_tm1, loss_tm2, self.args.temp)
-            # self.logger.info('loss weights: {}'.format(loss_weights))
-            train_epoch_loss, loss_t = self.train_epoch(epoch, loss_weights)
+            self.logger.info('loss weights: {}'.format(loss_weights))
+            train_epoch_loss, loss_t, epoch_losses, sep_epoch_losses = self.train_epoch(epoch, loss_weights, epoch_losses, sep_epoch_losses)
             if train_epoch_loss > 1e6:
                 self.logger.warning('Gradient explosion detected. Ending...')
                 break
@@ -147,6 +155,27 @@ class Trainer(object):
                         best_loss, 
                         best_epoch))
         
+        
+
+        def plot_losses(epoch_losses, sep_epoch_losses):
+            plt.figure(figsize=(12, 8))
+
+            # Plotting the total loss
+            plt.plot(epoch_losses, label='Total Loss')
+
+            labels = ["predict", "temporal", "spatial"]
+            # Plotting the separate losses
+            for i in range(3):
+                plt.plot([loss[i] for loss in sep_epoch_losses], label=f'Loss {labels[i]}')
+
+            plt.xlabel('Epochs')
+            plt.ylabel('Loss')
+            plt.title('Training Losses')
+            plt.legend()
+            # plt.show()
+            plt.savefig(os.path.join(self.args.log_dir, 'losses.png'))
+
+
         # test
         state_dict = save_dict if self.args.debug else torch.load(
             self.best_path, map_location=torch.device(self.args.device))
@@ -159,6 +188,8 @@ class Trainer(object):
             'best_val_epoch': best_epoch, 
             'test_results': test_results,
         }
+
+        plot_losses(epoch_losses, sep_epoch_losses)
         return results
 
     @staticmethod
