@@ -25,7 +25,8 @@ class STSSL(nn.Module):
         self.thm = TemporalHeteroModel(args.d_model, args.batch_size, args.num_nodes, args.device)
         # spatial heterogenrity modeling branch
         self.shm = SpatialHeteroModel(args.d_model, args.nmb_prototype, args.batch_size, args.shm_temp)
-        self.mae = masked_mae_loss(mask_value=5.0)
+        # self.mae = masked_mae_loss(mask_value=5.0)
+        self.mae = masked_mae_loss(mask_value=None)
         self.args = args
     
     def forward(self, view1, graph):
@@ -69,8 +70,8 @@ class STSSL(nn.Module):
         
         l3 = self.spatial_loss(z1, z2)
         sep_loss.append(l3.item())
-        loss += loss_weights[2] * l3 
-        print("predLoss: ", l1.item(), "temporalLoss: ", l2.item(), "spatialLoss: ", l3.item())
+        # loss += loss_weights[2] * l3 
+        # print("predLoss: ", l1.item(), "temporalLoss: ", l2.item(), "spatialLoss: ", l3.item())
         return loss, sep_loss
 
     def pred_loss(self, z1, z2, y_true, scaler):

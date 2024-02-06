@@ -36,7 +36,7 @@ def get_model_params(model_list):
 def get_log_dir(args):
     current_time = datetime.now().strftime('%Y%m%d-%H%M%S')
     current_dir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
-    log_dir = os.path.join(current_dir, 'experiments', args.dataset, current_time)
+    log_dir = os.path.join(current_dir, 'experiments', args.dataset, args.experimentName, current_time)
     return log_dir 
 
 def load_graph(adj_file, device='cpu'):
