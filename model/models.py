@@ -70,6 +70,7 @@ class STSSL(nn.Module):
         l3 = self.spatial_loss(z1, z2)
         sep_loss.append(l3.item())
         loss += loss_weights[2] * l3 
+        print("predLoss: ", l1.item(), "temporalLoss: ", l2.item(), "spatialLoss: ", l3.item())
         return loss, sep_loss
 
     def pred_loss(self, z1, z2, y_true, scaler):
