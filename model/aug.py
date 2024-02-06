@@ -47,7 +47,7 @@ def aug_topology(sim_mx, input_graph, percent=0.2):
     index_list = input_graph.nonzero() # list of edges [row_idx, col_idx]
     
     edge_num = int(index_list.shape[0] / 2)  # treat one undirected edge as two edges
-    edge_mask = (input_graph > 0).tril(diagonal=-1)
+    edge_mask = (input_graph > 0).tril(diagonal=-1).cpu()
     add_drop_num = int(edge_num * drop_percent / 2) 
     aug_graph = copy.deepcopy(input_graph) 
 
