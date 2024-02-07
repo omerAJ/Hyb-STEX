@@ -5,6 +5,8 @@ mode: train
 best_path: None 
 debug: False  
 experimentName: pred+T+S
+S_Loss: 1 
+T_Loss: 1 
 
 ## data 
 data_dir: data

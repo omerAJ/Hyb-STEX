@@ -4,7 +4,7 @@ import torch
 def mae_torch(pred, true, mask_value=None):
     if mask_value != None:
         mask = torch.gt(true, mask_value)
-        nodesMasked=mask[mask==True].shape[0]
+        # nodesMasked=mask[mask==True].shape[0]
         # print("total nodes masked", nodesMasked, "/4096",  "nodes on average masked in each sample: ", nodesMasked/true.shape[0])
         pred = torch.masked_select(pred, mask)
         true = torch.masked_select(true, mask)
@@ -33,7 +33,7 @@ def mape_np(pred, true, mask_value=None):
         pred = pred[mask]
     return np.mean(np.absolute(np.divide((true - pred), true)))
 
-def test_metrics(pred, true, mask1=None, mask2=None):
+def test_metrics(pred, true, mask1=5, mask2=5):
     # mask1 filter the very small value, mask2 filter the value lower than a defined threshold
     assert type(pred) == type(true)
     if type(pred) == np.ndarray:

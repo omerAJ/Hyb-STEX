@@ -14,7 +14,7 @@ test_batch_size: 20
 graph_file: data/BJTaxi/adj_mx.npz # num_nodes: 1024
 
 ## model 
-d_input: 1                  # means inflow and outflow
+d_input: 2                  # means inflow and outflow
 d_output: 2                 # means inflow and outflow
 d_model: 64
 dropout: 0.1
@@ -24,10 +24,10 @@ nmb_prototype: 50           # number of cluster
 yita: 0.5                   # balance for inflow loss and outflow loss, $yita * inflow + (1 - yita) * outflow$
 
 ## train
-epochs: 100
+epochs: 1000
 lr_init: 0.0005
 early_stop: True
-early_stop_patience: 15
+early_stop_patience: 150
 grad_norm: True
 max_grad_norm: 5
 use_dwa: True         # whether to use dwa for loss balance
