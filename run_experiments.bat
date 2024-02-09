@@ -9,6 +9,7 @@ set T_Losses=0 1
 call activate i-jepaVENV
 TIMEOUT 3
 
+
 REM Loop through each combination of S_Loss and T_Loss
 for %%r in (%random_seeds%) do (
     for %%s in (%S_Losses%) do (
