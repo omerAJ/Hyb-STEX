@@ -75,7 +75,7 @@ def model_supervisor(args):
 
 if __name__=='__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--config_filename', default='configs/NYCBike2.yaml', 
+    parser.add_argument('--config_filename', default='configs/NYCBike1.yaml', 
                     type=str, help='the configuration to use')
     parser.add_argument('--S_Loss', default=1, type=int, help='use S_Loss or not')
     parser.add_argument('--T_Loss', default=1, type=int, help='use T_Loss or not')
