@@ -97,42 +97,37 @@ class TemporalHeteroModel(nn.Module):
         
         self.n = batch_size
 
-
-    def smart_permute(self, n, metadata, exclude_index, delta=2):
+    def smart_permute(n, metadata, delta=2):
         """
-        Generate a permutation of indices for a tensor, ensuring that the sample
-        at `exclude_index` does not end up within ±`delta` of its original position.
-
+        Generate a permutation of indices for a tensor, ensuring that all samples
+        not end up within ± `delta` of its original position (from metadata).
         Parameters:
         - n: Total number of samples in the batch.
+        - X: The tensor to be permuted.
         - metadata: Tensor containing the original indices of the samples.
-        - exclude_index: The index of the sample to apply the constraint on.
-        - delta: The range within which the new index for the excluded sample should not fall.
+        - delta: The range (as defined by the metadata array) within which the new index for the samples in X should not fall.
 
         Returns:
-        - A tensor of permuted indices satisfying the constraints.
+        - Tensor X permuted satisfying the constraints.
         """
-        valid_indices = list(range(n))
-        # Remove indices within ±delta of the original index of exclude_index
-        original_index = metadata[exclude_index].item()
-        prohibited_indices = [i for i in range(original_index - delta, original_index + delta + 1) if i in valid_indices and i != original_index]
-        
-        for idx in prohibited_indices:
-            if idx in valid_indices:
-                valid_indices.remove(idx)
-
-        # Ensure the exclude_index is swapped with a valid index
-        chosen_index = np.random.choice(valid_indices)
-        perm_indices = torch.randperm(n)
-        
-        # Find the positions in the permuted indices
-        pos_original = (perm_indices == exclude_index).nonzero(as_tuple=True)[0]
-        pos_chosen = (perm_indices == chosen_index).nonzero(as_tuple=True)[0]
-
-        # Swap the positions
-        perm_indices[pos_original], perm_indices[pos_chosen] = perm_indices[pos_chosen], perm_indices[pos_original]
-
-        return perm_indices
+        # valid_indeces=np.array([])
+        perm = torch.zeros(n, dtype=int)
+        indices = torch.arange(0, n)
+        for i in range(0, n): # in this loop we will set perm[i]
+                
+            diff = abs(metadata[i] - metadata)
+            mask = ~torch.isin(diff % 24, [0, 1, 2, 22, 23])
+            # Apply the mask to 'indices' to filter out the invalid indices
+            valid_indices = indices[mask]
+            # valid_indeces = indices[diff % 24 not in [0, 1, 2, 22, 23]]
+            
+            if len(valid_indices) > 0: 
+                t = torch.random.choice(valid_indices)
+            else:
+                t = torch.random.choice(indices)
+                print("could not find heterogeneous sample")
+            perm[i] = t
+        return perm
 
     def forward(self, z1, z2, metadata):
         '''
