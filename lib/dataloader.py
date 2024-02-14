@@ -61,7 +61,8 @@ def STDataloader(X, Y, batch_size, shuffle=True, drop_last=True):
     cuda = True if torch.cuda.is_available() else False
     TensorFloat = torch.cuda.FloatTensor if cuda else torch.FloatTensor
     X, Y = TensorFloat(X), TensorFloat(Y)
-    data = torch.utils.data.TensorDataset(X, Y)
+    metadata = torch.arange(len(X))
+    data = torch.utils.data.TensorDataset(X, Y, metadata)
     dataloader = torch.utils.data.DataLoader(
         data, 
         batch_size=batch_size,
@@ -102,7 +103,7 @@ def get_dataloader(data_dir, dataset, batch_size, test_batch_size, scalar_type='
         data['x_train'], 
         data['y_train'], 
         batch_size, 
-        shuffle=True
+        shuffle=False
     )
     dataloader['val'] = STDataloader(
         data['x_val'], 

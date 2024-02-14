@@ -30,8 +30,9 @@ class STSSL(nn.Module):
         self.args = args
     
     def forward(self, view1, graph):
+        # print("view1: ", view1.shape, "graph: ", graph.shape)  [32, 19, 128, 2]
         repr1 = self.encoder(view1, graph) # view1: n,l,v,c; graph: v,v 
-
+        # print("repr1: ", repr1.shape)   [32, 1, 128, 64]
         s_sim_mx = self.fetch_spatial_sim()
         graph2 = aug_topology(s_sim_mx, graph, percent=self.args.percent*2)
         
@@ -59,12 +60,12 @@ class STSSL(nn.Module):
         '''
         return self.mlp(z1)
 
-    def loss(self, z1, z2, y_true, scaler, loss_weights):
+    def loss(self, z1, z2, y_true, metadata, scaler, loss_weights):   ## z1=repr1, z2=repr2, y_true=target              
         l1 = self.pred_loss(z1, z2, y_true, scaler)
         sep_loss = [l1.item()]
         loss = loss_weights[0] * l1 
 
-        l2 = self.temporal_loss(z1, z2)
+        l2 = self.temporal_loss(z1, z2, metadata)
         sep_loss.append(l2.item())
         if self.args.T_Loss==1:
             loss += loss_weights[1] * l2
@@ -85,8 +86,8 @@ class STSSL(nn.Module):
                 (1 - self.args.yita) * self.mae(y_pred[..., 1], y_true[..., 1])
         return loss
     
-    def temporal_loss(self, z1, z2):
-        return self.thm(z1, z2)
+    def temporal_loss(self, z1, z2, metadata):
+        return self.thm(z1, z2, metadata)
 
     def spatial_loss(self, z1, z2):
         return self.shm(z1, z2)

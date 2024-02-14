@@ -52,12 +52,12 @@ class Trainer(object):
         
         total_loss = 0
         total_sep_loss = np.zeros(3) 
-        for batch_idx, (data, target) in enumerate(self.train_loader):
+        for batch_idx, (data, target, metadata) in enumerate(self.train_loader):
             self.optimizer.zero_grad()
-            
+            # print("metadata: ", metadata)
             # input shape: n,l,v,c; graph shape: v,v;
             repr1, repr2 = self.model(data, self.graph) # nvc
-            loss, sep_loss = self.model.loss(repr1, repr2, target, self.scaler, loss_weights)
+            loss, sep_loss = self.model.loss(repr1, repr2, target, metadata, self.scaler, loss_weights)
             assert not torch.isnan(loss)
             loss.backward()
 
@@ -85,7 +85,8 @@ class Trainer(object):
         
         total_val_loss = 0
         with torch.no_grad():
-            for batch_idx, (data, target) in enumerate(val_dataloader):
+            for batch_idx, (data, target, metadata) in enumerate(val_dataloader):
+                # print("metadata: ", metadata)
                 repr1, repr2 = self.model(data, self.graph)
                 loss, sep_loss = self.model.loss(repr1, repr2, target, self.scaler, loss_weights)
 
