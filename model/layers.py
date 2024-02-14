@@ -97,7 +97,7 @@ class TemporalHeteroModel(nn.Module):
         
         self.n = batch_size
 
-    def smart_permute(n, metadata, delta=2):
+    def smart_permute(self, n, metadata, delta=2):
         """
         Generate a permutation of indices for a tensor, ensuring that all samples
         not end up within ± `delta` of its original position (from metadata).
@@ -113,18 +113,21 @@ class TemporalHeteroModel(nn.Module):
         # valid_indeces=np.array([])
         perm = torch.zeros(n, dtype=int)
         indices = torch.arange(0, n)
+        forbidden = torch.tensor([0, 1, 2, 3, 21, 22, 23], dtype=torch.int64)
         for i in range(0, n): # in this loop we will set perm[i]
                 
             diff = abs(metadata[i] - metadata)
-            mask = ~torch.isin(diff % 24, [0, 1, 2, 22, 23])
+            mask = ~torch.isin(diff % 24, forbidden)
             # Apply the mask to 'indices' to filter out the invalid indices
             valid_indices = indices[mask]
             # valid_indeces = indices[diff % 24 not in [0, 1, 2, 22, 23]]
             
             if len(valid_indices) > 0: 
-                t = torch.random.choice(valid_indices)
+                random_index = torch.randint(0, len(valid_indices), (1,))
+                t = valid_indices[random_index]
             else:
-                t = torch.random.choice(indices)
+                random_index = torch.randint(0, len(indices), (1,))
+                t = valid_indices[indices]
                 print("could not find heterogeneous sample")
             perm[i] = t
         return perm
@@ -136,11 +139,11 @@ class TemporalHeteroModel(nn.Module):
         '''
         h = (z1 * self.W1 + z2 * self.W2).squeeze(1) # nlvc->nvc
         s = self.read(h) # s: summary of h, nc
-        print("z1: ", z1.shape, "z2: ", z2.shape, "metadata: ", metadata)
+        # print("z1: ", z1.shape, "z2: ", z2.shape, "metadata: ", metadata)
         # select another region in batch
         
         # idx = torch.randperm(self.n)
-        idx = self.smart_permute(self.n, metadata, exclude_index=1, delta=2)
+        idx = self.smart_permute(self.n, metadata, delta=2)
         shuf_h = h[idx]
 
         logits = self.disc(s, h, shuf_h)

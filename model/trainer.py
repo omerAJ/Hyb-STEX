@@ -88,7 +88,7 @@ class Trainer(object):
             for batch_idx, (data, target, metadata) in enumerate(val_dataloader):
                 # print("metadata: ", metadata)
                 repr1, repr2 = self.model(data, self.graph)
-                loss, sep_loss = self.model.loss(repr1, repr2, target, self.scaler, loss_weights)
+                loss, sep_loss = self.model.loss(repr1, repr2, target, metadata, self.scaler, loss_weights)
 
                 if not torch.isnan(loss):
                     total_val_loss += loss.item()
