@@ -199,7 +199,7 @@ class Trainer(object):
         y_pred = []
         y_true = []
         with torch.no_grad():
-            for batch_idx, (data, target) in enumerate(dataloader):
+            for batch_idx, (data, target, metadata) in enumerate(dataloader):
                 repr1, repr2 = model(data, graph)                
                 pred_output = model.predict(repr1, repr2)
 

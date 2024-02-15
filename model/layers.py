@@ -120,6 +120,9 @@ class TemporalHeteroModel(nn.Module):
             mask = ~torch.isin(diff % 24, forbidden)
             # Apply the mask to 'indices' to filter out the invalid indices
             valid_indices = indices[mask]
+            # print(metadata)
+            # print(metadata[i])
+            # print(f"valid_indices: {valid_indices}")
             # valid_indeces = indices[diff % 24 not in [0, 1, 2, 22, 23]]
             
             if len(valid_indices) > 0: 
@@ -127,7 +130,7 @@ class TemporalHeteroModel(nn.Module):
                 t = valid_indices[random_index]
             else:
                 random_index = torch.randint(0, len(indices), (1,))
-                t = valid_indices[indices]
+                t = indices[random_index]
                 print("could not find heterogeneous sample")
             perm[i] = t
         return perm
@@ -145,7 +148,10 @@ class TemporalHeteroModel(nn.Module):
         # idx = torch.randperm(self.n)
         idx = self.smart_permute(self.n, metadata, delta=2)
         shuf_h = h[idx]
-
+        # print("metadata_og: ", metadata)
+        # print("metadata_updated: ", metadata[idx])
+        # print(f"diff: {metadata-metadata[idx]}")
+        # print(f"diff%24: {(metadata-metadata[idx])%24}")
         logits = self.disc(s, h, shuf_h)
         loss = self.b_xent(logits, self.lbl)
         return loss
