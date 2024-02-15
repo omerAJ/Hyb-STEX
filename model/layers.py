@@ -133,6 +133,7 @@ class TemporalHeteroModel(nn.Module):
                 t = indices[random_index]
                 print("could not find heterogeneous sample")
             perm[i] = t
+        print(perm)
         return perm
 
     def forward(self, z1, z2, metadata):
