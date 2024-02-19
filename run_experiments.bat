@@ -4,9 +4,9 @@ setlocal enabledelayedexpansion
 REM Define different S_Loss and T_Loss values
 set random_seeds= 1 2 3
 set S_Losses=0 1
-set T_Losses=1
+set T_Losses=0 1
 
-call activate ST-SSL
+call activate i-jepaVENV
 TIMEOUT 3
 
 
