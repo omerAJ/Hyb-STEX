@@ -149,7 +149,10 @@ class TemporalHeteroModel(nn.Module):
         # idx = torch.randperm(self.n)
         idx = self.smart_permute(self.n, metadata, delta=2)
         shuf_h = h[idx]
-
+        # print("metadata_og: ", metadata)
+        # print("metadata_updated: ", metadata[idx])
+        # print(f"diff: {metadata-metadata[idx]}")
+        # print(f"diff%24: {(metadata-metadata[idx])%24}")
         logits = self.disc(s, h, shuf_h)
         loss = self.b_xent(logits, self.lbl)
         return loss
