@@ -53,6 +53,7 @@ class Trainer(object):
         total_loss = 0
         total_sep_loss = np.zeros(3) 
         for batch_idx, (data, target) in enumerate(self.train_loader):
+            # print("data.shape: ", data.shape, target.shape)
             self.optimizer.zero_grad()
             
             # input shape: n,l,v,c; graph shape: v,v;

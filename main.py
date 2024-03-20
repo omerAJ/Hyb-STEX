@@ -30,6 +30,8 @@ def model_supervisor(args):
         dataset=args.dataset, 
         batch_size=args.batch_size, 
         test_batch_size=args.test_batch_size,
+        scalar_type='Standard',
+        input_length=args.input_length
     )
     graph = load_graph(args.graph_file, device=args.device)
     args.num_nodes = len(graph)
@@ -77,9 +79,10 @@ if __name__=='__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--config_filename', default='configs/NYCBike1.yaml', 
                     type=str, help='the configuration to use')
-    parser.add_argument('--S_Loss', default=1, type=int, help='use S_Loss or not')
-    parser.add_argument('--T_Loss', default=1, type=int, help='use T_Loss or not')
+    parser.add_argument('--S_Loss', default=0, type=int, help='use S_Loss or not')
+    parser.add_argument('--T_Loss', default=0, type=int, help='use T_Loss or not')
     parser.add_argument('--seed', default=1, type=int, help='random seed to use')
+    parser.add_argument('--input_length', default=14, type=int, help='# of samples to use for context')
     args = parser.parse_args()
     print(f'Starting experiment with configurations in {args.config_filename}...')
     
@@ -91,7 +94,8 @@ if __name__=='__main__':
     configs['S_Loss'] = args.S_Loss
     configs['T_Loss'] = args.T_Loss
     configs['seed'] = args.seed
-    experimentName = "pred"
+    configs['input_length'] = args.input_length
+    experimentName = "pred_" + str(args.input_length) + "_"
     if args.S_Loss == 1:
         experimentName += "+S"
 

@@ -167,33 +167,65 @@ class Discriminator(nn.Module):
                        ### input_length=args.input_length, num_nodes=args.num_nodes, droprate=args.dropout)
 class STEncoder(nn.Module):
     def __init__(self, Kt, Ks, blocks, input_length, num_nodes, droprate=0.1):
-        super(STEncoder, self).__init__()
-        self.Ks=Ks
-        c = blocks[0]
-        self.tconv11 = TemporalConvLayer(Kt, c[0], c[1], "GLU")
-        self.pooler = Pooler(input_length - (Kt - 1), c[1])
+        super(STEncoder, self).__init__()        
         
-        self.sconv12 = SpatioConvLayer(Ks, c[1], c[1])
-        self.tconv13 = TemporalConvLayer(Kt, c[1], c[2])
-        self.ln1 = nn.LayerNorm([num_nodes, c[2]])
-        self.dropout1 = nn.Dropout(droprate)
+        if input_length <= 5:
+            self.Ks=Ks
+            c = blocks[0]
+            self.tconv11 = TemporalConvLayer(Kt, c[0], c[1], "GLU", paddin='valid', flag=False)
+            self.pooler = Pooler(input_length - (Kt - 1), c[1])
+            
+            self.sconv12 = SpatioConvLayer(Ks, c[1], c[1])
+            self.tconv13 = TemporalConvLayer(Kt, c[1], c[2], paddin='same', flag=True)
+            self.ln1 = nn.LayerNorm([num_nodes, c[2]])
+            self.dropout1 = nn.Dropout(droprate)
 
-        c = blocks[1]
-        self.tconv21 = TemporalConvLayer(Kt, c[0], c[1], "GLU")
+            c = blocks[1]
+            self.tconv21 = TemporalConvLayer(Kt, c[0], c[1], "GLU", paddin='same', flag=True)
+            
+            self.sconv22 = SpatioConvLayer(Ks, c[1], c[1])
+            self.tconv23 = TemporalConvLayer(Kt, c[1], c[2], paddin='same', flag=True)
+            self.ln2 = nn.LayerNorm([num_nodes, c[2]])
+            self.dropout2 = nn.Dropout(droprate)
+            
+            self.s_sim_mx = None
+            self.t_sim_mx = None
+
+            out_len = input_length - (Kt - 1) # input_length - 8
+            self.out_conv = TemporalConvLayer(out_len, c[2], c[2], "GLU")
+            self.ln3 = nn.LayerNorm([num_nodes, c[2]])
+            self.dropout3 = nn.Dropout(droprate)
+            self.receptive_field = input_length + Kt -1
+
+        else:
+            self.Ks=Ks
+            c = blocks[0]
+            self.tconv11 = TemporalConvLayer(Kt, c[0], c[1], "GLU")
+            self.pooler = Pooler(input_length - (Kt - 1), c[1])
+            
+            self.sconv12 = SpatioConvLayer(Ks, c[1], c[1])
+            self.tconv13 = TemporalConvLayer(Kt, c[1], c[2])
+            self.ln1 = nn.LayerNorm([num_nodes, c[2]])
+            self.dropout1 = nn.Dropout(droprate)
+
+            c = blocks[1]
+            self.tconv21 = TemporalConvLayer(Kt, c[0], c[1], "GLU")
+            
+            self.sconv22 = SpatioConvLayer(Ks, c[1], c[1])
+            self.tconv23 = TemporalConvLayer(Kt, c[1], c[2])
+            self.ln2 = nn.LayerNorm([num_nodes, c[2]])
+            self.dropout2 = nn.Dropout(droprate)
+            
+            self.s_sim_mx = None
+            self.t_sim_mx = None
+
+            out_len = input_length - 2 * (Kt - 1) * len(blocks)   # input_length - 8
+            self.out_conv = TemporalConvLayer(out_len, c[2], c[2], "GLU")
+            self.ln3 = nn.LayerNorm([num_nodes, c[2]])
+            self.dropout3 = nn.Dropout(droprate)
+            self.receptive_field = input_length + Kt -1
+
         
-        self.sconv22 = SpatioConvLayer(Ks, c[1], c[1])
-        self.tconv23 = TemporalConvLayer(Kt, c[1], c[2])
-        self.ln2 = nn.LayerNorm([num_nodes, c[2]])
-        self.dropout2 = nn.Dropout(droprate)
-        
-        self.s_sim_mx = None
-        self.t_sim_mx = None
-        
-        out_len = input_length - 2 * (Kt - 1) * len(blocks)
-        self.out_conv = TemporalConvLayer(out_len, c[2], c[2], "GLU")
-        self.ln3 = nn.LayerNorm([num_nodes, c[2]])
-        self.dropout3 = nn.Dropout(droprate)
-        self.receptive_field = input_length + Kt -1
 
     def forward(self, x0, graph):
         lap_mx = self._cal_laplacian(graph)
@@ -207,22 +239,32 @@ class STEncoder(nn.Module):
         x = x.permute(0, 3, 1, 2)  # (batch_size, feature_dim, input_length, num_nodes), nclv 
         
         ## ST block 1
+        # print("x.shape (before tconv11): ", x.shape)
         x = self.tconv11(x)    # nclv
+        # print("x.shape (after tconv11): ", x.shape)
         x, x_agg, self.t_sim_mx = self.pooler(x)
+        # print("x.shape (after pooler): ", x.shape)
         self.s_sim_mx = sim_global(x_agg, sim_type='cos')
 
         x = self.sconv12(x, Lk)   # nclv
+        # print("x.shape (after sconv12): ", x.shape)
         x = self.tconv13(x)  
+        # print("x.shape (after tconv13): ", x.shape)
         x = self.dropout1(self.ln1(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2))
         
         ## ST block 2
         x = self.tconv21(x)
+        # print("x.shape (after tconv21): ", x.shape)
         x = self.sconv22(x, Lk)
+        # print("x.shape (after sconv22): ", x.shape)
         x = self.tconv23(x)
+        # print("x.shape (after tconv23): ", x.shape)
         x = self.dropout2(self.ln2(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2))
 
         ## out block
+        # print("x.shape: (before out_conv)", x.shape)
         x = self.out_conv(x) # ncl(=1)v
+        # print("x.shape: (after out_conv)", x.shape)
         x = self.dropout3(self.ln3(x.permute(0, 2, 3, 1))) # nlvc
         return x # nl(=1)vc
 
@@ -282,23 +324,29 @@ class Align(nn.Module):
         return x  
 
 class TemporalConvLayer(nn.Module):
-    def __init__(self, kt, c_in, c_out, act="relu"):
+    def __init__(self, kt, c_in, c_out, act="relu", paddin='valid', flag=False):
         super(TemporalConvLayer, self).__init__()
         self.kt = kt
         self.act = act
         self.c_out = c_out
         self.align = Align(c_in, c_out)
+        self.flag = flag
         if self.act == "GLU":
-            self.conv = nn.Conv2d(c_in, c_out * 2, (kt, 1), 1)
+            self.conv = nn.Conv2d(c_in, c_out * 2, (kt, 1), 1, padding=paddin)
         else:
-            self.conv = nn.Conv2d(c_in, c_out, (kt, 1), 1)
+            self.conv = nn.Conv2d(c_in, c_out, (kt, 1), 1, padding=paddin)
 
     def forward(self, x):
         """
         :param x: (n,c,l,v)
         :return: (n,c,l-kt+1,v)
         """
-        x_in = self.align(x)[:, :, self.kt - 1:, :]  
+        # print("x.shape (before align): ", x.shape)
+        if self.flag:
+            x_in = self.align(x)  
+        else:
+            x_in = self.align(x)[:, :, self.kt - 1:, :]  
+        # print("x_in.shape: ", x_in.shape)
         if self.act == "GLU":
             x_conv = self.conv(x)
             return (x_conv[:, :self.c_out, :, :] + x_in) * torch.sigmoid(x_conv[:, self.c_out:, :, :])
@@ -357,11 +405,14 @@ class Pooler(nn.Module):
         :return x_agg: region embedding for spatial similarity, nvc
         :return A: temporal attention, lnv
         """
+        # print("x.shape (before align): ", x.shape)
         x_in = self.align(x)[:, :, -self.n_query:, :] # ncqv
+        # print("x_in.shape: ", x_in.shape)
         # calculate the attention matrix A using key x   
+        # print("x.shape: ", x.shape, "self.att(x).shape: ", self.att(x).shape)
         A = self.att(x) # x: nclv, A: nqlv 
         A = F.softmax(A, dim=2) # nqlv
-
+        # print("A.shape: ", A.shape)
         # calculate region embeding using attention matrix A
         x = torch.einsum('nclv,nqlv->ncqv', x, A)
         x_agg = self.agg(x).squeeze(2) # ncqv->ncv
@@ -369,7 +420,9 @@ class Pooler(nn.Module):
 
         # calculate the temporal simlarity (prob)
         A = torch.einsum('nqlv->lnqv', A)
+        # print("A.shape: ", A.shape)
         A = self.softmax(self.agg(A).squeeze(2)) # A: lnqv->lnv
+        # print("A.shape: ", A.shape)
         return torch.relu(x + x_in), x_agg.detach(), A.detach()
 
 ########################################

@@ -30,6 +30,7 @@ class STSSL(nn.Module):
         self.args = args
     
     def forward(self, view1, graph):
+        # print("view1.shape: ", view1.shape, "graph.shape: ", graph.shape)
         repr1 = self.encoder(view1, graph) # view1: n,l,v,c; graph: v,v 
 
         s_sim_mx = self.fetch_spatial_sim()
@@ -37,7 +38,7 @@ class STSSL(nn.Module):
         
         t_sim_mx = self.fetch_temporal_sim()
         view2 = aug_traffic(t_sim_mx, view1, percent=self.args.percent)
-        
+        # print("view2.shape: ", view2.shape, "graph2.shape: ", graph2.shape)
         repr2 = self.encoder(view2, graph2)
         return repr1, repr2
 

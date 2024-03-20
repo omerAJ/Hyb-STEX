@@ -84,18 +84,21 @@ def normalize_data(data, scalar_type='Standard'):
     # time.sleep(3)
     return scalar
 
-def get_dataloader(data_dir, dataset, batch_size, test_batch_size, scalar_type='Standard'):
+def get_dataloader(data_dir, dataset, batch_size, test_batch_size, scalar_type='Standard', input_length=14):
     data = {}
+    
     for category in ['train', 'val', 'test']:
         cat_data = np.load(os.path.join(data_dir, dataset, category + '.npz'))
-        data['x_' + category] = cat_data['x']
+        skip = cat_data['x'].shape[1] - input_length
+        data['x_' + category] = cat_data['x'][:, skip:, :, :]
         data['y_' + category] = cat_data['y']
     scaler = normalize_data(np.concatenate([data['x_train'], data['x_val']], axis=0), scalar_type)
-    
+    # print("skip: ", skip)
     # Data format
     for category in ['train', 'val', 'test']:
         data['x_' + category] = scaler.transform(data['x_' + category])
         data['y_' + category] = scaler.transform(data['y_' + category])
+    print("data['x_train'].shape: ", data['x_train'].shape, data['y_train'].shape)
     # Construct dataloader
     dataloader = {}
     dataloader['train'] = STDataloader(

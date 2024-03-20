@@ -5,8 +5,8 @@ mode: train
 best_path: None 
 debug: False  
 experimentName: pred+T+S
-S_Loss: 1 
-T_Loss: 1 
+S_Loss: 0
+T_Loss: 0
 
 ## data 
 data_dir: data
@@ -27,10 +27,10 @@ nmb_prototype: 6            # number of cluster
 yita: 0.6                   # balance for inflow loss and outflow loss, $yita * inflow + (1 - yita) * outflow$
 
 ## train
-epochs: 1000
+epochs: 500
 lr_init: 0.001
 early_stop: True
-early_stop_patience: 500
+early_stop_patience: 200
 grad_norm: True
 max_grad_norm: 5
 use_dwa: True         # whether to use dwa for loss balance
