@@ -113,11 +113,11 @@ class TemporalHeteroModel(nn.Module):
         # valid_indeces=np.array([])
         perm = torch.zeros(n, dtype=int)
         indices = torch.arange(0, n)
-        forbidden = torch.tensor([0, 1, 2, 22, 23], dtype=torch.int64)
+        forbidden = torch.tensor([0, 1, 2, 3, 21, 22, 23], dtype=torch.int64)
         for i in range(0, n): # in this loop we will set perm[i]
                 
             diff = abs(metadata[i] - metadata)
-            mask = ~torch.isin(diff % 24, forbidden)
+            mask = ~torch.isin(diff % 48, forbidden)
             # Apply the mask to 'indices' to filter out the invalid indices
             valid_indices = indices[mask]
             # print(metadata)

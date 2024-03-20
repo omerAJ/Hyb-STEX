@@ -1,0 +1,224 @@
+import os
+from torch.utils.data import Dataset, DataLoader
+from torchvision.io import read_image
+from torchvision.transforms import Compose, Resize, Normalize, ToTensor
+import torch
+from PIL import Image
+import torchvision.transforms.functional as TF
+
+### class_counts = {0: 307, 1: 1475, 2: 610}
+
+class customDataset(Dataset):
+    def __init__(self, directory, transform=None, num_crops=1):
+        """
+        Args:
+            directory (string): Directory with all the images.
+            transform (callable, optional): Optional transform to be applied on a sample.
+        """
+        self.num_crops = num_crops
+        self.directory = directory
+        self.transform = transform
+        self.images = [f for f in os.listdir(directory) if f.endswith('.tif')]
+        
+    def __len__(self):
+        return len(self.images)
+    
+    def __getitem__(self, idx):
+        img_name = os.path.join(self.directory, self.images[idx])
+        # image = read_image(img_name) # Loads image as a tensor  use if png, jpg
+        image = Image.open(img_name)  # PIL.Image.open supports TIFF
+        image = TF.to_tensor(image)  # Convert PIL image to PyTorch tensor
+
+        class_label = int(self.images[idx].split(',')[0].strip('('))
+        
+        if self.transform:
+            image = self.transform(image)
+        
+        return image, class_label
+
+def create_dataloader(directory, batch_size, transform=None):
+    dataset = Dataset(directory=directory, transform=transform)
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+    return dataloader
+
+from torch.utils.data import DataLoader, WeightedRandomSampler
+from collections import defaultdict
+import os
+
+def get_sample_weights(directory, class_counts):
+    # Initialize a list to hold the weights for each sample
+    sample_weights = []
+    
+    # List all files in the given directory
+    files = [f for f in os.listdir(directory) if f.endswith('.tif')]
+    
+    # Calculate the total number of samples
+    n_samples = len(files)
+    
+    # Calculate the weight for each class (inverse frequency)
+    weights_per_class = {class_id: n_samples / class_counts[class_id] for class_id in class_counts}
+    
+    # Loop through each file, determine its class, and assign a weight based on its class
+    for file_name in files:
+        class_label = int(file_name.split(',')[0].strip('('))
+        weight = weights_per_class[class_label]
+        sample_weights.append(weight)
+    
+    return sample_weights
+
+
+import torch
+import torch.nn as nn
+from torchvision import models
+
+def load_modified_resnet50(num_classes):
+    # Load a pre-trained ResNet50 model
+    model = models.resnet50(pretrained=True)
+    
+    # Get the input dimension of the original fully connected layer
+    num_ftrs = model.fc.in_features
+    
+    # Replace the final fully connected layer with a new one with the desired number of output classes
+    model.fc = nn.Linear(num_ftrs, num_classes)
+    
+    return model
+
+
+#setup data
+from dataloader import customDataset, create_dataloader, get_sample_weights
+from torchvision.transforms import Compose, Resize, Normalize, ToTensor, RandomResizedCrop
+from torch.utils.data import random_split, DataLoader, WeightedRandomSampler
+
+transforms = Compose([
+    RandomResizedCrop(size=(256, 256), scale=(0.1, 0.25)),
+    # Resize((256, 256)), # Resize images
+    # ToTensor(), # Convert images to tensors
+    # Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]), # Normalize images
+])
+
+directory = r"D:\omer\poverty_mapping_data\clipped_data"
+
+dataset = customDataset(directory=directory, transform=transforms)
+
+# train/test split
+train_size = int(0.7 * len(dataset))
+test_size = len(dataset) - train_size
+train_dataset, test_dataset = random_split(dataset, [train_size, test_size])
+
+batch_size = 32
+train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+
+# setup model
+from models import load_modified_resnet50
+
+num_classes = 3
+model = load_modified_resnet50(num_classes)
+
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torchvision.models import resnet50
+from tqdm import tqdm
+
+device = torch.device("cuda" if torch.cuda.is_available() else 'cpu')
+
+# Initialize the model
+num_classes = 3
+model = load_modified_resnet50(num_classes)
+model = model.to(device)
+
+# Specify the loss function and optimizer
+criterion = nn.CrossEntropyLoss()
+optimizer = optim.Adam(model.parameters(), lr=0.001)
+
+# Number of epochs to train for
+num_epochs = 35
+best_test_accuracy = 0.0
+
+for epoch in range(num_epochs):
+    model.train()  # Set the model to training mode
+    running_loss = 0.0
+    correct_predictions = 0
+    total_predictions = 0
+
+    # Train
+    for inputs, labels in tqdm(train_dataloader, desc=f'Epoch {epoch+1}/{num_epochs} Training'):
+        inputs = inputs.to(device)
+        labels = labels.to(device)
+
+        optimizer.zero_grad()  # Zero the parameter gradients
+
+        outputs = model(inputs)  # Forward pass
+        loss = criterion(outputs, labels)
+        loss.backward()  # Backward pass and optimize
+        optimizer.step()
+
+        running_loss += loss.item()
+        _, predicted = torch.max(outputs.data, 1)
+        total_predictions += labels.size(0)
+        correct_predictions += (predicted == labels).sum().item()
+
+    train_loss = running_loss / len(train_dataloader)
+    train_acc = correct_predictions / total_predictions
+
+    # Test
+    model.eval()
+    test_loss = 0.0
+    correct_predictions = 0
+    total_predictions = 0
+
+    with torch.no_grad():
+        for inputs, labels in tqdm(test_dataloader, desc=f'Epoch {epoch+1}/{num_epochs} Testing'):
+            inputs = inputs.to(device)
+            labels = labels.to(device)
+
+            outputs = model(inputs)
+            loss = criterion(outputs, labels)
+
+            test_loss += loss.item()
+            _, predicted = torch.max(outputs.data, 1)
+            total_predictions += labels.size(0)
+            correct_predictions += (predicted == labels).sum().item()
+
+    test_loss = test_loss / len(test_dataloader)
+    test_acc = correct_predictions / total_predictions
+    
+    torch.save(model.state_dict(), 'last_model.pth')
+    # Save the model if test accuracy improves
+    if test_acc > best_test_accuracy:
+        best_test_accuracy = test_acc
+        torch.save(model.state_dict(), 'best_model.pth')
+        print(f'New best model saved with accuracy: {test_acc:.4f}')
+
+    print(f'Epoch {epoch+1}/{num_epochs}, Train Loss: {train_loss:.4f}, Train Accuracy: {train_acc:.4f}, Test Loss: {test_loss:.4f}, Test Accuracy: {test_acc:.4f}')
+
+print('Training complete')
+
+from sklearn.metrics import confusion_matrix, classification_report
+
+model.eval()  # Set the model to evaluation mode
+
+true_labels = []
+predicted_labels = []
+
+with torch.no_grad():
+    for inputs, labels in test_dataloader:
+        inputs = inputs.to(device)
+        labels = labels.to(device)
+
+        outputs = model(inputs)
+        _, predicted = torch.max(outputs.data, 1)
+
+        true_labels.extend(labels.cpu().numpy())
+        predicted_labels.extend(predicted.cpu().numpy())
+
+# Create confusion matrix
+cm = confusion_matrix(true_labels, predicted_labels)
+print("Confusion Matrix:")
+print(cm)
+
+# Create classification report
+report = classification_report(true_labels, predicted_labels)
+print("Classification Report:")
+print(report)
