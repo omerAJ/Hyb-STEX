@@ -169,7 +169,7 @@ class STEncoder(nn.Module):
     def __init__(self, Kt, Ks, blocks, input_length, num_nodes, droprate=0.1):
         super(STEncoder, self).__init__()        
         
-        if input_length <= 5:
+        if input_length - 2 * (Kt - 1) * len(blocks) <= 0:
             self.Ks=Ks
             c = blocks[0]
             self.tconv11 = TemporalConvLayer(Kt, c[0], c[1], "GLU", paddin='valid', flag=False)

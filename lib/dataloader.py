@@ -84,13 +84,22 @@ def normalize_data(data, scalar_type='Standard'):
     # time.sleep(3)
     return scalar
 
-def get_dataloader(data_dir, dataset, batch_size, test_batch_size, scalar_type='Standard', input_length=14):
+def get_dataloader(data_dir, dataset, batch_size, test_batch_size, scalar_type='Standard', input_dataset_context=19, input_sequence_type="A"):
     data = {}
     
+    print("input_dataset_context: ", input_dataset_context, input_sequence_type)
+    if input_dataset_context == 19:
+        print("\n\n in first if\n\n")
+        input_sequence_dict = {"A":[-4, 19], "B":[-9, -4], "C":[-14, -9], "D":[-19, -14]}
+        input_sequence = input_sequence_dict[input_sequence_type]
+    elif input_dataset_context == 35:
+        input_sequence_dict = {"A":[-8, 35], "B":[-17, -8], "C":[-26, -17], "D":[-35, -26]}
+        input_sequence = input_sequence_dict[input_sequence_type]
+
     for category in ['train', 'val', 'test']:
         cat_data = np.load(os.path.join(data_dir, dataset, category + '.npz'))
-        skip = cat_data['x'].shape[1] - input_length
-        data['x_' + category] = cat_data['x'][:, skip:, :, :]
+        # skip = cat_data['x'].shape[1] - input_length
+        data['x_' + category] = cat_data['x'][:, input_sequence[0]:input_sequence[1], :, :]
         data['y_' + category] = cat_data['y']
     scaler = normalize_data(np.concatenate([data['x_train'], data['x_val']], axis=0), scalar_type)
     # print("skip: ", skip)

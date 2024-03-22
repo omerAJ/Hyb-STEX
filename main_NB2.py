@@ -30,6 +30,9 @@ def model_supervisor(args):
         dataset=args.dataset, 
         batch_size=args.batch_size, 
         test_batch_size=args.test_batch_size,
+        scalar_type='Standard',
+        input_dataset_context=args.input_dataset_context,
+        input_sequence_type=args.input_sequence_type
     )
     graph = load_graph(args.graph_file, device=args.device)
     args.num_nodes = len(graph)
@@ -75,11 +78,13 @@ def model_supervisor(args):
 
 if __name__=='__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--config_filename', default='configs/NYCTaxi.yaml', 
+    parser.add_argument('--config_filename', default='configs/NYCBike2.yaml', 
                     type=str, help='the configuration to use')
-    parser.add_argument('--S_Loss', default=1, type=int, help='use S_Loss or not')
-    parser.add_argument('--T_Loss', default=1, type=int, help='use T_Loss or not')
+    parser.add_argument('--S_Loss', default=0, type=int, help='use S_Loss or not')
+    parser.add_argument('--T_Loss', default=0, type=int, help='use T_Loss or not')
     parser.add_argument('--seed', default=1, type=int, help='random seed to use')
+    parser.add_argument('--input_dataset_context', default=0, type=int, help='# of samples in the original dataset')
+    parser.add_argument('--input_sequence_type', default="F", type=str, help='which sequence to use for input')
     args = parser.parse_args()
     print(f'Starting experiment with configurations in {args.config_filename}...')
     
@@ -91,7 +96,19 @@ if __name__=='__main__':
     configs['S_Loss'] = args.S_Loss
     configs['T_Loss'] = args.T_Loss
     configs['seed'] = args.seed
-    experimentName = "pred"
+    configs['input_dataset_context'] = args.input_dataset_context
+    configs['input_sequence_type'] = args.input_sequence_type
+    if args.input_sequence_type == "A" and args.input_dataset_context == 19:
+        configs['input_length'] = 4
+    elif args.input_sequence_type != "A" and args.input_dataset_context == 19: 
+        configs['input_length'] = 5
+
+    if args.input_sequence_type == "A" and args.input_dataset_context == 35:
+        configs['input_length'] = 8
+    elif args.input_sequence_type != "A" and args.input_dataset_context == 35: 
+        configs['input_length'] = 9
+
+    experimentName = "pred_" + str(configs['input_length']) + "_"
     if args.S_Loss == 1:
         experimentName += "+S"
 
