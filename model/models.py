@@ -1,4 +1,5 @@
 import torch.nn as nn
+import torch
 # import 
 from lib.utils import masked_mae_loss
 from model.aug import (
@@ -16,11 +17,16 @@ class STSSL(nn.Module):
     def __init__(self, args):
         super(STSSL, self).__init__()
         # spatial temporal encoder
-        self.encoder = STEncoder(Kt=3, Ks=3, blocks=[[2, int(args.d_model//2), args.d_model], [args.d_model, int(args.d_model//2), args.d_model]], 
+        self.encoderA = STEncoder(Kt=3, Ks=3, blocks=[[2, int(args.d_model//2), args.d_model], [args.d_model, int(args.d_model//2), args.d_model]], 
+                        input_length=args.input_length, num_nodes=args.num_nodes, droprate=args.dropout)
+        self.encoderB = STEncoder(Kt=3, Ks=3, blocks=[[2, int(args.d_model//2), args.d_model], [args.d_model, int(args.d_model//2), args.d_model]], 
                         input_length=args.input_length, num_nodes=args.num_nodes, droprate=args.dropout)
         
+        self.channel_reducer = nn.Conv3d(in_channels=3, out_channels=1, kernel_size=(19, 128, 2), padding='same') ## padding='same' to keep output size same as input 
+
         # traffic flow prediction branch
         self.mlp = MLP(args.d_model, args.d_output)
+        self.mlpRepr = MLP(2*args.d_model, args.d_model)
         # temporal heterogenrity modeling branch
         self.thm = TemporalHeteroModel(args.d_model, args.batch_size, args.num_nodes, args.device)
         # spatial heterogenrity modeling branch
@@ -30,17 +36,44 @@ class STSSL(nn.Module):
         self.args = args
     
     def forward(self, view1, graph):
-        # print("view1.shape: ", view1.shape, "graph.shape: ", graph.shape)
-        repr1 = self.encoder(view1, graph) # view1: n,l,v,c; graph: v,v 
-
-        s_sim_mx = self.fetch_spatial_sim()
-        graph2 = aug_topology(s_sim_mx, graph, percent=self.args.percent*2)
+        # input_sequence_dict = {"A":[-4, 19], "B":[-9, -4], "C":[-14, -9], "D":[-19, -14]}
+        # input_sequence_dict = {"A":[-8, 35], "B":[-17, -8], "C":[-26, -17], "D":[-35, -26]}
+        # print("view1.shape: ", view1.shape, "graph.shape: ", graph.shape)  # view1.shape:  torch.Size([32, 19, 128, 2]) graph.shape:  torch.Size([128, 128])
         
-        t_sim_mx = self.fetch_temporal_sim()
-        view2 = aug_traffic(t_sim_mx, view1, percent=self.args.percent)
+        # view1A = view1[:, -8:35, :, :]
+        # view1B1 = view1[:, -17:-8, :, :].unsqueeze(1)
+        # view1B2 = view1[:, -26:-17, :, :].unsqueeze(1)
+        # view1B3 = view1[:, -35:-26, :, :].unsqueeze(1)
+        
+        view1A = view1[:, -4:19, :, :]
+        view1B1 = view1[:, -9:-4, :, :].unsqueeze(1)
+        view1B2 = view1[:, -14:-9, :, :].unsqueeze(1)
+        view1B3 = view1[:, -19:-14, :, :].unsqueeze(1)
+        
+
+        # print("view1A.shape: ", view1A.shape, "view1B1.shape: ", view1B1.shape, "view1B2.shape: ", view1B2.shape, "view1B3.shape: ", view1B3.shape)
+        view1B = torch.cat((view1B1, view1B2, view1B3), dim=1)
+        # print("\n\nview1B.shape: ", view1B.shape)
+        view1B = self.channel_reducer(view1B).squeeze(1)
+        # print("view1B_reduced.shape: ", view1B_reduced.shape)
+        repr1A = self.encoderA(view1A, graph) # view1: n,l,v,c; graph: v,v 
+        repr1B = self.encoderB(view1B, graph) # view1: n,l,v,c; graph: v,v 
+        # print("repr1A.shape: ", repr1A.shape) # repr1A.shape:  torch.Size([32, 1, 128, 64])
+        # print("repr1B.shape: ", repr1B.shape) # repr1B.shape:  torch.Size([32, 1, 128, 64])
+        combined_repr = torch.cat((repr1A, repr1B), dim=3)            ## combine along the channel dimension d_model
+        ## now 2*d_model --> d_model
+        # print("combined_repr.shape: ", combined_repr.shape)
+        combined_repr = self.mlpRepr(combined_repr)
+        # print("combined_repr.shape: ", combined_repr.shape)
+        # s_sim_mx = self.fetch_spatial_sim()
+        # graph2 = aug_topology(s_sim_mx, graph, percent=self.args.percent*2)
+        
+        # t_sim_mx = self.fetch_temporal_sim()
+        # view2 = aug_traffic(t_sim_mx, view1, percent=self.args.percent)
         # print("view2.shape: ", view2.shape, "graph2.shape: ", graph2.shape)
-        repr2 = self.encoder(view2, graph2)
-        return repr1, repr2
+        # repr2 = self.encoder(view2, graph2)
+        repr2 = None
+        return combined_repr, repr2
 
     def fetch_spatial_sim(self):
         """
@@ -58,6 +91,7 @@ class STSSL(nn.Module):
         :param z1, z2 (tensor): shape nvc
         :return: nlvc, l=1, c=2
         '''
+        # print("z1.shape: ", z1.shape)
         return self.mlp(z1)
 
     def loss(self, z1, z2, y_true, scaler, loss_weights):
@@ -65,16 +99,16 @@ class STSSL(nn.Module):
         sep_loss = [l1.item()]
         loss = loss_weights[0] * l1 
 
-        l2 = self.temporal_loss(z1, z2)
-        sep_loss.append(l2.item())
-        if self.args.T_Loss==1:
-            loss += loss_weights[1] * l2
+        # l2 = self.temporal_loss(z1, z2)
+        # sep_loss.append(l2.item())
+        # if self.args.T_Loss==1:
+            # loss += loss_weights[1] * l2
         
-        l3 = self.spatial_loss(z1, z2)
-        sep_loss.append(l3.item())
-        if self.args.S_Loss==1:
+        # l3 = self.spatial_loss(z1, z2)
+        # sep_loss.append(l3.item())
+        # if self.args.S_Loss==1:
             # print("spatial loss: ", l3)
-            loss += loss_weights[2] * l3 
+            # loss += loss_weights[2] * l3 
         # print("predLoss: ", l1.item(), "temporalLoss: ", l2.item(), "spatialLoss: ", l3.item())
         return loss, sep_loss
 

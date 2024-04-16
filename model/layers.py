@@ -228,6 +228,7 @@ class STEncoder(nn.Module):
         
 
     def forward(self, x0, graph):
+        # print("x0.shape: ", x0.shape)
         lap_mx = self._cal_laplacian(graph)
         Lk = self._cheb_polynomial(lap_mx, self.Ks)
         

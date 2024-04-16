@@ -97,7 +97,8 @@ class Trainer(object):
         return val_loss
 
     def train(self):
-        epoch_losses = []
+        train_epoch_losses = []
+        val_epoch_losses = []
         sep_epoch_losses = []
         best_loss = float('inf')
         best_epoch = 0
@@ -115,13 +116,14 @@ class Trainer(object):
                 else:
                     loss_weights  = dwa(loss_tm1, loss_tm2, self.args.temp)
             self.logger.info('loss weights: {}'.format(loss_weights))
-            train_epoch_loss, loss_t, epoch_losses, sep_epoch_losses = self.train_epoch(epoch, loss_weights, epoch_losses, sep_epoch_losses)
+            train_epoch_loss, loss_t, train_epoch_losses, sep_epoch_losses = self.train_epoch(epoch, loss_weights, train_epoch_losses, sep_epoch_losses)
             if train_epoch_loss > 1e6:
                 self.logger.warning('Gradient explosion detected. Ending...')
                 break
             
             val_dataloader = self.val_loader if self.val_loader != None else self.test_loader
             val_epoch_loss = self.val_epoch(epoch, val_dataloader, loss_weights)       
+            val_epoch_losses.append(val_epoch_loss)
             if not self.args.debug:
                 self.training_stats.update((epoch, train_epoch_loss, val_epoch_loss))
 
@@ -158,11 +160,12 @@ class Trainer(object):
         
         
 
-        def plot_losses(epoch_losses, sep_epoch_losses):
+        def plot_losses(train_epoch_losses, val_epoch_losses, sep_epoch_losses):
             plt.figure(figsize=(12, 8))
 
             # Plotting the total loss
-            plt.plot(epoch_losses, label='Total Loss')
+            plt.plot(train_epoch_losses, label='Train Loss')
+            plt.plot(val_epoch_losses, label='Val Loss')
 
             labels = ["predict", "temporal", "spatial"]
             # Plotting the separate losses
@@ -171,7 +174,7 @@ class Trainer(object):
 
             plt.xlabel('Epochs')
             plt.ylabel('Loss')
-            plt.title('Training Losses')
+            plt.title('Losses')
             plt.legend()
             # plt.show()
             plt.savefig(os.path.join(self.args.log_dir, 'losses.png'))
@@ -190,7 +193,7 @@ class Trainer(object):
             'test_results': test_results,
         }
 
-        plot_losses(epoch_losses, sep_epoch_losses)
+        plot_losses(train_epoch_losses, val_epoch_losses, sep_epoch_losses)
         return results
 
     @staticmethod
