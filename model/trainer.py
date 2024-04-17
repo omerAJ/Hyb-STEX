@@ -16,10 +16,14 @@ from lib.utils import (
 )
 from lib.metrics import test_metrics
 
+def count_parameters(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
 class Trainer(object):
     def __init__(self, model, optimizer, dataloader, graph, args):
         super(Trainer, self).__init__()
         self.model = model 
+        self.num_params = count_parameters(self.model)
         self.optimizer = optimizer
         self.train_loader = dataloader['train']
         self.val_loader = dataloader['val']
@@ -46,6 +50,7 @@ class Trainer(object):
         )
         self.logger.info('Experiment log path in: {}'.format(args.log_dir))
         self.logger.info('Experiment configs are: {}'.format(args))
+        self.logger.info('\nModel has {} trainable parameters'.format(self.num_params))
     
     def train_epoch(self, epoch, loss_weights, epoch_losses, sep_epoch_losses):
         self.model.train()

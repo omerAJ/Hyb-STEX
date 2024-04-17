@@ -9,7 +9,7 @@ debug: False # true means no log in file
 data_dir: data
 dataset: BJTaxi 
 input_length: 35 # 8+9*3
-batch_size: 20  # 32 will cause oom
+batch_size: 20
 test_batch_size: 20
 graph_file: data/BJTaxi/adj_mx.npz # num_nodes: 1024
 
@@ -27,7 +27,7 @@ yita: 0.5                   # balance for inflow loss and outflow loss, $yita * 
 epochs: 1000
 lr_init: 0.0005
 early_stop: True
-early_stop_patience: 150
+early_stop_patience: 50
 grad_norm: True
 max_grad_norm: 5
 use_dwa: True         # whether to use dwa for loss balance

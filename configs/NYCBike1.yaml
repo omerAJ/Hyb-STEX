@@ -30,7 +30,7 @@ yita: 0.6                   # balance for inflow loss and outflow loss, $yita * 
 epochs: 500
 lr_init: 0.001
 early_stop: True
-early_stop_patience: 200
+early_stop_patience: 30
 grad_norm: True
 max_grad_norm: 5
 use_dwa: True         # whether to use dwa for loss balance
