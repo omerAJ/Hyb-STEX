@@ -50,7 +50,7 @@ class Trainer(object):
         )
         self.logger.info('Experiment log path in: {}'.format(args.log_dir))
         self.logger.info('Experiment configs are: {}'.format(args))
-        self.logger.info('\nModel has {} trainable parameters'.format(self.num_params))
+        self.logger.info('\nModel has {} M trainable parameters'.format(self.num_params/(1e6)))
     
     def train_epoch(self, epoch, loss_weights, epoch_losses, sep_epoch_losses):
         self.model.train()

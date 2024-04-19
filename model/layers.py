@@ -229,7 +229,7 @@ class STEncoder(nn.Module):
 
     def forward(self, x0, graph):
         # print("x0.shape: ", x0.shape)
-        lap_mx = self._cal_laplacian(graph)
+        lap_mx = self._cal_laplacian(graph)      ## from adj to laplacian
         Lk = self._cheb_polynomial(lap_mx, self.Ks)
         
         in_len = x0.size(1) # x0, nlvc
@@ -276,6 +276,7 @@ class STEncoder(nn.Module):
         :param laplacian: the graph laplacian, [v, v].
         :return: the multi order Chebyshev laplacian, [K, v, v].
         """
+        # print("approximating cheb_polynomial of order {}".format(K))
         N = laplacian.size(0)  
         multi_order_laplacian = torch.zeros([K, N, N], device=laplacian.device, dtype=torch.float) 
         multi_order_laplacian[0] = torch.eye(N, device=laplacian.device, dtype=torch.float)
@@ -288,8 +289,7 @@ class STEncoder(nn.Module):
                 return multi_order_laplacian
             else:
                 for k in range(2, K):
-                    multi_order_laplacian[k] = 2 * torch.mm(laplacian, multi_order_laplacian[k-1]) - \
-                                               multi_order_laplacian[k-2]
+                    multi_order_laplacian[k] = 2 * torch.mm(laplacian, multi_order_laplacian[k-1]) - multi_order_laplacian[k-2]
 
         return multi_order_laplacian
 
@@ -370,9 +370,18 @@ class SpatioConvLayer(nn.Module):
         init.uniform_(self.b, -bound, bound)
 
     def forward(self, x, Lk):
+        ## [bs, channels, timesteps, nodes]
+        # x.shape:  torch.Size([32, 32, 17, 128]) Lk.shape:  torch.Size([3, 128, 128])
+        # x_c.shape :  torch.Size([32, 32, 17, 3, 128]) Lk.shape:  torch.Size([3, 128, 128])
+        # x_gc.shape :  torch.Size([32, 32, 17, 128])
+        # x_in.shape :  torch.Size([32, 32, 17, 128])
+        # print("x.shape: ", x.shape, "Lk.shape: ", Lk.shape)
         x_c = torch.einsum("knm,bitm->bitkn", Lk, x)  
+        # print("x_c.shape : ", x_c.shape, "Lk.shape: ", Lk.shape)
         x_gc = torch.einsum("iok,bitkn->botn", self.theta, x_c) + self.b 
+        # print("x_gc.shape : ", x_gc.shape)
         x_in = self.align(x) 
+        # print("x_in.shape : ", x_in.shape)
         return torch.relu(x_gc + x_in)
 
 class Pooler(nn.Module):

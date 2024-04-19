@@ -17,26 +17,26 @@ class STSSL(nn.Module):
     def __init__(self, args):
         super(STSSL, self).__init__()
         # spatial temporal encoder
-        self.encoderA = STEncoder(Kt=3, Ks=3, blocks=[[2, int(args.d_model//2), args.d_model], [args.d_model, int(args.d_model//2), args.d_model]], 
+        self.encoderA = STEncoder(Kt=3, Ks=args.cheb_order, blocks=[[2, int(args.d_model//2), args.d_model], [args.d_model, int(args.d_model//2), args.d_model]], 
                         input_length=args.input_length, num_nodes=args.num_nodes, droprate=args.dropout)
-        self.encoderB = STEncoder(Kt=3, Ks=3, blocks=[[2, int(args.d_model//2), args.d_model], [args.d_model, int(args.d_model//2), args.d_model]], 
+        self.encoderB = STEncoder(Kt=3, Ks=args.cheb_order, blocks=[[2, int(args.d_model//2), args.d_model], [args.d_model, int(args.d_model//2), args.d_model]], 
                         input_length=args.input_length, num_nodes=args.num_nodes, droprate=args.dropout)
-        self.encoderC = STEncoder(Kt=3, Ks=3, blocks=[[2, int(args.d_model//2), args.d_model], [args.d_model, int(args.d_model//2), args.d_model]], 
-                        input_length=args.input_length, num_nodes=args.num_nodes, droprate=args.dropout)
-        self.encoderD = STEncoder(Kt=3, Ks=3, blocks=[[2, int(args.d_model//2), args.d_model], [args.d_model, int(args.d_model//2), args.d_model]], 
-                        input_length=args.input_length, num_nodes=args.num_nodes, droprate=args.dropout)
+        # self.encoderC = STEncoder(Kt=3, Ks=3, blocks=[[2, int(args.d_model//2), args.d_model], [args.d_model, int(args.d_model//2), args.d_model]], 
+        #                 input_length=args.input_length, num_nodes=args.num_nodes, droprate=args.dropout)
+        # self.encoderD = STEncoder(Kt=3, Ks=3, blocks=[[2, int(args.d_model//2), args.d_model], [args.d_model, int(args.d_model//2), args.d_model]], 
+        #                 input_length=args.input_length, num_nodes=args.num_nodes, droprate=args.dropout)
         
-        self.channel_reducer1 = nn.Conv3d(in_channels=3, out_channels=1, kernel_size=(1, 1, 1), padding='same') ## padding='same' to keep output size same as input 
-        self.channel_reducer2 = nn.Conv3d(in_channels=3, out_channels=1, kernel_size=(1, 1, 1), padding='same') ## padding='same' to keep output size same as input 
-        self.channel_reducer = nn.Conv3d(in_channels=3, out_channels=1, kernel_size=(1, 1, 1), padding='same') ## padding='same' to keep output size same as input 
+        # self.channel_reducer1 = nn.Conv3d(in_channels=3, out_channels=1, kernel_size=(1, 1, 1), padding='same') ## padding='same' to keep output size same as input 
+        # self.channel_reducer2 = nn.Conv3d(in_channels=3, out_channels=1, kernel_size=(1, 1, 1), padding='same') ## padding='same' to keep output size same as input 
+        # self.channel_reducer = nn.Conv3d(in_channels=3, out_channels=1, kernel_size=(1, 1, 1), padding='same') ## padding='same' to keep output size same as input 
 
         # traffic flow prediction branch
         self.mlp = MLP(args.d_model, args.d_output)
-        self.mlpRepr = MLP(3*args.d_model, args.d_model)
+        self.mlpRepr = MLP(2*args.d_model, args.d_model)
         # temporal heterogenrity modeling branch
-        self.thm = TemporalHeteroModel(args.d_model, args.batch_size, args.num_nodes, args.device)
+        # self.thm = TemporalHeteroModel(args.d_model, args.batch_size, args.num_nodes, args.device)
         # spatial heterogenrity modeling branch
-        self.shm = SpatialHeteroModel(args.d_model, args.nmb_prototype, args.batch_size, args.shm_temp)
+        # self.shm = SpatialHeteroModel(args.d_model, args.nmb_prototype, args.batch_size, args.shm_temp)
         self.mae = masked_mae_loss(mask_value=5.0)
         # self.mae = masked_mae_loss(mask_value=None)
         self.args = args
@@ -48,14 +48,14 @@ class STSSL(nn.Module):
         
         view1A = view1[:, -8:35, :, :]
         view1B = view1[:, -17:-8, :, :]
-        view1C = view1[:, -26:-17, :, :]
+        # view1C = view1[:, -26:-17, :, :]
         # view1D = view1[:, -35:-26, :, :]
         
         # view1A = view1[:, -4:19, :, :]
         # view1B = view1[:, -9:-4, :, :]
         # view1C = view1[:, -14:-9, :, :]
         # view1D = view1[:, -19:-14, :, :]
-        
+        # print("\n\n graph.shape: ", graph.shape)  ## graph.shape:  torch.Size([128, 128])
 
         # print("view1A.shape: ", view1A.shape, "view1B1.shape: ", view1B1.shape, "view1B2.shape: ", view1B2.shape, "view1B3.shape: ", view1B3.shape)
         # view1B = torch.cat((view1B1, view1B2, view1B3), dim=1)
@@ -71,13 +71,19 @@ class STSSL(nn.Module):
         # view1BOUT = self.channel_reducer2(view1BOUT).squeeze(1)
         # view1B = torch.cat((view1BIN, view1BOUT), dim=-1)
         # print("view1B_reduced.shape: ", view1B_reduced.shape)
+        
+        
         repr1A = self.encoderA(view1A, graph) # view1: n,l,v,c; graph: v,v 
         repr1B = self.encoderB(view1B, graph) # view1: n,l,v,c; graph: v,v 
-        repr1C = self.encoderC(view1C, graph) # view1: n,l,v,c; graph: v,v 
+        # repr1C = self.encoderC(view1C, graph) # view1: n,l,v,c; graph: v,v 
         # repr1D = self.encoderD(view1D, graph) # view1: n,l,v,c; graph: v,v 
+        
+        
         # print("repr1A.shape: ", repr1A.shape) # repr1A.shape:  torch.Size([32, 1, 128, 64])
         # print("repr1B.shape: ", repr1B.shape) # repr1B.shape:  torch.Size([32, 1, 128, 64])
-        combined_repr = torch.cat((repr1A, repr1B, repr1C), dim=3)            ## combine along the channel dimension d_model
+        
+        combined_repr = torch.cat((repr1A, repr1B), dim=3)            ## combine along the channel dimension d_model
+        
         ## now 2*d_model --> d_model
         # print("combined_repr.shape: ", combined_repr.shape)
         combined_repr = self.mlpRepr(combined_repr)
