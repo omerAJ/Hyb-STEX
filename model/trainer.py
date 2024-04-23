@@ -23,14 +23,22 @@ class Trainer(object):
     def __init__(self, model, optimizer, dataloader, graph, args):
         super(Trainer, self).__init__()
         self.model = model 
+        self.graph = graph
+        self.args = args
+
+        if isinstance(self.model, torch.nn.Module):  # Check if it's a PyTorch module
+            with torch.no_grad():  # Temporarily disable gradient calculations
+                dummy_input = self._get_dummy_input(dataloader['val'], args)  
+                _ = self.model(dummy_input, self.graph)  # Trigger initialization
+
         self.num_params = count_parameters(self.model)
+        
         self.optimizer = optimizer
         self.train_loader = dataloader['train']
         self.val_loader = dataloader['val']
         self.test_loader = dataloader['test']
         self.scaler = dataloader['scaler']
-        self.graph = graph
-        self.args = args
+        
 
         self.train_per_epoch = len(self.train_loader)
         if self.val_loader != None:
@@ -41,6 +49,7 @@ class Trainer(object):
         if os.path.isdir(args.log_dir) == False and not args.debug:
             os.makedirs(args.log_dir, exist_ok=True)
         self.logger = get_logger(args.log_dir, name=args.log_dir, debug=args.debug)
+        self.logger.info('\nModel has {} M trainable parameters'.format(self.num_params/(1e6)))
         self.best_path = os.path.join(self.args.log_dir, 'best_model.pth')
         
         # create a panda object to log loss and acc
@@ -52,6 +61,15 @@ class Trainer(object):
         self.logger.info('Experiment configs are: {}'.format(args))
         self.logger.info('\nModel has {} M trainable parameters'.format(self.num_params/(1e6)))
     
+    def _get_dummy_input(self, dataloader, args):
+        # Construct a suitable dummy input based on your dataloader and args
+        # Example:
+        for batch in dataloader: 
+            # print("batch.shape: ", batch[0].shape, batch[1].shape)  # batch.shape:  torch.Size([32, 35, 200, 2]) torch.Size([32, 1, 200, 2])
+            if args.device == 'cuda':
+                batch = batch[0].to('cuda')
+            return batch 
+   
     def train_epoch(self, epoch, loss_weights, epoch_losses, sep_epoch_losses):
         self.model.train()
         
@@ -62,8 +80,10 @@ class Trainer(object):
             self.optimizer.zero_grad()
             
             # input shape: n,l,v,c; graph shape: v,v;
-            repr1, repr2 = self.model(data, self.graph) # nvc
-            loss, sep_loss = self.model.loss(repr1, repr2, target, self.scaler, loss_weights)
+            repr1, learnable_graph = self.model(data, self.graph) # nvc
+            
+
+            loss, sep_loss = self.model.loss(repr1, learnable_graph, target, self.scaler, loss_weights)
             assert not torch.isnan(loss)
             loss.backward()
 
@@ -76,6 +96,36 @@ class Trainer(object):
             self.optimizer.step()
             total_loss += loss.item()
             total_sep_loss += sep_loss
+        if epoch % 2 == 0 or epoch == 1 or epoch == 0:
+            plot = "npArray"
+            if plot == "image":
+                import networkx as nx
+                import matplotlib.pyplot as plt
+
+                if torch.is_tensor(learnable_graph):
+                    graph_matrix = learnable_graph.detach().cpu().numpy()  # Convert to NumPy
+                else:
+                    graph_matrix = learnable_graph  # Assuming it's already a NumPy array
+
+                G = nx.Graph(graph_matrix)  # Create the NetworkX graph
+                nx.draw(G, with_labels=True) 
+                save_path = os.path.join(self.args.log_dir, f'learnable_graph_epoch_{epoch}.png')
+                plt.savefig(save_path)
+                plt.close()  
+
+            elif plot == "matrix":
+                import seaborn as sns
+                import matplotlib.pyplot as plt
+                adj = learnable_graph.detach().cpu().numpy()
+                plt.figure(figsize=(20, 20))
+                sns.heatmap(adj, cmap='viridis', annot=True)  # annot=True shows values
+                plt.title('Adjacency Matrix Visualization')
+                save_path = os.path.join(self.args.log_dir, f'learnable_graph_epoch_{epoch}.png')
+                plt.savefig(save_path)
+
+            elif plot == "npArray":
+                # print("==>", learnable_graph.detach().cpu().numpy().shape)
+                np.save(os.path.join(self.args.log_dir, f'learnable_graph_epoch_{epoch}.npy'), learnable_graph.detach().cpu().numpy())
 
         train_epoch_loss = total_loss/self.train_per_epoch
         total_sep_loss = total_sep_loss/self.train_per_epoch

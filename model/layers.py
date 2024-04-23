@@ -176,6 +176,8 @@ class STEncoder(nn.Module):
             self.pooler = Pooler(input_length - (Kt - 1), c[1])
             
             self.sconv12 = SpatioConvLayer(Ks, c[1], c[1])
+            # self.sconv12 = SpatialAttention(64, 1)
+            
             self.tconv13 = TemporalConvLayer(Kt, c[1], c[2], paddin='same', flag=True)
             self.ln1 = nn.LayerNorm([num_nodes, c[2]])
             self.dropout1 = nn.Dropout(droprate)
@@ -184,6 +186,8 @@ class STEncoder(nn.Module):
             self.tconv21 = TemporalConvLayer(Kt, c[0], c[1], "GLU", paddin='same', flag=True)
             
             self.sconv22 = SpatioConvLayer(Ks, c[1], c[1])
+            # self.sconv22 = SpatialAttention(1056, 1)
+            
             self.tconv23 = TemporalConvLayer(Kt, c[1], c[2], paddin='same', flag=True)
             self.ln2 = nn.LayerNorm([num_nodes, c[2]])
             self.dropout2 = nn.Dropout(droprate)
@@ -204,6 +208,8 @@ class STEncoder(nn.Module):
             self.pooler = Pooler(input_length - (Kt - 1), c[1])
             
             self.sconv12 = SpatioConvLayer(Ks, c[1], c[1])
+            # self.sconv12 = SpatialAttention(1056, 1)
+
             self.tconv13 = TemporalConvLayer(Kt, c[1], c[2])
             self.ln1 = nn.LayerNorm([num_nodes, c[2]])
             self.dropout1 = nn.Dropout(droprate)
@@ -212,6 +218,8 @@ class STEncoder(nn.Module):
             self.tconv21 = TemporalConvLayer(Kt, c[0], c[1], "GLU")
             
             self.sconv22 = SpatioConvLayer(Ks, c[1], c[1])
+            # self.sconv22 = SpatialAttention(928, 1)
+
             self.tconv23 = TemporalConvLayer(Kt, c[1], c[2])
             self.ln2 = nn.LayerNorm([num_nodes, c[2]])
             self.dropout2 = nn.Dropout(droprate)
@@ -229,9 +237,12 @@ class STEncoder(nn.Module):
 
     def forward(self, x0, graph):
         # print("x0.shape: ", x0.shape)
-        lap_mx = self._cal_laplacian(graph)      ## from adj to laplacian
-        Lk = self._cheb_polynomial(lap_mx, self.Ks)
-        
+        # print("graph.shape: ", graph.shape)
+        # lap_mx = self._cal_laplacian(graph)      ## from adj to laplacian
+        # Lk = self._cheb_polynomial(lap_mx, self.Ks)
+        # print("Lk.shape: ", Lk.shape)
+        Lk = graph.unsqueeze(0)
+
         in_len = x0.size(1) # x0, nlvc
         if in_len < self.receptive_field:
             x = F.pad(x0, (0,0,0,0,self.receptive_field-in_len,0))
@@ -246,7 +257,7 @@ class STEncoder(nn.Module):
         x, x_agg, self.t_sim_mx = self.pooler(x)
         # print("x.shape (after pooler): ", x.shape)
         self.s_sim_mx = sim_global(x_agg, sim_type='cos')
-
+        #print("x.shape (before sconv12): ", x.shape)
         x = self.sconv12(x, Lk)   # nclv
         # print("x.shape (after sconv12): ", x.shape)
         x = self.tconv13(x)  
@@ -255,7 +266,8 @@ class STEncoder(nn.Module):
         
         ## ST block 2
         x = self.tconv21(x)
-        # print("x.shape (after tconv21): ", x.shape)
+        #print("x.shape (after tconv21): ", x.shape)
+        #print("x.shape (before sconv22): ", x.shape)
         x = self.sconv22(x, Lk)
         # print("x.shape (after sconv22): ", x.shape)
         x = self.tconv23(x)
@@ -445,8 +457,11 @@ class MLP(nn.Module):
         self.fc2 = FCLayer(int(c_in // 2), c_out)
 
     def forward(self, x):
+        # print("x.shape before fc1: ", x.shape)   # torch.Size([32, 1, 200, 128])
         x = torch.tanh(self.fc1(x.permute(0, 3, 1, 2))) # nlvc->nclv
+        # print("x.shape after fc1: ", x.shape)
         x = self.fc2(x).permute(0, 2, 3, 1) # nclv->nlvc
+        # print("x.shape after fc2: ", x.shape)
         return x
 
 class FCLayer(nn.Module):
@@ -456,3 +471,75 @@ class FCLayer(nn.Module):
 
     def forward(self, x):
         return self.linear(x)
+
+class actuallyMLP(nn.Module):
+    def __init__(self, c_in, c_out):
+        super(actuallyMLP, self).__init__()
+        self.fc1 = nn.Linear(c_in*200, int(c_in/2)*200)
+        self.fc2 = nn.Linear(int(c_in/2)*200, c_out*200)
+        self.c_out = c_out
+
+    def forward(self, x):
+        # print("x.shape: ", x.shape)   # torch.Size([32, 1, 200, 128])
+        x = x.squeeze(1)
+        x = x.view(x.size(0), -1) 
+        x = F.relu(self.fc1(x))             ##using a relu instead of a tanh as in the original MLP
+        x = self.fc2(x)
+        x = x.view(x.size(0), -1, self.c_out)
+        x = x.unsqueeze(1)
+        return x
+
+
+class Attention(nn.Module):
+    def __init__(self, d_model, n_heads):
+        super(Attention, self).__init__()
+        self.d_model = d_model
+        self.n_heads = n_heads
+        self.q_linear = nn.Linear(d_model, d_model)            # for LazyLinear only specify out_channels, in_channels is inferred from first forward path
+        self.k_linear = nn.Linear(d_model, d_model)              ## basically i will map whatever the input the dimension was to a fixed length d_model
+        self.v_linear = nn.Linear(d_model, d_model)
+        self.out_linear = nn.Linear(d_model, d_model)
+
+    def forward(self, x):
+        q = self.q_linear(x)
+        k = self.k_linear(x)
+        v = self.v_linear(x)
+
+        q = q.view(q.size(0), -1, self.n_heads, self.d_model // self.n_heads).transpose(1, 2)
+        k = k.view(k.size(0), -1, self.n_heads, self.d_model // self.n_heads).transpose(1, 2)
+        v = v.view(v.size(0), -1, self.n_heads, self.d_model // self.n_heads).transpose(1, 2)
+
+        scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.d_model // self.n_heads)
+        scores = F.softmax(scores, dim=-1)
+
+        attended = torch.matmul(scores, v).transpose(1, 2).contiguous().view(x.size(0), -1, self.d_model)
+
+        output = self.out_linear(attended)
+        return output
+    
+class SpatialAttention(nn.Module):
+    def __init__(self, d_model, n_heads):
+        super(SpatialAttention, self).__init__()
+        self.d_model = d_model
+        self.n_heads = n_heads
+        self.attention = Attention(d_model, n_heads)
+
+    def forward(self, x):
+
+        x_og = x
+        # x.shape: [bs, c, t, num_nodes]
+        #print("x.shape: ", x.shape)
+        x = x.reshape(x.size(0), -1, x.size(3)).transpose(-2, -1)  # [bs, c*t, num_nodes] => [bs, num_nodes, c*t]   d_model = c*t
+        #print("x.shape (after reshape): ", x.shape)
+        # Apply attention
+        x_skip = x
+        x = self.attention(x)
+        #print("x.shape (after attention): ", x.shape)
+        x+=x_skip
+        x_skip = x
+        x = self.attention(x)
+        x+=x_skip
+        # Reshape x back to original shape
+        x = x.transpose(-2, -1).reshape(x_og.shape)  # [bs, c, t, num_nodes]
+        #print("x_out.shape: ", x.shape)
+        return x

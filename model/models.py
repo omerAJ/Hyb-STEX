@@ -10,9 +10,11 @@ from model.layers import (
     STEncoder, 
     SpatialHeteroModel, 
     TemporalHeteroModel, 
-    MLP, 
+    MLP,
+    actuallyMLP,
+    Attention, 
 )
-
+import numpy as np
 class STSSL(nn.Module):
     def __init__(self, args):
         super(STSSL, self).__init__()
@@ -30,8 +32,11 @@ class STSSL(nn.Module):
         # self.channel_reducer2 = nn.Conv3d(in_channels=3, out_channels=1, kernel_size=(1, 1, 1), padding='same') ## padding='same' to keep output size same as input 
         # self.channel_reducer = nn.Conv3d(in_channels=3, out_channels=1, kernel_size=(1, 1, 1), padding='same') ## padding='same' to keep output size same as input 
 
+        self.attention1 = Attention(128, 4)
+        self.attention2 = Attention(128, 4)
+
         # traffic flow prediction branch
-        self.mlp = MLP(args.d_model, args.d_output)
+        self.mlp = MLP(2*args.d_model, args.d_output)
         self.mlpRepr = MLP(2*args.d_model, args.d_model)
         # temporal heterogenrity modeling branch
         # self.thm = TemporalHeteroModel(args.d_model, args.batch_size, args.num_nodes, args.device)
@@ -40,7 +45,34 @@ class STSSL(nn.Module):
         self.mae = masked_mae_loss(mask_value=5.0)
         # self.mae = masked_mae_loss(mask_value=None)
         self.args = args
+        adj = args.graph_file
+        adj = np.load(adj)["adj_mx"]
+        graph_init = args.graph_init
+        
+        self.attention_flag = args.attention_flag
+        if graph_init == "eye":
+            self.learnable_graph = nn.Parameter(torch.eye(adj.shape[1]).float(), requires_grad=False)
+        elif graph_init == "zeros":
+            self.learnable_graph = nn.Parameter(torch.zeros_like(torch.tensor(adj).float()), requires_grad=False)
+        elif graph_init == "ones":
+            self.learnable_graph = nn.Parameter(torch.ones_like(torch.tensor(adj).float()), requires_grad=False)
+        elif graph_init == "random":
+            self.learnable_graph = nn.Parameter(torch.empty_like(torch.tensor(adj).float()), requires_grad=False)
+            self.xavier_uniform_init(self.learnable_graph)
+        elif graph_init == "8_neighbours":
+            self.learnable_graph = nn.Parameter(torch.from_numpy(adj).float(), requires_grad=False)
+                  
+        # self.learnable_graph = nn.Parameter(torch.from_numpy(adj).float(), requires_grad=True)
+        # self.learnable_graph = nn.Parameter(torch.zeros_like(torch.tensor(adj).float()), requires_grad=True)
+        # self.learnable_graph = nn.Parameter(torch.eye(adj.shape[1]).float(), requires_grad=False)
+
+        # nn.init.xavier_uniform_(self.learnable_graph)        
     
+    def xavier_uniform_init(self, tensor):
+        fan_in, fan_out = nn.init._calculate_fan_in_and_fan_out(tensor)
+        std = np.sqrt(2.0 / (fan_in + fan_out))
+        nn.init.uniform_(tensor, -std, std) 
+
     def forward(self, view1, graph):
         # input_sequence_dict = {"A":[-4, 19], "B":[-9, -4], "C":[-14, -9], "D":[-19, -14]}
         # input_sequence_dict = {"A":[-8, 35], "B":[-17, -8], "C":[-26, -17], "D":[-35, -26]}
@@ -73,11 +105,10 @@ class STSSL(nn.Module):
         # print("view1B_reduced.shape: ", view1B_reduced.shape)
         
         
-        repr1A = self.encoderA(view1A, graph) # view1: n,l,v,c; graph: v,v 
-        repr1B = self.encoderB(view1B, graph) # view1: n,l,v,c; graph: v,v 
+        repr1A = self.encoderA(view1A, self.learnable_graph) # view1: n,l,v,c; graph: v,v 
+        repr1B = self.encoderB(view1B, self.learnable_graph) # view1: n,l,v,c; graph: v,v 
         # repr1C = self.encoderC(view1C, graph) # view1: n,l,v,c; graph: v,v 
         # repr1D = self.encoderD(view1D, graph) # view1: n,l,v,c; graph: v,v 
-        
         
         # print("repr1A.shape: ", repr1A.shape) # repr1A.shape:  torch.Size([32, 1, 128, 64])
         # print("repr1B.shape: ", repr1B.shape) # repr1B.shape:  torch.Size([32, 1, 128, 64])
@@ -86,7 +117,7 @@ class STSSL(nn.Module):
         
         ## now 2*d_model --> d_model
         # print("combined_repr.shape: ", combined_repr.shape)
-        combined_repr = self.mlpRepr(combined_repr)
+        # combined_repr = self.mlpRepr(combined_repr)
         # print("combined_repr.shape: ", combined_repr.shape)
         # s_sim_mx = self.fetch_spatial_sim()
         # graph2 = aug_topology(s_sim_mx, graph, percent=self.args.percent*2)
@@ -96,7 +127,7 @@ class STSSL(nn.Module):
         # print("view2.shape: ", view2.shape, "graph2.shape: ", graph2.shape)
         # repr2 = self.encoder(view2, graph2)
         repr2 = None
-        return combined_repr, repr2
+        return combined_repr, self.learnable_graph
 
     def fetch_spatial_sim(self):
         """
@@ -114,8 +145,18 @@ class STSSL(nn.Module):
         :param z1, z2 (tensor): shape nvc
         :return: nlvc, l=1, c=2
         '''
-        # print("z1.shape: ", z1.shape)
-        return self.mlp(z1)
+        if self.attention_flag == True:
+            z1 = z1.squeeze(1)
+            z1_skip = z1
+            z1 = self.attention1(z1)
+            z1 = z1 + z1_skip
+            z1_skip = z1
+            z1 = self.attention2(z1)
+            z1 = z1 + z1_skip
+            z1 = z1.unsqueeze(1)
+            return self.mlp(z1)
+        elif self.attention_flag == False:
+            return self.mlp(z1)
 
     def loss(self, z1, z2, y_true, scaler, loss_weights):
         l1 = self.pred_loss(z1, z2, y_true, scaler)

@@ -76,13 +76,19 @@ def model_supervisor(args):
 
 if __name__=='__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--config_filename', default='configs/NYCTaxi.yaml', 
+    parser.add_argument('--config_filename', '-cf', default='configs/NYCTaxi.yaml', 
                     type=str, help='the configuration to use')
     parser.add_argument('--S_Loss', default=0, type=int, help='use S_Loss or not')
     parser.add_argument('--T_Loss', default=0, type=int, help='use T_Loss or not')
     parser.add_argument('--seed', default=1, type=int, help='random seed to use')
     parser.add_argument('--comment', "-c", default="noComment", type=str, help='comment about the experiment')
     parser.add_argument('--cheb_order', "-K", default=3, type=int, help='calculate the chebyshev polynomials up to this order')
+    parser.add_argument('--graph_init', "-g", default="neighbours", type=str, help='how to initialize the learnable graph')
+
+    """
+    if you pass bool flags in cli it will automatically make it true, irrespective if you pass True or False. If you dont pass it then it uses the default value.
+    """
+    parser.add_argument('--attention_flag', "-a", default=False, type=bool, help='wether to self  attention before pred')
     # parser.add_argument('--input_length', default=0, type=int, help='# of samples to use for context')
     args = parser.parse_args()
     print(f'Starting experiment with configurations in {args.config_filename}...')
@@ -97,6 +103,8 @@ if __name__=='__main__':
     configs['seed'] = args.seed
     configs['comment'] = args.comment
     configs['cheb_order'] = args.cheb_order
+    configs['graph_init'] = args.graph_init
+    configs['attention_flag'] = args.attention_flag
     # configs['input_length'] = args.input_length
     # experimentName = "pred_" + str(args.input_length) + "_"
     experimentName = "pred_"
