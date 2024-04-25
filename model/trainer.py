@@ -96,7 +96,7 @@ class Trainer(object):
             self.optimizer.step()
             total_loss += loss.item()
             total_sep_loss += sep_loss
-        if epoch % 2 == 0 or epoch == 1 or epoch == 0:
+        if epoch % 10 == 0:
             plot = "npArray"
             if plot == "image":
                 import networkx as nx

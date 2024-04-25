@@ -12,17 +12,17 @@ from model.layers import (
     TemporalHeteroModel, 
     MLP,
     actuallyMLP,
-    Attention, 
+    self_Attention,
+    cross_Attention, 
+    PositionWise_cross_Attention,
+    PositionwiseFeedForward,
 )
 import numpy as np
 class STSSL(nn.Module):
     def __init__(self, args):
         super(STSSL, self).__init__()
         # spatial temporal encoder
-        self.encoderA = STEncoder(Kt=3, Ks=args.cheb_order, blocks=[[2, int(args.d_model//2), args.d_model], [args.d_model, int(args.d_model//2), args.d_model]], 
-                        input_length=args.input_length, num_nodes=args.num_nodes, droprate=args.dropout)
-        self.encoderB = STEncoder(Kt=3, Ks=args.cheb_order, blocks=[[2, int(args.d_model//2), args.d_model], [args.d_model, int(args.d_model//2), args.d_model]], 
-                        input_length=args.input_length, num_nodes=args.num_nodes, droprate=args.dropout)
+        
         # self.encoderC = STEncoder(Kt=3, Ks=3, blocks=[[2, int(args.d_model//2), args.d_model], [args.d_model, int(args.d_model//2), args.d_model]], 
         #                 input_length=args.input_length, num_nodes=args.num_nodes, droprate=args.dropout)
         # self.encoderD = STEncoder(Kt=3, Ks=3, blocks=[[2, int(args.d_model//2), args.d_model], [args.d_model, int(args.d_model//2), args.d_model]], 
@@ -32,11 +32,27 @@ class STSSL(nn.Module):
         # self.channel_reducer2 = nn.Conv3d(in_channels=3, out_channels=1, kernel_size=(1, 1, 1), padding='same') ## padding='same' to keep output size same as input 
         # self.channel_reducer = nn.Conv3d(in_channels=3, out_channels=1, kernel_size=(1, 1, 1), padding='same') ## padding='same' to keep output size same as input 
 
-        self.attention1 = Attention(128, 4)
-        self.attention2 = Attention(128, 4)
+        self.attentionA1 = self_Attention(64, 4)
+        self.attentionA2 = self_Attention(64, 4)
+        self.attentionB1 = self_Attention(64, 4)
+        self.attentionB2 = self_Attention(64, 4)
+        self.add_attentionA1 = self_Attention(64, 4)
+        self.add_attentionB1 = self_Attention(64, 4)
+        self.add_attentionA2 = self_Attention(64, 4)
+        self.add_attentionB2 = self_Attention(64, 4)
 
+
+        self.cross_attention1 = PositionWise_cross_Attention(64, 4)
+        self.cross_attention2 = PositionWise_cross_Attention(64, 4)
+
+        self.ffA1 = PositionwiseFeedForward(d_model=64, d_ff=64*4)
+        self.ffB1 = PositionwiseFeedForward(d_model=64, d_ff=64*4)
+        self.ffA2 = PositionwiseFeedForward(d_model=64, d_ff=64*4)
+        self.ffB2 = PositionwiseFeedForward(d_model=64, d_ff=64*4)
+        self.ffCA1 = PositionwiseFeedForward(d_model=64, d_ff=64*4)
+        self.ffCA2 = PositionwiseFeedForward(d_model=64, d_ff=64*4)
         # traffic flow prediction branch
-        self.mlp = MLP(2*args.d_model, args.d_output)
+        self.mlp = MLP(args.d_model, args.d_output)
         self.mlpRepr = MLP(2*args.d_model, args.d_model)
         # temporal heterogenrity modeling branch
         # self.thm = TemporalHeteroModel(args.d_model, args.batch_size, args.num_nodes, args.device)
@@ -49,10 +65,16 @@ class STSSL(nn.Module):
         adj = np.load(adj)["adj_mx"]
         graph_init = args.graph_init
         
-        self.attention_flag = args.attention_flag
+        ## attention flags
+        self.self_attention_flag = args.self_attention_flag
+        self.cross_attention_flag = args.cross_attention_flag
+        self.feedforward_flag = args.feedforward_flag
+        self.layer_norm_flag = args.layer_norm_flag
+        self.additional_sa_flag = args.additional_sa_flag
+
         if graph_init == "eye":
             self.learnable_graph = nn.Parameter(torch.eye(adj.shape[1]).float(), requires_grad=False)
-        elif graph_init == "zeros":
+        elif graph_init == "zeros":             ## zero will actually not do sconv now, as i have set the do_sconv flag. Before it still did eye sconv because of cheb approximation.
             self.learnable_graph = nn.Parameter(torch.zeros_like(torch.tensor(adj).float()), requires_grad=False)
         elif graph_init == "ones":
             self.learnable_graph = nn.Parameter(torch.ones_like(torch.tensor(adj).float()), requires_grad=False)
@@ -61,13 +83,35 @@ class STSSL(nn.Module):
             self.xavier_uniform_init(self.learnable_graph)
         elif graph_init == "8_neighbours":
             self.learnable_graph = nn.Parameter(torch.from_numpy(adj).float(), requires_grad=False)
-                  
+
+        self.encoderA = STEncoder(Kt=3, Ks=args.cheb_order, blocks=[[2, int(args.d_model//2), args.d_model], [args.d_model, int(args.d_model//2), args.d_model]], 
+                        input_length=args.input_length, num_nodes=args.num_nodes, droprate=args.dropout, graph_init=graph_init)
+        self.encoderB = STEncoder(Kt=3, Ks=args.cheb_order, blocks=[[2, int(args.d_model//2), args.d_model], [args.d_model, int(args.d_model//2), args.d_model]], 
+                        input_length=args.input_length, num_nodes=args.num_nodes, droprate=args.dropout, graph_init=graph_init)         
         # self.learnable_graph = nn.Parameter(torch.from_numpy(adj).float(), requires_grad=True)
         # self.learnable_graph = nn.Parameter(torch.zeros_like(torch.tensor(adj).float()), requires_grad=True)
         # self.learnable_graph = nn.Parameter(torch.eye(adj.shape[1]).float(), requires_grad=False)
 
         # nn.init.xavier_uniform_(self.learnable_graph)        
     
+        ## norms
+        self.layernorm1 = nn.LayerNorm(64)
+        self.layernorm2 = nn.LayerNorm(64)
+        self.layernorm3 = nn.LayerNorm(64)
+        self.layernorm4 = nn.LayerNorm(64)
+        self.layernorm5 = nn.LayerNorm(64)
+        self.layernorm6 = nn.LayerNorm(64)
+        self.layernorm7 = nn.LayerNorm(64)
+        self.layernorm8 = nn.LayerNorm(64)
+        self.layernorm9 = nn.LayerNorm(64)
+        self.layernorm10 = nn.LayerNorm(64)
+        self.layernorm11 = nn.LayerNorm(64)
+        self.layernorm12 = nn.LayerNorm(64)
+        self.layernorm13 = nn.LayerNorm(64)
+        self.layernorm14 = nn.LayerNorm(64)
+        self.layernorm15 = nn.LayerNorm(64)
+        self.layernorm16 = nn.LayerNorm(64)
+
     def xavier_uniform_init(self, tensor):
         fan_in, fan_out = nn.init._calculate_fan_in_and_fan_out(tensor)
         std = np.sqrt(2.0 / (fan_in + fan_out))
@@ -113,7 +157,173 @@ class STSSL(nn.Module):
         # print("repr1A.shape: ", repr1A.shape) # repr1A.shape:  torch.Size([32, 1, 128, 64])
         # print("repr1B.shape: ", repr1B.shape) # repr1B.shape:  torch.Size([32, 1, 128, 64])
         
+        #### combine the representation from EncoderA and EncoderB ####
+        # before cross attention, first lets update A and B using self attention
+        
+        """
         combined_repr = torch.cat((repr1A, repr1B), dim=3)            ## combine along the channel dimension d_model
+        combined_repr = self.mlpRepr(combined_repr)
+        combined_repr = combined_repr.squeeze(1)
+        # combined_repr_copy = combined_repr
+        # combined_repr = self.ffA1(combined_repr)   ## for inter channel mixing
+        # combined_repr = combined_repr + combined_repr_copy
+        çombined_repr_copy = combined_repr
+        combined_repr = self.attentionA1(combined_repr)
+        combined_repr = combined_repr + çombined_repr_copy  # skip connection
+        combined_repr_copy = combined_repr
+        combined_repr = self.attentionA2(combined_repr)
+        combined_repr = combined_repr + combined_repr_copy  # skip connection
+        combined_repr = combined_repr.unsqueeze(1)
+        """
+        # print("combined_repr.shape: ", combined_repr.shape)
+        if self.self_attention_flag == True:
+            repr1A = repr1A.squeeze(1)
+            repr1B = repr1B.squeeze(1)
+
+            repr1A_copy = repr1A
+            repr1B_copy = repr1B
+
+            repr1A = self.attentionA1(repr1A)
+            repr1B = self.attentionB1(repr1B)  
+            
+            repr1A = repr1A + repr1A_copy  # skip connection
+            repr1B = repr1B + repr1B_copy  # skip connection
+
+            if self.layer_norm_flag == True:
+                repr1A = self.layernorm1(repr1A)
+                repr1B = self.layernorm2(repr1B)
+
+            repr1A_copy = repr1A
+            repr1B_copy = repr1B
+
+            if self.feedforward_flag == True:
+                repr1A = self.ffA1(repr1A)
+                repr1B = self.ffB1(repr1B)
+
+                repr1A = repr1A + repr1A_copy  # skip connection
+                repr1B = repr1B + repr1B_copy  # skip connection
+                
+                
+                if self.layer_norm_flag == True:
+                    repr1A = self.layernorm3(repr1A)
+                    repr1B = self.layernorm4(repr1B)
+
+                repr1A_copy = repr1A
+                repr1B_copy = repr1B
+            
+            repr1A = self.attentionA2(repr1A)
+            repr1B = self.attentionB2(repr1B)  
+            
+            repr1A = repr1A + repr1A_copy  # skip connection
+            repr1B = repr1B + repr1B_copy  # skip connection
+            
+            if self.layer_norm_flag == True:
+                repr1A = self.layernorm5(repr1A)
+                repr1B = self.layernorm6(repr1B)
+
+            repr1A_copy = repr1A
+            repr1B_copy = repr1B
+            
+            if self.feedforward_flag == True:
+                repr1A = self.ffA2(repr1A)
+                repr1B = self.ffB2(repr1B)
+
+                repr1A = repr1A + repr1A_copy  # skip connection
+                repr1B = repr1B + repr1B_copy  # skip connection
+                
+                
+                if self.layer_norm_flag == True:
+                    repr1A = self.layernorm7(repr1A)
+                    repr1B = self.layernorm8(repr1B)
+
+            repr1A = repr1A.unsqueeze(1)
+            repr1B = repr1B.unsqueeze(1)
+
+        if self.cross_attention_flag == True:
+            repr1A = repr1A.squeeze(1)
+            repr1B = repr1B.squeeze(1)
+            
+            ### start: 1x cross attention
+
+            repr1A_copy = repr1A 
+            repr1A = self.cross_attention1(repr1A, repr1B)    ## need to update A using info from B and not the other way around. Cuz A is the most relevant info.      
+            repr1A = repr1A + repr1A_copy  # skip connection
+            
+            if self.layer_norm_flag == True:
+                repr1A = self.layernorm9(repr1A)
+            repr1A_copy = repr1A
+            ### end
+
+
+            ### start: 1x ff
+            if self.feedforward_flag == True:
+                repr1A = self.ffCA1(repr1A)
+                repr1A = repr1A + repr1A_copy  # skip connection
+                
+                if self.layer_norm_flag == True:
+                    repr1A = self.layernorm10(repr1A)           
+                repr1A_copy = repr1A
+            ### end
+
+
+            if self.additional_sa_flag == True:
+                repr1A_copy = repr1A
+                repr1B_copy = repr1B
+
+                repr1A = self.add_attentionA1(repr1A)
+                repr1B = self.add_attentionB1(repr1B)  
+                
+                repr1A = repr1A + repr1A_copy  # skip connection
+                repr1B = repr1B + repr1B_copy  # skip connection
+
+                if self.layer_norm_flag == True:
+                    repr1A = self.layernorm13(repr1A)
+                    repr1B = self.layernorm14(repr1B)
+                
+                repr1A_copy = repr1A
+                repr1B_copy = repr1B
+               
+            repr1A = self.cross_attention2(repr1A, repr1B)    ## need to update A using info from B and not the other way around. Cuz A is the most relevant info.   
+            repr1A = repr1A + repr1A_copy  # skip connection
+            
+            if self.layer_norm_flag == True:
+                repr1A = self.layernorm11(repr1A)
+            repr1A_copy = repr1A
+            
+            
+            if self.feedforward_flag == True:
+                repr1A = self.ffCA2(repr1A)
+                repr1A = repr1A + repr1A_copy  # skip connection
+                
+                if self.layer_norm_flag == True:
+                    repr1A = self.layernorm12(repr1A)
+            
+            
+            if self.additional_sa_flag == True:
+                repr1A_copy = repr1A
+                repr1B_copy = repr1B
+
+                repr1A = self.add_attentionA2(repr1A)
+                repr1B = self.add_attentionB2(repr1B)  
+                
+                repr1A = repr1A + repr1A_copy  # skip connection
+                repr1B = repr1B + repr1B_copy  # skip connection
+
+                if self.layer_norm_flag == True:
+                    repr1A = self.layernorm15(repr1A)
+                    repr1B = self.layernorm16(repr1B)
+                
+                repr1A_copy = repr1A
+                repr1B_copy = repr1B
+               
+            
+            repr1A = repr1A.unsqueeze(1)
+
+        
+        
+
+
+        #### combine the representation from EncoderA and EncoderB ####
         
         ## now 2*d_model --> d_model
         # print("combined_repr.shape: ", combined_repr.shape)
@@ -127,7 +337,7 @@ class STSSL(nn.Module):
         # print("view2.shape: ", view2.shape, "graph2.shape: ", graph2.shape)
         # repr2 = self.encoder(view2, graph2)
         repr2 = None
-        return combined_repr, self.learnable_graph
+        return repr1A, self.learnable_graph
 
     def fetch_spatial_sim(self):
         """
@@ -145,18 +355,8 @@ class STSSL(nn.Module):
         :param z1, z2 (tensor): shape nvc
         :return: nlvc, l=1, c=2
         '''
-        if self.attention_flag == True:
-            z1 = z1.squeeze(1)
-            z1_skip = z1
-            z1 = self.attention1(z1)
-            z1 = z1 + z1_skip
-            z1_skip = z1
-            z1 = self.attention2(z1)
-            z1 = z1 + z1_skip
-            z1 = z1.unsqueeze(1)
-            return self.mlp(z1)
-        elif self.attention_flag == False:
-            return self.mlp(z1)
+        # print("z1.shape: ", z1.shape)
+        return self.mlp(z1)
 
     def loss(self, z1, z2, y_true, scaler, loss_weights):
         l1 = self.pred_loss(z1, z2, y_true, scaler)

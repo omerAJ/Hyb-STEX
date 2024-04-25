@@ -166,15 +166,20 @@ class Discriminator(nn.Module):
 ### self.encoder = STEncoder(Kt=3, Ks=3, blocks=[[2, int(args.d_model//2), args.d_model], [args.d_model, int(args.d_model//2), args.d_model]], 
                        ### input_length=args.input_length, num_nodes=args.num_nodes, droprate=args.dropout)
 class STEncoder(nn.Module):
-    def __init__(self, Kt, Ks, blocks, input_length, num_nodes, droprate=0.1):
+    def __init__(self, Kt, Ks, blocks, input_length, num_nodes, graph_init, droprate=0.1):
         super(STEncoder, self).__init__()        
         
+        self.do_sconv = True
+        if graph_init == "zeros":
+            self.do_sconv = False
+
         if input_length - 2 * (Kt - 1) * len(blocks) <= 0:
             self.Ks=Ks
             c = blocks[0]
             self.tconv11 = TemporalConvLayer(Kt, c[0], c[1], "GLU", paddin='valid', flag=False)
             self.pooler = Pooler(input_length - (Kt - 1), c[1])
             
+        
             self.sconv12 = SpatioConvLayer(Ks, c[1], c[1])
             # self.sconv12 = SpatialAttention(64, 1)
             
@@ -238,10 +243,10 @@ class STEncoder(nn.Module):
     def forward(self, x0, graph):
         # print("x0.shape: ", x0.shape)
         # print("graph.shape: ", graph.shape)
-        # lap_mx = self._cal_laplacian(graph)      ## from adj to laplacian
-        # Lk = self._cheb_polynomial(lap_mx, self.Ks)
+        lap_mx = self._cal_laplacian(graph)      ## from adj to laplacian
+        Lk = self._cheb_polynomial(lap_mx, self.Ks)
         # print("Lk.shape: ", Lk.shape)
-        Lk = graph.unsqueeze(0)
+        # Lk = graph.unsqueeze(0)
 
         in_len = x0.size(1) # x0, nlvc
         if in_len < self.receptive_field:
@@ -258,7 +263,8 @@ class STEncoder(nn.Module):
         # print("x.shape (after pooler): ", x.shape)
         self.s_sim_mx = sim_global(x_agg, sim_type='cos')
         #print("x.shape (before sconv12): ", x.shape)
-        x = self.sconv12(x, Lk)   # nclv
+        if self.do_sconv:
+            x = self.sconv12(x, Lk)   # nclv
         # print("x.shape (after sconv12): ", x.shape)
         x = self.tconv13(x)  
         # print("x.shape (after tconv13): ", x.shape)
@@ -268,7 +274,8 @@ class STEncoder(nn.Module):
         x = self.tconv21(x)
         #print("x.shape (after tconv21): ", x.shape)
         #print("x.shape (before sconv22): ", x.shape)
-        x = self.sconv22(x, Lk)
+        if self.do_sconv:
+            x = self.sconv22(x, Lk)
         # print("x.shape (after sconv22): ", x.shape)
         x = self.tconv23(x)
         # print("x.shape (after tconv23): ", x.shape)
@@ -388,7 +395,8 @@ class SpatioConvLayer(nn.Module):
         # x_gc.shape :  torch.Size([32, 32, 17, 128])
         # x_in.shape :  torch.Size([32, 32, 17, 128])
         # print("x.shape: ", x.shape, "Lk.shape: ", Lk.shape)
-        x_c = torch.einsum("knm,bitm->bitkn", Lk, x)  
+        x_c = torch.einsum("knm,bitm->bitkn", Lk, x)              ## Ax      this is simply the multiplication of the adjacency matrix with the input for message passing. Each nodes updates as the sum of the nodes in its neighbourhood
+
         # print("x_c.shape : ", x_c.shape, "Lk.shape: ", Lk.shape)
         x_gc = torch.einsum("iok,bitkn->botn", self.theta, x_c) + self.b 
         # print("x_gc.shape : ", x_gc.shape)
@@ -490,22 +498,23 @@ class actuallyMLP(nn.Module):
         return x
 
 
-class Attention(nn.Module):
+class self_Attention(nn.Module):
     def __init__(self, d_model, n_heads):
-        super(Attention, self).__init__()
+        super(self_Attention, self).__init__()
         self.d_model = d_model
         self.n_heads = n_heads
-        self.q_linear = nn.Linear(d_model, d_model)            # for LazyLinear only specify out_channels, in_channels is inferred from first forward path
-        self.k_linear = nn.Linear(d_model, d_model)              ## basically i will map whatever the input the dimension was to a fixed length d_model
+        self.q_linear = nn.Linear(d_model, d_model)
+        self.k_linear = nn.Linear(d_model, d_model)
         self.v_linear = nn.Linear(d_model, d_model)
         self.out_linear = nn.Linear(d_model, d_model)
+        # self.norm = nn.BatchNorm1d(d_model)
 
     def forward(self, x):
         q = self.q_linear(x)
         k = self.k_linear(x)
         v = self.v_linear(x)
 
-        q = q.view(q.size(0), -1, self.n_heads, self.d_model // self.n_heads).transpose(1, 2)
+        q = q.view(q.size(0), -1, self.n_heads, self.d_model // self.n_heads).transpose(1, 2)  ## [bs, seq_len, num_heads, dim_per_head]. transpose to [bs, num_heads, seq_len, dim_per_head]
         k = k.view(k.size(0), -1, self.n_heads, self.d_model // self.n_heads).transpose(1, 2)
         v = v.view(v.size(0), -1, self.n_heads, self.d_model // self.n_heads).transpose(1, 2)
 
@@ -515,8 +524,92 @@ class Attention(nn.Module):
         attended = torch.matmul(scores, v).transpose(1, 2).contiguous().view(x.size(0), -1, self.d_model)
 
         output = self.out_linear(attended)
+        # output = self.norm(output.transpose(1, 2)).transpose(1, 2)
         return output
     
+class cross_Attention(nn.Module):
+    def __init__(self, d_model, n_heads):
+        super(cross_Attention, self).__init__()
+        self.d_model = d_model
+        self.n_heads = n_heads
+        self.q_linear = nn.Linear(d_model, d_model)
+        self.k_linear = nn.Linear(d_model, d_model)
+        self.v_linear = nn.Linear(d_model, d_model)
+        self.out_linear = nn.Linear(d_model, d_model)
+        # self.norm = nn.BatchNorm1d(d_model)
+
+
+    def forward(self, reprA, reprB):
+        q = self.q_linear(reprA)
+        k = self.k_linear(reprB)
+        v = self.v_linear(reprB)
+
+        q = q.view(q.size(0), -1, self.n_heads, self.d_model // self.n_heads).transpose(1, 2)
+        k = k.view(k.size(0), -1, self.n_heads, self.d_model // self.n_heads).transpose(1, 2)
+        v = v.view(v.size(0), -1, self.n_heads, self.d_model // self.n_heads).transpose(1, 2)
+
+        scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.d_model // self.n_heads)
+        scores = F.softmax(scores, dim=-1)
+
+        attended = torch.matmul(scores, v).transpose(1, 2).contiguous().view(reprA.size(0), -1, self.d_model)
+
+        output = self.out_linear(attended)
+        # output = self.norm(attended.transpose(1, 2)).transpose(1, 2)
+        return output
+    
+class PositionWise_cross_Attention(nn.Module):
+    def __init__(self, d_model, n_heads):
+        super(PositionWise_cross_Attention, self).__init__()
+        self.d_model = d_model
+        self.n_heads = n_heads
+        self.q_linear = nn.Linear(d_model, d_model)
+        self.k_linear = nn.Linear(d_model, d_model)
+        self.v_linear = nn.Linear(d_model, d_model)
+        self.out_linear = nn.Linear(d_model, d_model)
+        # self.norm = nn.BatchNorm1d(d_model)
+
+
+    def forward(self, reprA, reprB):
+        q = self.q_linear(reprA)
+        k = self.k_linear(reprB)
+        v = self.v_linear(reprB)
+
+        q = q.view(q.size(0), -1, self.n_heads, self.d_model // self.n_heads).transpose(1, 2)
+        k = k.view(k.size(0), -1, self.n_heads, self.d_model // self.n_heads).transpose(1, 2)
+        v = v.view(v.size(0), -1, self.n_heads, self.d_model // self.n_heads).transpose(1, 2)
+
+        scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.d_model // self.n_heads)
+        scores = scores * torch.eye(scores.size(2)).to(scores.device)
+
+        # scores.shape:  torch.Size([32, 4, 200, 200])
+        # v.shape:  torch.Size([32, 4, 200, 16])
+        # attended.shape:  torch.Size([32, 200, 64])
+        # print("scores.shape: ", scores.shape)
+        # print("v.shape: ", v.shape)
+        attended = torch.matmul(scores, v).transpose(1, 2).contiguous().view(reprA.size(0), -1, self.d_model)
+        # print("attended.shape: ", attended.shape)
+        output = self.out_linear(attended)
+        # output = self.norm(attended.transpose(1, 2)).transpose(1, 2)
+        return output
+    
+class PositionwiseFeedForward(nn.Module):
+    def __init__(self, d_model, d_ff, dropout=0.1):
+        super(PositionwiseFeedForward, self).__init__()
+        self.d_model = d_model
+        self.d_ff = d_ff
+        self.dropout = dropout
+        self.linear1 = nn.Linear(d_model, d_ff)
+        self.linear2 = nn.Linear(d_ff, d_model)
+        # self.norm = nn.BatchNorm1d(d_model)
+
+
+    def forward(self, x):
+        output = self.linear2(F.relu(self.linear1(x)))
+        output = F.dropout(output, p=self.dropout, training=self.training)
+        # output = self.norm(output.transpose(1, 2)).transpose(1, 2)
+        return output
+
+        
 class SpatialAttention(nn.Module):
     def __init__(self, d_model, n_heads):
         super(SpatialAttention, self).__init__()

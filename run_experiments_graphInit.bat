@@ -5,65 +5,43 @@ call activate i-jepaVENV
 TIMEOUT 3
 
 
-python main.py -g "eye" -c "initializing the adj matrix as eye" -cf configs/NYCBike2.yaml
+python main.py -g "zeros" -c "2xSA, 2xCA (bw AandB) d_model=64, no sconv no ff no layer norm" -cf configs/BJTaxi.yaml -sa True -ca True
 echo Experiment completed: Ks = 1
 TIMEOUT 3
 
-python main.py -g "zeros" -c "initializing the adj matrix as zeros" -cf configs/NYCBike2.yaml
+python main.py -g "zeros" -c "2xSA, 2xCA (bw AandB) d_model=64, no sconv yes ff no layer norm" -cf configs/BJTaxi.yaml -sa True -ca True -ff True
 echo Experiment completed: Ks = 1
 TIMEOUT 3
 
-python main.py -g "ones" -c "initializing the adj matrix as ones" -cf configs/NYCBike2.yaml
+python main.py -g "zeros" -c "2xSA, 2xCA (bw AandB) d_model=64, no sconv no ff yes layer norm" -cf configs/BJTaxi.yaml -sa True -ca True -ln True
 echo Experiment completed: Ks = 1
 TIMEOUT 3
 
-python main.py -g "random" -c "initializing the adj matrix as random" -cf configs/NYCBike2.yaml
+python main.py -g "zeros" -c "2xSA, 2xCA (bw AandB) d_model=64, no sconv yes ff yes layer norm" -cf configs/BJTaxi.yaml -sa True -ca True -ff True -ln True
 echo Experiment completed: Ks = 1
 TIMEOUT 3
 
-python main.py -g "8_neighbours" -c "initializing the adj matrix as 8_neighbours" -cf configs/NYCBike2.yaml
+python main.py -g "zeros" -c "2xSA, 2xCA(with 2xSA in bw) (bw AandB) d_model=64, no sconv yes ff yes layer norm" -cf configs/BJTaxi.yaml -sa True -ca True -asa True -ff True -ln True
 echo Experiment completed: Ks = 1
 TIMEOUT 3
 
-
-python main.py -g "zeros" -c "initializing the adj matrix as zeros" -cf configs/BJTaxi.yaml -a True
+python main.py -g "8_neighbours" -c "2xSA, 2xCA (bw AandB) d_model=64, no sconv no ff no layer norm with neighbours" -cf configs/BJTaxi.yaml -sa True -ca True
 echo Experiment completed: Ks = 1
 TIMEOUT 3
 
-python main.py -g "zeros" -c "initializing the adj matrix as zeros" -cf configs/BJTaxi.yaml -a False
+python main.py -g "8_neighbours" -c "2xSA, 2xCA (bw AandB) d_model=64, no sconv yes ff no layer norm with neighbours" -cf configs/BJTaxi.yaml -sa True -ca True -ff True
 echo Experiment completed: Ks = 1
 TIMEOUT 3
 
-python main.py -g "ones" -c "initializing the adj matrix as ones" -cf configs/BJTaxi.yaml -a True
+python main.py -g "8_neighbours" -c "2xSA, 2xCA (bw AandB) d_model=64, no sconv no ff yes layer norm with neighbours" -cf configs/BJTaxi.yaml -sa True -ca True -ln True
 echo Experiment completed: Ks = 1
 TIMEOUT 3
 
-python main.py -g "ones" -c "initializing the adj matrix as ones" -cf configs/BJTaxi.yaml -a False
+python main.py -g "8_neighbours" -c "2xSA, 2xCA (bw AandB) d_model=64, no sconv yes ff yes layer norm with neighbours" -cf configs/BJTaxi.yaml -sa True -ca True -ff True -ln True
 echo Experiment completed: Ks = 1
 TIMEOUT 3
 
-python main.py -g "random" -c "initializing the adj matrix as random" -cf configs/BJTaxi.yaml -a True
-echo Experiment completed: Ks = 1
-TIMEOUT 3
-
-python main.py -g "8_neighbours" -c "initializing the adj matrix as 8_neighbours" -cf configs/BJTaxi.yaml -a True
-echo Experiment completed: Ks = 1
-TIMEOUT 3
-
-python main.py -g "eye" -c "initializing the adj matrix as eye" -cf configs/BJTaxi.yaml -a False
-echo Experiment completed: Ks = 1
-TIMEOUT 3
-
-python main.py -g "eye" -c "initializing the adj matrix as eye" -cf configs/BJTaxi.yaml -a True
-echo Experiment completed: Ks = 1
-TIMEOUT 3
-
-
-python main.py -g "random" -c "initializing the adj matrix as random" -cf configs/BJTaxi.yaml -a False
-echo Experiment completed: Ks = 1
-TIMEOUT 3
-
-python main.py -g "8_neighbours" -c "initializing the adj matrix as 8_neighbours" -cf configs/BJTaxi.yaml -a False
+python main.py -g "8_neighbours" -c "2xSA, 2xCA(with 2xSA in bw) (bw AandB) d_model=64, no sconv yes ff yes layer norm with neighbours" -cf configs/BJTaxi.yaml -sa True -ca True -asa True -ff True -ln True
 echo Experiment completed: Ks = 1
 TIMEOUT 3
 

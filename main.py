@@ -88,7 +88,11 @@ if __name__=='__main__':
     """
     if you pass bool flags in cli it will automatically make it true, irrespective if you pass True or False. If you dont pass it then it uses the default value.
     """
-    parser.add_argument('--attention_flag', "-a", default=False, type=bool, help='wether to self  attention before pred')
+    parser.add_argument('--self_attention_flag', "-sa", default=False, type=bool, help='wether to self attention before pred')
+    parser.add_argument('--cross_attention_flag', "-ca", default=False, type=bool, help='wether to cross attention before pred')
+    parser.add_argument('--feedforward_flag', "-ff", default=False, type=bool, help='wether to feedforward')
+    parser.add_argument('--layer_norm_flag', "-ln", default=False, type=bool, help='wether to layernorm')
+    parser.add_argument('--additional_sa_flag', "-asa", default=False, type=bool, help='wether to additional SA')
     # parser.add_argument('--input_length', default=0, type=int, help='# of samples to use for context')
     args = parser.parse_args()
     print(f'Starting experiment with configurations in {args.config_filename}...')
@@ -104,7 +108,11 @@ if __name__=='__main__':
     configs['comment'] = args.comment
     configs['cheb_order'] = args.cheb_order
     configs['graph_init'] = args.graph_init
-    configs['attention_flag'] = args.attention_flag
+    configs['self_attention_flag'] = args.self_attention_flag
+    configs['cross_attention_flag'] = args.cross_attention_flag
+    configs['feedforward_flag'] = args.feedforward_flag
+    configs['layer_norm_flag'] = args.layer_norm_flag
+    configs['additional_sa_flag'] = args.additional_sa_flag
     # configs['input_length'] = args.input_length
     # experimentName = "pred_" + str(args.input_length) + "_"
     experimentName = "pred_"
