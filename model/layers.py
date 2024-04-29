@@ -170,7 +170,7 @@ class STEncoder(nn.Module):
         super(STEncoder, self).__init__()        
         
         self.do_sconv = True
-        if graph_init == "zeros":
+        if graph_init == "no_sconv":
             self.do_sconv = False
 
         if input_length - 2 * (Kt - 1) * len(blocks) <= 0:
@@ -521,7 +521,7 @@ class self_Attention(nn.Module):
         scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.d_model // self.n_heads)
         scores = F.softmax(scores, dim=-1)
 
-        attended = torch.matmul(scores, v).transpose(1, 2).contiguous().view(x.size(0), -1, self.d_model)
+        attended = torch.matmul(scores, v).transpose(1, 2).contiguous().view(x.size(0), -1, self.d_model)   ## do contigous to make sure the memory is contiguous. requirement of .view()
 
         output = self.out_linear(attended)
         # output = self.norm(output.transpose(1, 2)).transpose(1, 2)
@@ -579,7 +579,8 @@ class PositionWise_cross_Attention(nn.Module):
         v = v.view(v.size(0), -1, self.n_heads, self.d_model // self.n_heads).transpose(1, 2)
 
         scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.d_model // self.n_heads)
-        scores = scores * torch.eye(scores.size(2)).to(scores.device)
+        scores = torch.sigmoid(scores)        ## make scores for each value bw 0-1 independent of others.
+        scores = scores * torch.eye(scores.size(2)).to(scores.device)       ## zero all off diagonal elements of scores, to only update a1 with b1 and a2 with b2 and so on. 
 
         # scores.shape:  torch.Size([32, 4, 200, 200])
         # v.shape:  torch.Size([32, 4, 200, 16])
@@ -601,7 +602,6 @@ class PositionwiseFeedForward(nn.Module):
         self.linear1 = nn.Linear(d_model, d_ff)
         self.linear2 = nn.Linear(d_ff, d_model)
         # self.norm = nn.BatchNorm1d(d_model)
-
 
     def forward(self, x):
         output = self.linear2(F.relu(self.linear1(x)))

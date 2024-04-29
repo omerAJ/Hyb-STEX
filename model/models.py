@@ -32,28 +32,31 @@ class STSSL(nn.Module):
         # self.channel_reducer2 = nn.Conv3d(in_channels=3, out_channels=1, kernel_size=(1, 1, 1), padding='same') ## padding='same' to keep output size same as input 
         # self.channel_reducer = nn.Conv3d(in_channels=3, out_channels=1, kernel_size=(1, 1, 1), padding='same') ## padding='same' to keep output size same as input 
 
-        self.attentionA1 = self_Attention(64, 4)
-        self.attentionA2 = self_Attention(64, 4)
-        self.attentionB1 = self_Attention(64, 4)
-        self.attentionB2 = self_Attention(64, 4)
-        self.add_attentionA1 = self_Attention(64, 4)
-        self.add_attentionB1 = self_Attention(64, 4)
-        self.add_attentionA2 = self_Attention(64, 4)
-        self.add_attentionB2 = self_Attention(64, 4)
+        self.attention1 = self_Attention(128, 2)
+        self.attention2 = self_Attention(128, 2)
+        # self.attentionA1 = self_Attention(64, 4)
+        # self.attentionA2 = self_Attention(64, 4)
+        # self.attentionB1 = self_Attention(64, 4)
+        # self.attentionB2 = self_Attention(64, 4)
+        # self.add_attentionA1 = self_Attention(64, 4)
+        # self.add_attentionB1 = self_Attention(64, 4)
+        # self.add_attentionA2 = self_Attention(64, 4)
+        # self.add_attentionB2 = self_Attention(64, 4)
 
 
-        self.cross_attention1 = PositionWise_cross_Attention(64, 4)
-        self.cross_attention2 = PositionWise_cross_Attention(64, 4)
+        # self.cross_attention1 = PositionWise_cross_Attention(64, 4)
+        # self.cross_attention2 = PositionWise_cross_Attention(64, 4)
 
-        self.ffA1 = PositionwiseFeedForward(d_model=64, d_ff=64*4)
-        self.ffB1 = PositionwiseFeedForward(d_model=64, d_ff=64*4)
-        self.ffA2 = PositionwiseFeedForward(d_model=64, d_ff=64*4)
-        self.ffB2 = PositionwiseFeedForward(d_model=64, d_ff=64*4)
-        self.ffCA1 = PositionwiseFeedForward(d_model=64, d_ff=64*4)
-        self.ffCA2 = PositionwiseFeedForward(d_model=64, d_ff=64*4)
+        self.ff = PositionwiseFeedForward(d_model=128, d_ff=64*2)
+        # self.ffA1 = PositionwiseFeedForward(d_model=64, d_ff=64*4)
+        # self.ffB1 = PositionwiseFeedForward(d_model=64, d_ff=64*4)
+        # self.ffA2 = PositionwiseFeedForward(d_model=64, d_ff=64*4)
+        # self.ffB2 = PositionwiseFeedForward(d_model=64, d_ff=64*4)
+        # self.ffCA1 = PositionwiseFeedForward(d_model=64, d_ff=64*4)
+        # self.ffCA2 = PositionwiseFeedForward(d_model=64, d_ff=64*4)
         # traffic flow prediction branch
-        self.mlp = MLP(args.d_model, args.d_output)
-        self.mlpRepr = MLP(2*args.d_model, args.d_model)
+        self.mlp = MLP(2*args.d_model, args.d_output)
+        # self.mlpRepr = MLP(2*args.d_model, args.d_model)
         # temporal heterogenrity modeling branch
         # self.thm = TemporalHeteroModel(args.d_model, args.batch_size, args.num_nodes, args.device)
         # spatial heterogenrity modeling branch
@@ -74,7 +77,9 @@ class STSSL(nn.Module):
 
         if graph_init == "eye":
             self.learnable_graph = nn.Parameter(torch.eye(adj.shape[1]).float(), requires_grad=False)
-        elif graph_init == "zeros":             ## zero will actually not do sconv now, as i have set the do_sconv flag. Before it still did eye sconv because of cheb approximation.
+        elif graph_init == "zeros":             ## eye sconv because of cheb approximation. actual adj will be: [eye, zero, zero]
+            self.learnable_graph = nn.Parameter(torch.zeros_like(torch.tensor(adj).float()), requires_grad=False)
+        elif graph_init == "no_sconv":             ## no sconv because of sconv flag, but still need to set some placeholder value to run.
             self.learnable_graph = nn.Parameter(torch.zeros_like(torch.tensor(adj).float()), requires_grad=False)
         elif graph_init == "ones":
             self.learnable_graph = nn.Parameter(torch.ones_like(torch.tensor(adj).float()), requires_grad=False)
@@ -83,6 +88,7 @@ class STSSL(nn.Module):
             self.xavier_uniform_init(self.learnable_graph)
         elif graph_init == "8_neighbours":
             self.learnable_graph = nn.Parameter(torch.from_numpy(adj).float(), requires_grad=False)
+
 
         self.encoderA = STEncoder(Kt=3, Ks=args.cheb_order, blocks=[[2, int(args.d_model//2), args.d_model], [args.d_model, int(args.d_model//2), args.d_model]], 
                         input_length=args.input_length, num_nodes=args.num_nodes, droprate=args.dropout, graph_init=graph_init)
@@ -95,9 +101,9 @@ class STSSL(nn.Module):
         # nn.init.xavier_uniform_(self.learnable_graph)        
     
         ## norms
-        self.layernorm1 = nn.LayerNorm(64)
-        self.layernorm2 = nn.LayerNorm(64)
-        self.layernorm3 = nn.LayerNorm(64)
+        self.layernorm1 = nn.LayerNorm(128)
+        self.layernorm2 = nn.LayerNorm(128)
+        self.layernorm3 = nn.LayerNorm(128)
         self.layernorm4 = nn.LayerNorm(64)
         self.layernorm5 = nn.LayerNorm(64)
         self.layernorm6 = nn.LayerNorm(64)
@@ -160,22 +166,31 @@ class STSSL(nn.Module):
         #### combine the representation from EncoderA and EncoderB ####
         # before cross attention, first lets update A and B using self attention
         
-        """
         combined_repr = torch.cat((repr1A, repr1B), dim=3)            ## combine along the channel dimension d_model
-        combined_repr = self.mlpRepr(combined_repr)
+        # combined_repr = self.mlpRepr(combined_repr)
         combined_repr = combined_repr.squeeze(1)
+        if self.feedforward_flag:
+            combined_repr_copy = combined_repr
+            combined_repr = self.ff(combined_repr)
+            combined_repr = combined_repr + combined_repr_copy
+            combined_repr = self.layernorm1(combined_repr)
         # combined_repr_copy = combined_repr
         # combined_repr = self.ffA1(combined_repr)   ## for inter channel mixing
         # combined_repr = combined_repr + combined_repr_copy
         çombined_repr_copy = combined_repr
-        combined_repr = self.attentionA1(combined_repr)
+        combined_repr = self.attention1(combined_repr)
         combined_repr = combined_repr + çombined_repr_copy  # skip connection
+        combined_repr = self.layernorm2(combined_repr)
         combined_repr_copy = combined_repr
-        combined_repr = self.attentionA2(combined_repr)
+        combined_repr = self.attention2(combined_repr)
         combined_repr = combined_repr + combined_repr_copy  # skip connection
+        combined_repr = self.layernorm3(combined_repr)
         combined_repr = combined_repr.unsqueeze(1)
+        
+
+
         """
-        # print("combined_repr.shape: ", combined_repr.shape)
+        print("combined_repr.shape: ", combined_repr.shape)
         if self.self_attention_flag == True:
             repr1A = repr1A.squeeze(1)
             repr1B = repr1B.squeeze(1)
@@ -319,7 +334,7 @@ class STSSL(nn.Module):
             
             repr1A = repr1A.unsqueeze(1)
 
-        
+        """
         
 
 
@@ -337,7 +352,7 @@ class STSSL(nn.Module):
         # print("view2.shape: ", view2.shape, "graph2.shape: ", graph2.shape)
         # repr2 = self.encoder(view2, graph2)
         repr2 = None
-        return repr1A, self.learnable_graph
+        return combined_repr, self.learnable_graph
 
     def fetch_spatial_sim(self):
         """
