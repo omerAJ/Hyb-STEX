@@ -165,23 +165,29 @@ class Discriminator(nn.Module):
 ####################
 ### self.encoder = STEncoder(Kt=3, Ks=3, blocks=[[2, int(args.d_model//2), args.d_model], [args.d_model, int(args.d_model//2), args.d_model]], 
                        ### input_length=args.input_length, num_nodes=args.num_nodes, droprate=args.dropout)
+import numpy as np
+import os
 class STEncoder(nn.Module):
-    def __init__(self, Kt, Ks, blocks, input_length, num_nodes, graph_init, droprate=0.1):
+    def __init__(self, Kt, Ks, blocks, input_length, num_nodes, graph_init, learnable_flag, droprate=0.1):
         super(STEncoder, self).__init__()        
         
         self.do_sconv = True
         if graph_init == "no_sconv":
             self.do_sconv = False
 
+        self.learnable_flag = learnable_flag
+
         if input_length - 2 * (Kt - 1) * len(blocks) <= 0:
             self.Ks=Ks
             c = blocks[0]
             self.tconv11 = TemporalConvLayer(Kt, c[0], c[1], "GLU", paddin='valid', flag=False)
+            # self.represent = representationLayer(Kt, 1, c[1], "GLU", paddin='valid', flag=False)
             self.pooler = Pooler(input_length - (Kt - 1), c[1])
             
         
-            self.sconv12 = SpatioConvLayer(Ks, c[1], c[1])
-            # self.sconv12 = SpatialAttention(64, 1)
+            # self.sconv12 = SpatioConvLayer(Ks, c[1], c[1])
+            t = input_length + 2 - 2 - 2 
+            self.sconv12 = SpatialAttention(d_model=c[1], n_timesteps=t, n_heads=1)
             
             self.tconv13 = TemporalConvLayer(Kt, c[1], c[2], paddin='same', flag=True)
             self.ln1 = nn.LayerNorm([num_nodes, c[2]])
@@ -190,8 +196,9 @@ class STEncoder(nn.Module):
             c = blocks[1]
             self.tconv21 = TemporalConvLayer(Kt, c[0], c[1], "GLU", paddin='same', flag=True)
             
-            self.sconv22 = SpatioConvLayer(Ks, c[1], c[1])
-            # self.sconv22 = SpatialAttention(1056, 1)
+            # self.sconv22 = SpatioConvLayer(Ks, c[1], c[1])
+            t = input_length + 2 - 2 - 2 - 2 - 2 
+            self.sconv22 = SpatialAttention(d_model=c[1], n_timesteps=t, n_heads=1)
             
             self.tconv23 = TemporalConvLayer(Kt, c[1], c[2], paddin='same', flag=True)
             self.ln2 = nn.LayerNorm([num_nodes, c[2]])
@@ -210,11 +217,13 @@ class STEncoder(nn.Module):
             self.Ks=Ks
             c = blocks[0]
             self.tconv11 = TemporalConvLayer(Kt, c[0], c[1], "GLU")
+            # self.represent = representationLayer(Kt, 1, c[1], "GLU", paddin='valid', flag=False)
             self.pooler = Pooler(input_length - (Kt - 1), c[1])
             
-            self.sconv12 = SpatioConvLayer(Ks, c[1], c[1])
-            # self.sconv12 = SpatialAttention(1056, 1)
-
+            # self.sconv12 = SpatioConvLayer(Ks, c[1], c[1])
+            t = input_length + 2 - 2 - 2 
+            self.sconv12 = SpatialAttention(d_model=c[1], n_timesteps=t, n_heads=1)
+            self.lns1 = nn.LayerNorm([num_nodes, c[1]])
             self.tconv13 = TemporalConvLayer(Kt, c[1], c[2])
             self.ln1 = nn.LayerNorm([num_nodes, c[2]])
             self.dropout1 = nn.Dropout(droprate)
@@ -222,9 +231,10 @@ class STEncoder(nn.Module):
             c = blocks[1]
             self.tconv21 = TemporalConvLayer(Kt, c[0], c[1], "GLU")
             
-            self.sconv22 = SpatioConvLayer(Ks, c[1], c[1])
-            # self.sconv22 = SpatialAttention(928, 1)
-
+            # self.sconv22 = SpatioConvLayer(Ks, c[1], c[1])
+            t = input_length + 2 - 2 - 2 - 2 - 2 
+            self.sconv22 = SpatialAttention(d_model=c[1], n_timesteps=t, n_heads=1)
+            self.lns2 = nn.LayerNorm([num_nodes, c[1]])
             self.tconv23 = TemporalConvLayer(Kt, c[1], c[2])
             self.ln2 = nn.LayerNorm([num_nodes, c[2]])
             self.dropout2 = nn.Dropout(droprate)
@@ -238,16 +248,25 @@ class STEncoder(nn.Module):
             self.dropout3 = nn.Dropout(droprate)
             self.receptive_field = input_length + Kt -1
 
+            self.learnable_flag = learnable_flag
         
 
-    def forward(self, x0, graph):
+    def forward(self, x0, learnable_graph):
         # print("x0.shape: ", x0.shape)
         # print("graph.shape: ", graph.shape)
-        lap_mx = self._cal_laplacian(graph)      ## from adj to laplacian
-        Lk = self._cheb_polynomial(lap_mx, self.Ks)
-        # print("Lk.shape: ", Lk.shape)
+        if self.learnable_flag == False:
+            lap_mx = self._cal_laplacian(learnable_graph)      ## from adj to laplacian
+            Lk = self._cheb_polynomial(lap_mx, self.Ks)
+        elif self.learnable_flag == True:
+            # Lk = graph.unsqueeze(0)
+            Lk = learnable_graph
+        # # print("Lk.shape: ", Lk.shape)
         # Lk = graph.unsqueeze(0)
 
+        ## if stacking learnbale and og mats
+        # lap_mx = self._cal_laplacian(graph)      ## from adj to laplacian
+        # Lk = self._cheb_polynomial(lap_mx, self.Ks)
+        # Lk = torch.cat((Lk, learnable_graph), dim=0)
         in_len = x0.size(1) # x0, nlvc
         if in_len < self.receptive_field:
             x = F.pad(x0, (0,0,0,0,self.receptive_field-in_len,0))
@@ -256,35 +275,51 @@ class STEncoder(nn.Module):
         x = x.permute(0, 3, 1, 2)  # (batch_size, feature_dim, input_length, num_nodes), nclv 
         
         ## ST block 1
-        # print("x.shape (before tconv11): ", x.shape)
-        x = self.tconv11(x)    # nclv
-        # print("x.shape (after tconv11): ", x.shape)
+        
+        """lets work here, as this is the start of embedding, so a bottleneck here would limit the performance downstream."""
+        
+        # print("x.shape (before tconv11): ", x.shape)  torch.Size([32, 2, 37, 200])
+        x = self.tconv11(x)    # nclv          
+        # x = self.represent(x)    # nclv          
+        # print("x.shape (after represent): ", x.shape)   ## torch.Size([32, 32, 35, 200])
+        
+        "...end..."
+        
         x, x_agg, self.t_sim_mx = self.pooler(x)
-        # print("x.shape (after pooler): ", x.shape)
+        # print("x.shape (after pooler): ", x.shape)   torch.Size([32, 32, 33, 200])
         self.s_sim_mx = sim_global(x_agg, sim_type='cos')
-        #print("x.shape (before sconv12): ", x.shape)
+        # print("x.shape (before sconv12): ", x.shape)  torch.Size([32, 32, 33, 200])
         if self.do_sconv:
-            x = self.sconv12(x, Lk)   # nclv
-        # print("x.shape (after sconv12): ", x.shape)
+            x_skip = x
+            x = self.sconv12(x)   # nclv
+            x = x + x_skip
+            ## [b, c, t, n]
+            # x = self.lns1(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)     ## ln([b, t, n, c]) -> [b, c, t, n]
+        # print("x.shape (after sconv12): ", x.shape)  torch.Size([32, 32, 33, 200])
         x = self.tconv13(x)  
-        # print("x.shape (after tconv13): ", x.shape)
+        # print("x.shape (after tconv13): ", x.shape)    torch.Size([32, 64, 31, 200])
         x = self.dropout1(self.ln1(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2))
         
         ## ST block 2
         x = self.tconv21(x)
-        #print("x.shape (after tconv21): ", x.shape)
-        #print("x.shape (before sconv22): ", x.shape)
+        # print("x.shape (after tconv21): ", x.shape)  torch.Size([32, 32, 29, 200])
+        # print("x.shape (before sconv22): ", x.shape)  torch.Size([32, 32, 29, 200])
         if self.do_sconv:
-            x = self.sconv22(x, Lk)
-        # print("x.shape (after sconv22): ", x.shape)
+            x_skip = x
+            x = self.sconv22(x)   # nclv
+            x = x + x_skip
+            # x = self.lns2(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)
+        # print("x.shape (after sconv22): ", x.shape)  torch.Size([32, 32, 29, 200])
         x = self.tconv23(x)
-        # print("x.shape (after tconv23): ", x.shape)
+        # print("x.shape (after tconv23): ", x.shape)  torch.Size([32, 64, 27, 200])
         x = self.dropout2(self.ln2(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2))
 
         ## out block
-        # print("x.shape: (before out_conv)", x.shape)
-        x = self.out_conv(x) # ncl(=1)v
-        # print("x.shape: (after out_conv)", x.shape)
+        # print("x.shape: (before out_conv)", x.shape)   torch.Size([32, 64, 27, 200]) 
+        # print("\n\n out_conv next: ")
+        x = self.out_conv(x) # ncl(=1)v    ## filter_size = (l, 1), so dot product with time length and same kernel used for every node.
+        # print("\n\nout_conv done\n\n")
+        # print("x.shape: (after out_conv)", x.shape)   torch.Size([32, 64, 1, 200])
         x = self.dropout3(self.ln3(x.permute(0, 2, 3, 1))) # nlvc
         return x # nl(=1)vc
 
@@ -337,6 +372,7 @@ class Align(nn.Module):
             self.conv1x1 = nn.Conv2d(c_in, c_out, 1)  # filter=(1,1), similar to fc
 
     def forward(self, x):  # x: (n,c,l,v)
+        # print("self.c_in: ", self.c_in, "self.c_out: ", self.c_out)
         if self.c_in > self.c_out:
             return self.conv1x1(x)
         if self.c_in < self.c_out:
@@ -362,17 +398,24 @@ class TemporalConvLayer(nn.Module):
         :return: (n,c,l-kt+1,v)
         """
         # print("x.shape (before align): ", x.shape)
+        # print("kt: ", self.kt)
+        # print("x.shape (before align): ", x.shape)
         if self.flag:
             x_in = self.align(x)  
         else:
-            x_in = self.align(x)[:, :, self.kt - 1:, :]  
+            x_in = self.align(x)[:, :, self.kt - 1:, :]   # align does nothing as c_in == c_out
         # print("x_in.shape: ", x_in.shape)
         if self.act == "GLU":
+            # print("x.shape (GLU): ", x.shape)  torch.Size([32, 64, 27, 200])
             x_conv = self.conv(x)
+            # print("x_conv.shape (GLU): ", x_conv.shape)  torch.Size([32, 128, 1, 200])
             return (x_conv[:, :self.c_out, :, :] + x_in) * torch.sigmoid(x_conv[:, self.c_out:, :, :])
         if self.act == "sigmoid":
-            return torch.sigmoid(self.conv(x) + x_in)  
+            x_conv = self.conv(x)
+            # print("x_conv.shape: ", x_conv.shape)
+            return torch.sigmoid(x_conv + x_in)  
         return torch.relu(self.conv(x) + x_in)  
+
 
 class SpatioConvLayer(nn.Module):
     def __init__(self, ks, c_in, c_out):
@@ -610,6 +653,7 @@ class PositionwiseFeedForward(nn.Module):
         return output
 
         
+"""
 class SpatialAttention(nn.Module):
     def __init__(self, d_model, n_heads):
         super(SpatialAttention, self).__init__()
@@ -622,7 +666,7 @@ class SpatialAttention(nn.Module):
         x_og = x
         # x.shape: [bs, c, t, num_nodes]
         #print("x.shape: ", x.shape)
-        x = x.reshape(x.size(0), -1, x.size(3)).transpose(-2, -1)  # [bs, c*t, num_nodes] => [bs, num_nodes, c*t]   d_model = c*t
+        # x = x.reshape(x.size(0), -1, x.size(3)).transpose(-2, -1)  # [bs, c*t, num_nodes] => [bs, num_nodes, c*t]   d_model = c*t
         #print("x.shape (after reshape): ", x.shape)
         # Apply attention
         x_skip = x
@@ -635,4 +679,137 @@ class SpatialAttention(nn.Module):
         # Reshape x back to original shape
         x = x.transpose(-2, -1).reshape(x_og.shape)  # [bs, c, t, num_nodes]
         #print("x_out.shape: ", x.shape)
-        return x
+        return x    
+"""
+
+"""
+class SpatialAttention(nn.Module):
+    def __init__(self, d_model, n_heads):
+        super(SpatialAttention, self).__init__()
+        self.d_model = d_model
+        self.n_heads = n_heads
+        self.q_linear = nn.Linear(d_model, d_model)
+        self.k_linear = nn.Linear(d_model, d_model)
+        self.v_linear = nn.Linear(d_model, d_model)
+        self.out_linear = nn.Linear(d_model, d_model)
+        # self.norm = nn.BatchNorm1d(d_model)
+
+    def forward(self, x):
+        # print("(input to spatial attention) x.shape: ", x.shape)   ## x.shape:  torch.Size([32, 32, 33, 200]) [b, c, t, n]
+        ## lets call each head a timestep.
+        x = x.permute(0, 3, 2, 1)  ## x.shape:  torch.Size([32, 200, 33, 32]) [b, n, t, c]
+        q = self.q_linear(x)
+        k = self.k_linear(x)
+        v = self.v_linear(x)
+
+        q = q.transpose(1, 2)  ## q.shape:  torch.Size([32, 33, 200, 32]) [b, t, n, c]
+        k = k.transpose(1, 2)  ## k.shape:  torch.Size([32, 33, 200, 32]) [b, t, n, c]
+        v = v.transpose(1, 2)  ## v.shape:  torch.Size([32, 33, 200, 32]) [b, t, n, c]
+
+        # q = q.view(q.size(0), -1, self.n_heads, self.d_model // self.n_heads).transpose(1, 2)  ## [bs, seq_len, num_heads, dim_per_head]. transpose to [bs, num_heads, seq_len, dim_per_head]
+        # k = k.view(k.size(0), -1, self.n_heads, self.d_model // self.n_heads).transpose(1, 2)
+        # v = v.view(v.size(0), -1, self.n_heads, self.d_model // self.n_heads).transpose(1, 2)
+
+        ## correct the normalizer 
+
+        scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.d_model // self.n_heads)
+        scores = F.softmax(scores, dim=-1)
+
+        attended = torch.matmul(scores, v).transpose(1, 2)   # .contiguous().view(x.size(0), -1, self.d_model)   ## do contigous to make sure the memory is contiguous. requirement of .view()
+        # print("(output of spatial attention) attended.shape: ", attended.shape)   ## attended.shape:  torch.Size([32, 200, 33, 32])
+        output = self.out_linear(attended)
+        output = output.transpose(1, 3)
+        # print("(output of spatial attention) x.shape: ", x.shape)     ## torch.Size([32, 200, 33, 32])
+        # output = self.norm(output.transpose(1, 2)).transpose(1, 2)
+        return output
+"""
+
+""" looped implementation
+class SpatialAttention(nn.Module):
+    def __init__(self, d_model, n_timesteps, n_heads):
+        super(SpatialAttention, self).__init__()
+        self.d_model = d_model
+        self.n_heads = n_heads
+        self.n_timesteps = n_timesteps
+
+        # Time-dependent projection matrices
+        self.q_linears = nn.ModuleList([nn.Linear(d_model, d_model) for _ in range(n_timesteps)]) 
+        self.k_linears = nn.ModuleList([nn.Linear(d_model, d_model) for _ in range(n_timesteps)])
+        self.v_linears = nn.ModuleList([nn.Linear(d_model, d_model) for _ in range(n_timesteps)])
+
+        self.out_linear = nn.Linear(d_model, d_model)
+
+    def forward(self, x):
+        x = x.permute(0, 3, 2, 1)  
+
+        # Iterate over time steps
+        outputs = []  # Store results from each time step
+        for t in range(x.size(2)):  # Iterate over the 't' dimension
+            q = self.q_linears[t](x[:, :, t, :]).unsqueeze(2) 
+            k = self.k_linears[t](x[:, :, t, :]).unsqueeze(2)
+            v = self.v_linears[t](x[:, :, t, :]).unsqueeze(2)
+
+            q = q.transpose(1, 2)
+            k = k.transpose(1, 2)
+            v = v.transpose(1, 2)
+
+            scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.d_model // self.n_heads)
+            scores = F.softmax(scores, dim=-1)
+
+            attended = torch.matmul(scores, v).transpose(1, 2)   
+            outputs.append(attended)
+
+        # Concatenate outputs from all time steps
+        output = torch.cat(outputs, dim=2)  
+
+        output = self.out_linear(output)
+        output = output.transpose(1, 3)
+        return output
+    """
+
+
+class SpatialAttention(nn.Module):
+    def __init__(self, d_model, n_timesteps, n_heads):
+        super(SpatialAttention, self).__init__()
+        self.d_model = d_model
+        self.n_heads = n_heads
+        self.n_timesteps = n_timesteps
+
+        # Time-dependent projection matrices
+        # self.q_linears = nn.ModuleList([nn.Linear(d_model, d_model) for _ in range(n_timesteps)]) 
+        self.q_linears = nn.parameter.Parameter(torch.randn(n_timesteps, d_model, d_model), requires_grad=True) 
+        self.k_linears = nn.parameter.Parameter(torch.randn(n_timesteps, d_model, d_model), requires_grad=True) 
+        self.v_linears = nn.parameter.Parameter(torch.randn(n_timesteps, d_model, d_model), requires_grad=True) 
+        self.out_linears = nn.parameter.Parameter(torch.randn(n_timesteps, d_model, d_model), requires_grad=True) 
+
+        # self.out_linear = nn.Linear(d_model, d_model)
+
+    def forward(self, x):
+        x = x.permute(0, 3, 2, 1)  
+
+        # Iterate over time steps
+        # print("x.size(): ", x.size())
+        # print("q_linears.size(): ", self.q_linears.size())
+        q = torch.einsum('bntc,tcd->bntd', x, self.q_linears)  # (batch_size, n_heads, n_timesteps, d_model)
+        # print("q.size() after: ", q.size())
+        k = torch.einsum('bntc,tcd->bntd', x, self.k_linears)  # (batch_size, n_heads, n_timesteps, d_model)
+        v = torch.einsum('bntc,tcd->bntd', x, self.v_linears)
+
+        q = q.transpose(1, 2)
+        k = k.transpose(1, 2)
+        v = v.transpose(1, 2)
+
+        # print("q.size(): ", q.size())
+        
+        scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.d_model // self.n_heads)
+        scores = F.softmax(scores, dim=-1)
+        # print("scores.size(): ", scores.size())
+        attended = torch.matmul(scores, v).transpose(1, 2)   
+        # print("attended.size(): ", attended.size())
+
+        output = torch.einsum('bntc,tcd->bntd', attended, self.out_linears)
+        # output = self.out_linear(attended)
+        # print("output.size(): ", output.size())
+        output = output.transpose(1, 3)
+        
+        return output

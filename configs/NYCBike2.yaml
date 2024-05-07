@@ -12,6 +12,7 @@ input_length: 35
 batch_size: 32
 test_batch_size: 32
 graph_file: data/NYCBike2/adj_mx.npz  # num_nodes 200 (20 x 10)
+num_nodes: 200
 
 ## model 
 d_input: 2                  # means inflow and outflow

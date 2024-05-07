@@ -32,8 +32,8 @@ class STSSL(nn.Module):
         # self.channel_reducer2 = nn.Conv3d(in_channels=3, out_channels=1, kernel_size=(1, 1, 1), padding='same') ## padding='same' to keep output size same as input 
         # self.channel_reducer = nn.Conv3d(in_channels=3, out_channels=1, kernel_size=(1, 1, 1), padding='same') ## padding='same' to keep output size same as input 
 
-        self.attention1 = self_Attention(128, 2)
-        self.attention2 = self_Attention(128, 2)
+        self.attention1 = self_Attention(128, 4)
+        self.attention2 = self_Attention(128, 4)
         # self.attentionA1 = self_Attention(64, 4)
         # self.attentionA2 = self_Attention(64, 4)
         # self.attentionB1 = self_Attention(64, 4)
@@ -47,7 +47,7 @@ class STSSL(nn.Module):
         # self.cross_attention1 = PositionWise_cross_Attention(64, 4)
         # self.cross_attention2 = PositionWise_cross_Attention(64, 4)
 
-        self.ff = PositionwiseFeedForward(d_model=128, d_ff=64*2)
+        # self.ff = PositionwiseFeedForward(d_model=128, d_ff=64*4)
         # self.ffA1 = PositionwiseFeedForward(d_model=64, d_ff=64*4)
         # self.ffB1 = PositionwiseFeedForward(d_model=64, d_ff=64*4)
         # self.ffA2 = PositionwiseFeedForward(d_model=64, d_ff=64*4)
@@ -86,14 +86,31 @@ class STSSL(nn.Module):
         elif graph_init == "random":
             self.learnable_graph = nn.Parameter(torch.empty_like(torch.tensor(adj).float()), requires_grad=False)
             self.xavier_uniform_init(self.learnable_graph)
-        elif graph_init == "8_neighbours":
+
+        elif graph_init == "low_rank" and args.learnable_flag == True:
+            r = int(args.num_nodes * (2/3))
+            # r = int(args.rank)
+            num_low_rank_matrices = 3
+
+            self.matrices1 = nn.Parameter(torch.randn(num_low_rank_matrices, args.num_nodes, r), requires_grad=True).to(args.device)
+            self.matrices2 = nn.Parameter(torch.randn(num_low_rank_matrices, args.num_nodes, r), requires_grad=True).to(args.device)
+            # self.learnable_graph = nn.Parameter(torch.randn(num_low_rank_matrices, args.num_nodes, args.num_nodes), requires_grad=True).to(args.device)
+            # self.learnable_graph = torch.matmul(self.matrices1, self.matrices2.transpose(1, 2))
+
+
+        elif graph_init == "8_neighbours" and args.learnable_flag == True:
+            adj = np.expand_dims(adj, axis=0)  
+            adj = np.repeat(adj, 3, axis=0)
+            self.learnable_graph = nn.Parameter(torch.from_numpy(adj).float(), requires_grad=True)
+        
+        elif graph_init == "8_neighbours" and args.learnable_flag == False:
             self.learnable_graph = nn.Parameter(torch.from_numpy(adj).float(), requires_grad=False)
 
 
         self.encoderA = STEncoder(Kt=3, Ks=args.cheb_order, blocks=[[2, int(args.d_model//2), args.d_model], [args.d_model, int(args.d_model//2), args.d_model]], 
-                        input_length=args.input_length, num_nodes=args.num_nodes, droprate=args.dropout, graph_init=graph_init)
+                        input_length=args.input_length, num_nodes=args.num_nodes, droprate=args.dropout, graph_init=graph_init, learnable_flag=args.learnable_flag)
         self.encoderB = STEncoder(Kt=3, Ks=args.cheb_order, blocks=[[2, int(args.d_model//2), args.d_model], [args.d_model, int(args.d_model//2), args.d_model]], 
-                        input_length=args.input_length, num_nodes=args.num_nodes, droprate=args.dropout, graph_init=graph_init)         
+                        input_length=args.input_length, num_nodes=args.num_nodes, droprate=args.dropout, graph_init=graph_init, learnable_flag=args.learnable_flag)         
         # self.learnable_graph = nn.Parameter(torch.from_numpy(adj).float(), requires_grad=True)
         # self.learnable_graph = nn.Parameter(torch.zeros_like(torch.tensor(adj).float()), requires_grad=True)
         # self.learnable_graph = nn.Parameter(torch.eye(adj.shape[1]).float(), requires_grad=False)
@@ -104,19 +121,21 @@ class STSSL(nn.Module):
         self.layernorm1 = nn.LayerNorm(128)
         self.layernorm2 = nn.LayerNorm(128)
         self.layernorm3 = nn.LayerNorm(128)
-        self.layernorm4 = nn.LayerNorm(64)
-        self.layernorm5 = nn.LayerNorm(64)
-        self.layernorm6 = nn.LayerNorm(64)
-        self.layernorm7 = nn.LayerNorm(64)
-        self.layernorm8 = nn.LayerNorm(64)
-        self.layernorm9 = nn.LayerNorm(64)
-        self.layernorm10 = nn.LayerNorm(64)
-        self.layernorm11 = nn.LayerNorm(64)
-        self.layernorm12 = nn.LayerNorm(64)
-        self.layernorm13 = nn.LayerNorm(64)
-        self.layernorm14 = nn.LayerNorm(64)
-        self.layernorm15 = nn.LayerNorm(64)
-        self.layernorm16 = nn.LayerNorm(64)
+        # self.layernorm4 = nn.LayerNorm(64)
+        # self.layernorm5 = nn.LayerNorm(64)
+        # self.layernorm6 = nn.LayerNorm(64)
+        # self.layernorm7 = nn.LayerNorm(64)
+        # self.layernorm8 = nn.LayerNorm(64)
+        # self.layernorm9 = nn.LayerNorm(64)
+        # self.layernorm10 = nn.LayerNorm(64)
+        # self.layernorm11 = nn.LayerNorm(64)
+        # self.layernorm12 = nn.LayerNorm(64)
+        # self.layernorm13 = nn.LayerNorm(64)
+        # self.layernorm14 = nn.LayerNorm(64)
+        # self.layernorm15 = nn.LayerNorm(64)
+        # self.layernorm16 = nn.LayerNorm(64)
+
+        self.dataset = args.dataset
 
     def xavier_uniform_init(self, tensor):
         fan_in, fan_out = nn.init._calculate_fan_in_and_fan_out(tensor)
@@ -128,13 +147,16 @@ class STSSL(nn.Module):
         # input_sequence_dict = {"A":[-8, 35], "B":[-17, -8], "C":[-26, -17], "D":[-35, -26]}
         # print("view1.shape: ", view1.shape, "graph.shape: ", graph.shape)  # view1.shape:  torch.Size([32, 19, 128, 2]) graph.shape:  torch.Size([128, 128])
         
-        view1A = view1[:, -8:35, :, :]
-        view1B = view1[:, -17:-8, :, :]
+        # view1A = view1[:, -8:35, :, :]
+        # view1B = view1[:, -17:-8, :, :]
         # view1C = view1[:, -26:-17, :, :]
         # view1D = view1[:, -35:-26, :, :]
-        
-        # view1A = view1[:, -4:19, :, :]
-        # view1B = view1[:, -9:-4, :, :]
+        if self.dataset == "NYCBike1":
+            view1A = view1[:, -4:19, :, :]
+            view1B = view1[:, -9:-4, :, :]
+        elif self.dataset == "NYCBike2" or self.dataset == "NYCTaxi" or self.dataset == "BJTaxi": 
+            view1A = view1[:, -8:35, :, :]
+            view1B = view1[:, -17:-8, :, :]
         # view1C = view1[:, -14:-9, :, :]
         # view1D = view1[:, -19:-14, :, :]
         # print("\n\n graph.shape: ", graph.shape)  ## graph.shape:  torch.Size([128, 128])
@@ -154,9 +176,16 @@ class STSSL(nn.Module):
         # view1B = torch.cat((view1BIN, view1BOUT), dim=-1)
         # print("view1B_reduced.shape: ", view1B_reduced.shape)
         
-        
-        repr1A = self.encoderA(view1A, self.learnable_graph) # view1: n,l,v,c; graph: v,v 
-        repr1B = self.encoderB(view1B, self.learnable_graph) # view1: n,l,v,c; graph: v,v 
+        # learnable_graph = torch.matmul(self.matrices1, self.matrices2.transpose(1, 2))
+        # learnable_graph = torch.relu(learnable_graph)
+
+        ## softmax with temp
+        # T=10
+        # learnable_graph = learnable_graph / T
+        # learnable_graph = torch.softmax(learnable_graph, dim=1)
+        learnable_graph = self.learnable_graph
+        repr1A = self.encoderA(view1A, learnable_graph) # view1: n,l,v,c; graph: v,v 
+        repr1B = self.encoderB(view1B, learnable_graph) # view1: n,l,v,c; graph: v,v 
         # repr1C = self.encoderC(view1C, graph) # view1: n,l,v,c; graph: v,v 
         # repr1D = self.encoderD(view1D, graph) # view1: n,l,v,c; graph: v,v 
         
@@ -168,24 +197,28 @@ class STSSL(nn.Module):
         
         combined_repr = torch.cat((repr1A, repr1B), dim=3)            ## combine along the channel dimension d_model
         # combined_repr = self.mlpRepr(combined_repr)
-        combined_repr = combined_repr.squeeze(1)
-        if self.feedforward_flag:
+        if self.self_attention_flag:
+            combined_repr = combined_repr.squeeze(1)
+            if self.feedforward_flag:
+                combined_repr_copy = combined_repr
+                combined_repr = self.ff(combined_repr)
+                combined_repr = combined_repr + combined_repr_copy
+                if self.layer_norm_flag == True:
+                    combined_repr = self.layernorm1(combined_repr)
+            # combined_repr_copy = combined_repr
+            # combined_repr = self.ffA1(combined_repr)   ## for inter channel mixing
+            # combined_repr = combined_repr + combined_repr_copy
+            çombined_repr_copy = combined_repr
+            combined_repr = self.attention1(combined_repr)
+            combined_repr = combined_repr + çombined_repr_copy  # skip connection
+            if self.layer_norm_flag == True:
+                combined_repr = self.layernorm2(combined_repr)
             combined_repr_copy = combined_repr
-            combined_repr = self.ff(combined_repr)
-            combined_repr = combined_repr + combined_repr_copy
-            combined_repr = self.layernorm1(combined_repr)
-        # combined_repr_copy = combined_repr
-        # combined_repr = self.ffA1(combined_repr)   ## for inter channel mixing
-        # combined_repr = combined_repr + combined_repr_copy
-        çombined_repr_copy = combined_repr
-        combined_repr = self.attention1(combined_repr)
-        combined_repr = combined_repr + çombined_repr_copy  # skip connection
-        combined_repr = self.layernorm2(combined_repr)
-        combined_repr_copy = combined_repr
-        combined_repr = self.attention2(combined_repr)
-        combined_repr = combined_repr + combined_repr_copy  # skip connection
-        combined_repr = self.layernorm3(combined_repr)
-        combined_repr = combined_repr.unsqueeze(1)
+            combined_repr = self.attention2(combined_repr)
+            combined_repr = combined_repr + combined_repr_copy  # skip connection
+            if self.layer_norm_flag == True:
+                combined_repr = self.layernorm3(combined_repr)
+            combined_repr = combined_repr.unsqueeze(1)
         
 
 
@@ -352,7 +385,7 @@ class STSSL(nn.Module):
         # print("view2.shape: ", view2.shape, "graph2.shape: ", graph2.shape)
         # repr2 = self.encoder(view2, graph2)
         repr2 = None
-        return combined_repr, self.learnable_graph
+        return combined_repr, learnable_graph
 
     def fetch_spatial_sim(self):
         """
