@@ -180,8 +180,8 @@ class STEncoder(nn.Module):
         if input_length - 2 * (Kt - 1) * len(blocks) <= 0:
             self.Ks=Ks
             c = blocks[0]
-            self.tconv11 = TemporalConvLayer(Kt, c[0], c[1], "GLU", paddin='valid', flag=False)
-            # self.represent = representationLayer(Kt, 1, c[1], "GLU", paddin='valid', flag=False)
+            # self.tconv11 = TemporalConvLayer(Kt, c[0], c[1], "GLU", paddin='valid', flag=False)
+            self.represent = representationLayer(Kt, 1, c[1], "GLU", paddin='valid', flag=False)
             self.pooler = Pooler(input_length - (Kt - 1), c[1])
             
         
@@ -216,8 +216,8 @@ class STEncoder(nn.Module):
         else:
             self.Ks=Ks
             c = blocks[0]
-            self.tconv11 = TemporalConvLayer(Kt, c[0], c[1], "GLU")
-            # self.represent = representationLayer(Kt, 1, c[1], "GLU", paddin='valid', flag=False)
+            # self.tconv11 = TemporalConvLayer(Kt, c[0], c[1], "GLU")
+            self.represent = representationLayer(Kt, 1, c[1], "GLU", paddin='valid', flag=False)
             self.pooler = Pooler(input_length - (Kt - 1), c[1])
             
             # self.sconv12 = SpatioConvLayer(Ks, c[1], c[1])
@@ -279,9 +279,9 @@ class STEncoder(nn.Module):
         """lets work here, as this is the start of embedding, so a bottleneck here would limit the performance downstream."""
         
         # print("x.shape (before tconv11): ", x.shape)  torch.Size([32, 2, 37, 200])
-        x = self.tconv11(x)    # nclv          
-        # x = self.represent(x)    # nclv          
-        # print("x.shape (after represent): ", x.shape)   ## torch.Size([32, 32, 35, 200])
+        # x = self.tconv11(x)    # nclv          
+        x = self.represent(x)    # nclv          
+        print("x.shape (after represent): ", x.shape)   ## torch.Size([32, 32, 35, 200])
         
         "...end..."
         
@@ -379,6 +379,23 @@ class Align(nn.Module):
             return F.pad(x, [0, 0, 0, 0, 0, self.c_out - self.c_in, 0, 0])
         return x  
 
+class AlignForRepresentation(nn.Module):
+    def __init__(self, c_in, c_out):
+        '''Align the input and output.
+        '''
+        super(AlignForRepresentation, self).__init__()
+        self.c_in = c_in
+        self.c_out = c_out
+        if c_in > c_out:
+            self.conv1x1 = nn.Conv3d(c_in, c_out, 1)  # filter=(1,1), similar to fc
+
+    def forward(self, x):  # x: (n,1,c,l,v)
+        # print("self.c_in: ", self.c_in, "self.c_out: ", self.c_out)
+        if self.c_in > self.c_out:
+            return self.conv1x1(x)
+        if self.c_in < self.c_out:
+            return F.pad(x, [0, 0, 0, 0, 0, 0, 0, self.c_out - self.c_in, 0, 0])
+        return x  
 class TemporalConvLayer(nn.Module):
     def __init__(self, kt, c_in, c_out, act="relu", paddin='valid', flag=False):
         super(TemporalConvLayer, self).__init__()
@@ -416,6 +433,43 @@ class TemporalConvLayer(nn.Module):
             return torch.sigmoid(x_conv + x_in)  
         return torch.relu(self.conv(x) + x_in)  
 
+class representationLayer(nn.Module):
+    def __init__(self, kt, c_in, c_out, act="relu", paddin='valid', flag=False):
+        super(representationLayer, self).__init__()
+        self.kt = kt
+        self.act = act
+        self.c_out = c_out
+        self.align = AlignForRepresentation(c_in, c_out)
+        self.flag = flag
+        if self.act == "GLU":
+            self.conv = nn.Conv3d(c_in, c_out * 2, (2, kt, 1), 1, padding=paddin)
+        else:
+            self.conv = nn.Conv3d(c_in, c_out, (2, kt, 1), 1, padding=paddin)
+
+    def forward(self, x):
+        """
+        :param x: (n,1,c,l,v)
+        :return: (n,f,c,l-kt+1,v)   f is the number of filters, c is in/out
+        """
+        # print("x.shape (before align): ", x.shape)
+        # print("kt: ", self.kt)
+        # print("x.shape (before align): ", x.shape)
+        x = x.unsqueeze(1)  ## nclv -> n1clv    ## to allow for 3d conv
+        if self.flag:
+            x_in = self.align(x)  
+        else:
+            x_in = self.align(x)[:, :, :, self.kt - 1:, :]   # align does nothing as c_in == c_out (in out_conv)
+        # print("x_in.shape: ", x_in.shape)
+        if self.act == "GLU":
+            # print("x.shape (GLU): ", x.shape)  torch.Size([32, 64, 27, 200])
+            x_conv = self.conv(x)
+            # print("x_conv.shape (GLU): ", x_conv.shape)  torch.Size([32, 128, 1, 200])
+            return (x_conv[:, :self.c_out, :, :, :] + x_in) * torch.sigmoid(x_conv[:, self.c_out:, :, :, :])
+        if self.act == "sigmoid":
+            x_conv = self.conv(x)
+            # print("x_conv.shape: ", x_conv.shape)
+            return torch.sigmoid(x_conv + x_in)  
+        return torch.relu(self.conv(x) + x_in)  
 
 class SpatioConvLayer(nn.Module):
     def __init__(self, ks, c_in, c_out):
