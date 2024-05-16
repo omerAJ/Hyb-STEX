@@ -7,6 +7,7 @@ from model.aug import (
     aug_traffic, 
 )
 from model.layers import (
+    fullyAttentiveEncoder,
     STEncoder, 
     SpatialHeteroModel, 
     TemporalHeteroModel, 
@@ -21,19 +22,13 @@ import numpy as np
 class STSSL(nn.Module):
     def __init__(self, args):
         super(STSSL, self).__init__()
-        # spatial temporal encoder
-        
-        # self.encoderC = STEncoder(Kt=3, Ks=3, blocks=[[2, int(args.d_model//2), args.d_model], [args.d_model, int(args.d_model//2), args.d_model]], 
-        #                 input_length=args.input_length, num_nodes=args.num_nodes, droprate=args.dropout)
-        # self.encoderD = STEncoder(Kt=3, Ks=3, blocks=[[2, int(args.d_model//2), args.d_model], [args.d_model, int(args.d_model//2), args.d_model]], 
-        #                 input_length=args.input_length, num_nodes=args.num_nodes, droprate=args.dropout)
-        
+    
         # self.channel_reducer1 = nn.Conv3d(in_channels=3, out_channels=1, kernel_size=(1, 1, 1), padding='same') ## padding='same' to keep output size same as input 
         # self.channel_reducer2 = nn.Conv3d(in_channels=3, out_channels=1, kernel_size=(1, 1, 1), padding='same') ## padding='same' to keep output size same as input 
         # self.channel_reducer = nn.Conv3d(in_channels=3, out_channels=1, kernel_size=(1, 1, 1), padding='same') ## padding='same' to keep output size same as input 
 
-        self.attention1 = self_Attention(128, 4)
-        self.attention2 = self_Attention(128, 4)
+        # self.attention1 = self_Attention(128, 4)
+        # self.attention2 = self_Attention(128, 4)
         # self.attentionA1 = self_Attention(64, 4)
         # self.attentionA2 = self_Attention(64, 4)
         # self.attentionB1 = self_Attention(64, 4)
@@ -55,7 +50,7 @@ class STSSL(nn.Module):
         # self.ffCA1 = PositionwiseFeedForward(d_model=64, d_ff=64*4)
         # self.ffCA2 = PositionwiseFeedForward(d_model=64, d_ff=64*4)
         # traffic flow prediction branch
-        self.mlp = MLP(2*args.d_model, args.d_output)
+        self.mlp = MLP(args.d_model, args.d_output)
         # self.mlpRepr = MLP(2*args.d_model, args.d_model)
         # temporal heterogenrity modeling branch
         # self.thm = TemporalHeteroModel(args.d_model, args.batch_size, args.num_nodes, args.device)
@@ -74,6 +69,7 @@ class STSSL(nn.Module):
         self.feedforward_flag = args.feedforward_flag
         self.layer_norm_flag = args.layer_norm_flag
         self.additional_sa_flag = args.additional_sa_flag
+        self.pos_emb_flag = args.pos_emb_flag
 
         if graph_init == "eye":
             self.learnable_graph = nn.Parameter(torch.eye(adj.shape[1]).float(), requires_grad=False)
@@ -107,20 +103,32 @@ class STSSL(nn.Module):
             self.learnable_graph = nn.Parameter(torch.from_numpy(adj).float(), requires_grad=False)
 
 
+        self.dataset = args.dataset
+
+        if self.dataset == "NYCBike1":
+            self.encoderA = fullyAttentiveEncoder(row=args.row, col=args.col, in_len=4, pos_emb_flag=self.pos_emb_flag)
+            self.encoderB = fullyAttentiveEncoder(row=args.row, col=args.col, in_len=5, pos_emb_flag=self.pos_emb_flag)
+        else:
+            self.encoderA = fullyAttentiveEncoder(row=args.row, col=args.col, in_len=8, pos_emb_flag=self.pos_emb_flag)
+            self.encoderB = fullyAttentiveEncoder(row=args.row, col=args.col, in_len=9, pos_emb_flag=self.pos_emb_flag)
+
+        """
         self.encoderA = STEncoder(Kt=3, Ks=args.cheb_order, blocks=[[2, int(args.d_model//2), args.d_model], [args.d_model, int(args.d_model//2), args.d_model]], 
-                        input_length=args.input_length, num_nodes=args.num_nodes, droprate=args.dropout, graph_init=graph_init, learnable_flag=args.learnable_flag)
+                        input_length=args.input_length, num_nodes=args.num_nodes, droprate=args.dropout, graph_init=graph_init, learnable_flag=args.learnable_flag, row=args.row, col=args.col)
         self.encoderB = STEncoder(Kt=3, Ks=args.cheb_order, blocks=[[2, int(args.d_model//2), args.d_model], [args.d_model, int(args.d_model//2), args.d_model]], 
-                        input_length=args.input_length, num_nodes=args.num_nodes, droprate=args.dropout, graph_init=graph_init, learnable_flag=args.learnable_flag)         
+                        input_length=args.input_length, num_nodes=args.num_nodes, droprate=args.dropout, graph_init=graph_init, learnable_flag=args.learnable_flag, row=args.row, col=args.col)         
+        """
+        
         # self.learnable_graph = nn.Parameter(torch.from_numpy(adj).float(), requires_grad=True)
         # self.learnable_graph = nn.Parameter(torch.zeros_like(torch.tensor(adj).float()), requires_grad=True)
         # self.learnable_graph = nn.Parameter(torch.eye(adj.shape[1]).float(), requires_grad=False)
 
         # nn.init.xavier_uniform_(self.learnable_graph)        
     
-        ## norms
-        self.layernorm1 = nn.LayerNorm(128)
-        self.layernorm2 = nn.LayerNorm(128)
-        self.layernorm3 = nn.LayerNorm(128)
+        # ## norms
+        # self.layernorm1 = nn.LayerNorm(128)
+        # self.layernorm2 = nn.LayerNorm(128)
+        # self.layernorm3 = nn.LayerNorm(128)
         # self.layernorm4 = nn.LayerNorm(64)
         # self.layernorm5 = nn.LayerNorm(64)
         # self.layernorm6 = nn.LayerNorm(64)
@@ -136,7 +144,8 @@ class STSSL(nn.Module):
         # self.layernorm16 = nn.LayerNorm(64)
 
         self.dataset = args.dataset
-
+        self.row = args.row
+        self.col = args.col
     def xavier_uniform_init(self, tensor):
         fan_in, fan_out = nn.init._calculate_fan_in_and_fan_out(tensor)
         std = np.sqrt(2.0 / (fan_in + fan_out))
@@ -147,16 +156,14 @@ class STSSL(nn.Module):
         # input_sequence_dict = {"A":[-8, 35], "B":[-17, -8], "C":[-26, -17], "D":[-35, -26]}
         # print("view1.shape: ", view1.shape, "graph.shape: ", graph.shape)  # view1.shape:  torch.Size([32, 19, 128, 2]) graph.shape:  torch.Size([128, 128])
         
-        # view1A = view1[:, -8:35, :, :]
-        # view1B = view1[:, -17:-8, :, :]
-        # view1C = view1[:, -26:-17, :, :]
-        # view1D = view1[:, -35:-26, :, :]
+        
         if self.dataset == "NYCBike1":
             view1A = view1[:, -4:19, :, :]
             view1B = view1[:, -9:-4, :, :]
         elif self.dataset == "NYCBike2" or self.dataset == "NYCTaxi" or self.dataset == "BJTaxi": 
             view1A = view1[:, -8:35, :, :]
             view1B = view1[:, -17:-8, :, :]
+        
         # view1C = view1[:, -14:-9, :, :]
         # view1D = view1[:, -19:-14, :, :]
         # print("\n\n graph.shape: ", graph.shape)  ## graph.shape:  torch.Size([128, 128])
@@ -183,9 +190,16 @@ class STSSL(nn.Module):
         # T=10
         # learnable_graph = learnable_graph / T
         # learnable_graph = torch.softmax(learnable_graph, dim=1)
+        
+        repr1A = self.encoderA(view1A) # view1: n,l,v,c; graph: v,v 
+        repr1B = self.encoderB(view1B) # view1: n,l,v,c; graph: v,v 
+        
+        """
         learnable_graph = self.learnable_graph
         repr1A = self.encoderA(view1A, learnable_graph) # view1: n,l,v,c; graph: v,v 
         repr1B = self.encoderB(view1B, learnable_graph) # view1: n,l,v,c; graph: v,v 
+        """
+
         # repr1C = self.encoderC(view1C, graph) # view1: n,l,v,c; graph: v,v 
         # repr1D = self.encoderD(view1D, graph) # view1: n,l,v,c; graph: v,v 
         
@@ -197,6 +211,8 @@ class STSSL(nn.Module):
         
         combined_repr = torch.cat((repr1A, repr1B), dim=3)            ## combine along the channel dimension d_model
         # combined_repr = self.mlpRepr(combined_repr)
+        
+        """
         if self.self_attention_flag:
             combined_repr = combined_repr.squeeze(1)
             if self.feedforward_flag:
@@ -219,7 +235,7 @@ class STSSL(nn.Module):
             if self.layer_norm_flag == True:
                 combined_repr = self.layernorm3(combined_repr)
             combined_repr = combined_repr.unsqueeze(1)
-        
+        """
 
 
         """
@@ -385,6 +401,7 @@ class STSSL(nn.Module):
         # print("view2.shape: ", view2.shape, "graph2.shape: ", graph2.shape)
         # repr2 = self.encoder(view2, graph2)
         repr2 = None
+        learnable_graph = None
         return combined_repr, learnable_graph
 
     def fetch_spatial_sim(self):

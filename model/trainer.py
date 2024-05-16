@@ -97,7 +97,7 @@ class Trainer(object):
             total_loss += loss.item()
             total_sep_loss += sep_loss
         if epoch % 10 == 0:
-            plot = "npArray"
+            plot = "no"
             if plot == "image":
                 import networkx as nx
                 import matplotlib.pyplot as plt

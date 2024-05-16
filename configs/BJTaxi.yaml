@@ -9,10 +9,12 @@ debug: False # true means no log in file
 data_dir: data
 dataset: BJTaxi 
 input_length: 35 # 8+9*3
-batch_size: 12
+batch_size: 1
 test_batch_size: 20
 graph_file: data/BJTaxi/adj_mx.npz # num_nodes: 1024
 num_nodes: 1024
+row: 32
+col: 32
 
 ## model 
 d_input: 2                  # means inflow and outflow

@@ -95,6 +95,7 @@ if __name__=='__main__':
     parser.add_argument('--additional_sa_flag', "-asa", default=False, type=bool, help='wether to additional SA')
     parser.add_argument('--learnable_flag', "-l", default=False, type=bool, help='wether to use learnable adj matrix')
     parser.add_argument('--rank', "-r", default=0, type=int, help='rank of adj matrix')
+    parser.add_argument('--pos_emb_flag', "-pef", default=False, type=bool, help='wether to add pos_emb')
 
     # parser.add_argument('--input_length', default=0, type=int, help='# of samples to use for context')
     args = parser.parse_args()
@@ -117,6 +118,7 @@ if __name__=='__main__':
     configs['layer_norm_flag'] = args.layer_norm_flag
     configs['additional_sa_flag'] = args.additional_sa_flag
     configs['learnable_flag'] = args.learnable_flag
+    configs['pos_emb_flag'] = args.pos_emb_flag
     configs['rank'] = args.rank
     # configs['input_length'] = args.input_length
     # experimentName = "pred_" + str(args.input_length) + "_"
