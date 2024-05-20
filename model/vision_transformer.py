@@ -7,24 +7,28 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from vision_transformer_utils import (
+import sys
+sys.path.append('.')
+sys.path.append('..')
+from model.vision_transformer_utils import (
     trunc_normal_,
     repeat_interleave_batch,
-    apply_masks
+    apply_masks_ctxt,
+    apply_masks_targets,
 )
 
-def get_2d_sincos_pos_embed(embed_dim, grid_size, cls_token=False):
+def get_2d_sincos_pos_embed(embed_dim, rows, cols, cls_token=False):
     """
     grid_size: int of the grid height and width
     return:
     pos_embed: [grid_size*grid_size, embed_dim] or [1+grid_size*grid_size, embed_dim] (w/ or w/o cls_token)
     """
-    grid_h = np.arange(grid_size, dtype=float)
-    grid_w = np.arange(grid_size, dtype=float)
+    grid_h = np.arange(rows, dtype=float)
+    grid_w = np.arange(cols, dtype=float)
     grid = np.meshgrid(grid_w, grid_h)  # here w goes first
     grid = np.stack(grid, axis=0)
 
-    grid = grid.reshape([2, 1, grid_size, grid_size])
+    grid = grid.reshape([2, 1, rows, cols])
     pos_embed = get_2d_sincos_pos_embed_from_grid(embed_dim, grid)
     if cls_token:
         pos_embed = np.concatenate([np.zeros([1, embed_dim]), pos_embed], axis=0)
@@ -168,9 +172,9 @@ class Block(nn.Module):
 class PatchEmbed(nn.Module):
     """ Image to Patch Embedding
     """
-    def __init__(self, img_size=224, patch_size=16, in_chans=3, embed_dim=768):
+    def __init__(self, img_size=[224, 224], patch_size=16, in_chans=3, embed_dim=768):
         super().__init__()
-        num_patches = (img_size // patch_size) * (img_size // patch_size)
+        num_patches = (img_size[0] // patch_size) * (img_size[1] // patch_size)
         self.img_size = img_size
         self.patch_size = patch_size
         self.num_patches = num_patches
@@ -215,7 +219,7 @@ class VisionTransformerPredictor(nn.Module):
     """ Vision Transformer """
     def __init__(
         self,
-        num_patches,
+        imgt_size=(20, 10),
         embed_dim=768,
         predictor_embed_dim=384,
         depth=6,
@@ -235,10 +239,11 @@ class VisionTransformerPredictor(nn.Module):
         self.mask_token = nn.Parameter(torch.zeros(1, 1, predictor_embed_dim))
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]  # stochastic depth decay rule
         # --
+        num_patches = imgt_size[0] * imgt_size[1]
         self.predictor_pos_embed = nn.Parameter(torch.zeros(1, num_patches, predictor_embed_dim),
                                                 requires_grad=False)
         predictor_pos_embed = get_2d_sincos_pos_embed(self.predictor_pos_embed.shape[-1],
-                                                      int(num_patches**.5),
+                                                      imgt_size[0], imgt_size[1],
                                                       cls_token=False)
         self.predictor_pos_embed.data.copy_(torch.from_numpy(predictor_pos_embed).float().unsqueeze(0))
         # --
@@ -276,37 +281,49 @@ class VisionTransformerPredictor(nn.Module):
             if m.bias is not None:
                 nn.init.constant_(m.bias, 0)
 
-    def forward(self, x, masks_x, masks):
-        assert (masks is not None) and (masks_x is not None), 'Cannot run predictor without mask indices'
+    def forward(self, x, masks_enc, masks_pred):
+        assert (masks_pred is not None) and (masks_enc is not None), 'Cannot run predictor without mask indices'
 
-        if not isinstance(masks_x, list):
-            masks_x = [masks_x]
+        if not isinstance(masks_enc, list):
+            # masks_enc = [masks_enc]
+            pass
 
-        if not isinstance(masks, list):
-            masks = [masks]
+        if not isinstance(masks_pred, list):
+            # masks_pred = [masks_pred]
+            pass
 
         # -- Batch Size
-        B = len(x) // len(masks_x)
+        # print("x.shape", x.shape, "masks_enc.shape", masks_enc.shape, "masks_pred.shape", masks_pred.shape)
+        B = len(x) // masks_enc.shape[1]   ## masks_enc is [32, 1, 200], just in case  x: [32, 45, 256]
 
         # -- map from encoder-dim to pedictor-dim
-        x = self.predictor_embed(x)
+        x = self.predictor_embed(x)    ## x: [32, 45, 256] -> [32, 45, pred_emb_dim]
 
         # -- add positional embedding to x tokens
         x_pos_embed = self.predictor_pos_embed.repeat(B, 1, 1)
-        x += apply_masks(x_pos_embed, masks_x)
-
-        _, N_ctxt, D = x.shape
+        # print(f"x.shape: {x.shape}", f"B: {B}", "x_pos_embed.shape", x_pos_embed.shape, "masks_enc.shape", masks_enc.shape)  
+        x += apply_masks_ctxt(x_pos_embed, masks_enc)
+        # print(f"x.shape: {x.shape}")    ## [32, 30, 128]
+        _, N_ctxt, D = x.shape   ## N_ctxt is the number of context tokens
 
         # -- concat mask tokens to x
         pos_embs = self.predictor_pos_embed.repeat(B, 1, 1)
-        pos_embs = apply_masks(pos_embs, masks)
-        pos_embs = repeat_interleave_batch(pos_embs, B, repeat=len(masks_x))
+        # print("applying target mask on pos_embs", "pos_embs.shape", pos_embs.shape, "masks_pred.shape", masks_pred.shape) ## pos_embs:[32, 200, 128], masks_pred:[32, 4, 200]
+        pos_embs = apply_masks_targets(pos_embs, masks_pred)
+        # print("pos_embs.shape", pos_embs.shape)   ## [32*4, 6(number of tokens to select as target per sample per mask), 128]
+        ## number of pred_tokens i need is 32*4*6 = 768
+        
+        pos_embs = repeat_interleave_batch(pos_embs, B, repeat=masks_enc.shape[1])   ## repeat=no. of enc masks
+        # print("pos_embs.shape", pos_embs.shape)   ## [32*4, 6(number of tokens to select as target per sample per mask), 128]
         # --
         pred_tokens = self.mask_token.repeat(pos_embs.size(0), pos_embs.size(1), 1)
+        # print("pred_tokens.shape", pred_tokens.shape)   ## [32*4, 6(number of target tokens per sample per mask), 128]
         # --
         pred_tokens += pos_embs
-        x = x.repeat(len(masks), 1, 1)
-        x = torch.cat([x, pred_tokens], dim=1)
+        # print(f"x.shape: {x.shape}")  ## [32, 42, 128]
+        x = x.repeat(masks_pred.shape[1], 1, 1) 
+        # print(f"x.shape (after repeat): {x.shape}")  
+        x = torch.cat([x, pred_tokens], dim=1)   ## [32*4, 42+6, 128]
 
         # -- fwd prop
         for blk in self.predictor_blocks:
@@ -314,7 +331,9 @@ class VisionTransformerPredictor(nn.Module):
         x = self.predictor_norm(x)
 
         # -- return preds for mask tokens
+        # print("x.shape", x.shape)  
         x = x[:, N_ctxt:]
+        # print("x.shape", x.shape)
         x = self.predictor_proj(x)
 
         return x
@@ -347,15 +366,18 @@ class VisionTransformer(nn.Module):
         self.num_heads = num_heads
         # --
         self.patch_embed = PatchEmbed(
-            img_size=img_size[0],
+            img_size=[img_size[0], img_size[1]],
             patch_size=patch_size,
             in_chans=in_chans,
             embed_dim=embed_dim)
-        num_patches = self.patch_embed.num_patches
+        
+        # self.up_projection = nn.Linear(2, embed_dim)
+        num_patches = img_size[0] * img_size[1]
+
         # --
         self.pos_embed = nn.Parameter(torch.zeros(1, num_patches, embed_dim), requires_grad=False)
         pos_embed = get_2d_sincos_pos_embed(self.pos_embed.shape[-1],
-                                            int(self.patch_embed.num_patches**.5),
+                                            img_size[0], img_size[1],
                                             cls_token=False)
         self.pos_embed.data.copy_(torch.from_numpy(pos_embed).float().unsqueeze(0))
         # --
@@ -395,19 +417,24 @@ class VisionTransformer(nn.Module):
     def forward(self, x, masks=None):
         if masks is not None:
             if not isinstance(masks, list):
-                masks = [masks]
+                # masks = [masks]
+                pass ## no need to convert mask to list
 
         # -- patchify x
         x = self.patch_embed(x)
+        # x = self.up_projection(x)
+        # print("x.shape", x.shape)
         B, N, D = x.shape
 
         # -- add positional embedding to x
         pos_embed = self.interpolate_pos_encoding(x, self.pos_embed)
-        x = x + pos_embed
+        x = x + pos_embed   ## add complete pos_emb before indexing
 
         # -- mask x
         if masks is not None:
-            x = apply_masks(x, masks)
+            # print("\n\nbefore apply_masks_ctxt: \n\n", "x.shape", x.shape, "masks.shape", masks.shape) ## x: [32, 200, 256] masks: [32, 1, 200]
+            x = apply_masks_ctxt(x, masks)
+            # print("\nafter apply_masks_ctxt: \n\n", "x.shape", x.shape)  ## [32, 45, 256]
 
         # -- fwd prop
         for i, blk in enumerate(self.blocks):
@@ -418,6 +445,7 @@ class VisionTransformer(nn.Module):
 
         return x
 
+    """check this"""
     def interpolate_pos_encoding(self, x, pos_embed):
         npatch = x.shape[1] - 1
         N = pos_embed.shape[1] - 1
