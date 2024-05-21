@@ -185,9 +185,9 @@ class STEncoder(nn.Module):
             self.pooler = Pooler(input_length - (Kt - 1), c[1])
             
         
-            # self.sconv12 = SpatioConvLayer(Ks, c[1], c[1])
+            self.sconv12 = SpatioConvLayer(Ks, c[1], c[1])
             t = input_length + 2 - 2 - 2 
-            self.sconv12 = SpatialAttention(d_model=c[1], n_timesteps=t, n_heads=1)
+            # self.sconv12 = SpatialAttention(d_model=c[1], n_timesteps=t, n_heads=1)
             
             self.tconv13 = TemporalConvLayer(Kt, c[1], c[2], paddin='same', flag=True)
             self.ln1 = nn.LayerNorm([num_nodes, c[2]])
@@ -196,9 +196,9 @@ class STEncoder(nn.Module):
             c = blocks[1]
             self.tconv21 = TemporalConvLayer(Kt, c[0], c[1], "GLU", paddin='same', flag=True)
             
-            # self.sconv22 = SpatioConvLayer(Ks, c[1], c[1])
+            self.sconv22 = SpatioConvLayer(Ks, c[1], c[1])
             t = input_length + 2 - 2 - 2 - 2 - 2 
-            self.sconv22 = SpatialAttention(d_model=c[1], n_timesteps=t, n_heads=1)
+            # self.sconv22 = SpatialAttention(d_model=c[1], n_timesteps=t, n_heads=1)
             
             self.tconv23 = TemporalConvLayer(Kt, c[1], c[2], paddin='same', flag=True)
             self.ln2 = nn.LayerNorm([num_nodes, c[2]])
@@ -220,9 +220,9 @@ class STEncoder(nn.Module):
             # self.represent = representationLayer(Kt, 1, c[1], "GLU", paddin='valid', flag=False)
             self.pooler = Pooler(input_length - (Kt - 1), c[1])
             
-            # self.sconv12 = SpatioConvLayer(Ks, c[1], c[1])
+            self.sconv12 = SpatioConvLayer(Ks, c[1], c[1])
             t = input_length + 2 - 2 - 2 
-            self.sconv12 = SpatialAttention(d_model=c[1], n_timesteps=t, n_heads=1)
+            # self.sconv12 = SpatialAttention(d_model=c[1], n_timesteps=t, n_heads=1)
             self.lns1 = nn.LayerNorm([num_nodes, c[1]])
             self.tconv13 = TemporalConvLayer(Kt, c[1], c[2])
             self.ln1 = nn.LayerNorm([num_nodes, c[2]])
@@ -231,9 +231,9 @@ class STEncoder(nn.Module):
             c = blocks[1]
             self.tconv21 = TemporalConvLayer(Kt, c[0], c[1], "GLU")
             
-            # self.sconv22 = SpatioConvLayer(Ks, c[1], c[1])
+            self.sconv22 = SpatioConvLayer(Ks, c[1], c[1])
             t = input_length + 2 - 2 - 2 - 2 - 2 
-            self.sconv22 = SpatialAttention(d_model=c[1], n_timesteps=t, n_heads=1)
+            # self.sconv22 = SpatialAttention(d_model=c[1], n_timesteps=t, n_heads=1)
             self.lns2 = nn.LayerNorm([num_nodes, c[1]])
             self.tconv23 = TemporalConvLayer(Kt, c[1], c[2])
             self.ln2 = nn.LayerNorm([num_nodes, c[2]])
@@ -290,11 +290,11 @@ class STEncoder(nn.Module):
         self.s_sim_mx = sim_global(x_agg, sim_type='cos')
         # print("x.shape (before sconv12): ", x.shape)  torch.Size([32, 32, 33, 200])
         if self.do_sconv:
-            x_skip = x
-            x = self.sconv12(x)   # nclv
-            x = x + x_skip
+            # x_skip = x
+            x = self.sconv12(x, Lk)   # nclv
+            # x = x + x_skip
             ## [b, c, t, n]
-            # x = self.lns1(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)     ## ln([b, t, n, c]) -> [b, c, t, n]
+            x = self.lns1(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)     ## ln([b, t, n, c]) -> [b, c, t, n]
         # print("x.shape (after sconv12): ", x.shape)  torch.Size([32, 32, 33, 200])
         x = self.tconv13(x)  
         # print("x.shape (after tconv13): ", x.shape)    torch.Size([32, 64, 31, 200])
@@ -305,10 +305,10 @@ class STEncoder(nn.Module):
         # print("x.shape (after tconv21): ", x.shape)  torch.Size([32, 32, 29, 200])
         # print("x.shape (before sconv22): ", x.shape)  torch.Size([32, 32, 29, 200])
         if self.do_sconv:
-            x_skip = x
-            x = self.sconv22(x)   # nclv
-            x = x + x_skip
-            # x = self.lns2(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)
+            # x_skip = x
+            x = self.sconv22(x, Lk)   # nclv
+            # x = x + x_skip
+            x = self.lns2(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)
         # print("x.shape (after sconv22): ", x.shape)  torch.Size([32, 32, 29, 200])
         x = self.tconv23(x)
         # print("x.shape (after tconv23): ", x.shape)  torch.Size([32, 64, 27, 200])

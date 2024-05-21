@@ -64,8 +64,8 @@ class STSSL(nn.Module):
         self.mae = masked_mae_loss(mask_value=5.0)
         # self.mae = masked_mae_loss(mask_value=None)
         self.args = args
-        adj = args.graph_file
-        adj = np.load(adj)["adj_mx"]
+        # adj = args.graph_file
+        # adj = np.load(adj)["adj_mx"]
         graph_init = args.graph_init
         
         ## attention flags
@@ -104,6 +104,13 @@ class STSSL(nn.Module):
             self.learnable_graph = nn.Parameter(torch.from_numpy(adj).float(), requires_grad=True)
         
         elif graph_init == "8_neighbours" and args.learnable_flag == False:
+            adj = "data/NYCTaxi/adj_mx.npz"
+            adj = np.load(adj)["adj_mx"]
+            self.learnable_graph = nn.Parameter(torch.from_numpy(adj).float(), requires_grad=False)
+        
+        elif graph_init == "pre_trained" and args.learnable_flag == False:
+            adj = "data/NYCTaxi/pretrained_adj_mx.npz"
+            adj = np.load(adj)["adj_mx"]
             self.learnable_graph = nn.Parameter(torch.from_numpy(adj).float(), requires_grad=False)
 
 
