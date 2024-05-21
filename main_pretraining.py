@@ -56,32 +56,32 @@ def main():
         img_size=(args.row, args.col),
         patch_size=1,
         in_chans=2,
-        embed_dim=256,
+        embed_dim=64,
         predictor_embed_dim=None,
-        depth=6,
+        depth=1,
         predictor_depth=None,
         num_heads=1,
         mlp_ratio=4,
         qkv_bias=True,
         qk_scale=None,
         drop_rate=0.0,
-        attn_drop_rate=0.0,
-        drop_path_rate=0.0,
+        attn_drop_rate=0.2,
+        drop_path_rate=0.1,
         norm_layer=torch.nn.LayerNorm,
         init_std=0.02
     )
     predictor = VisionTransformerPredictor(
         img_size=(args.row, args.col),
-        embed_dim=256,
-        predictor_embed_dim=256//2,
-        depth=6,
+        embed_dim=64,
+        predictor_embed_dim=64//2,
+        depth=1,
         num_heads=1,
         mlp_ratio=4,
         qkv_bias=True,
         qk_scale=None,
         drop_rate=0.0,
-        attn_drop_rate=0.0,
-        drop_path_rate=0.0,
+        attn_drop_rate=0.2,
+        drop_path_rate=0.1,
         norm_layer=torch.nn.LayerNorm,
         init_std=0.02
     )
@@ -112,6 +112,9 @@ def main():
             ipe_scale=ipe_scale,
             use_bfloat16=use_bfloat16)
 
+    """dont backprop to target_encoder parameters, update it with ema"""
+    for p in target_encoder.parameters():
+        p.requires_grad = False
     ema = [0.996, 1.0]
     ipe = len(train_loader)
     ipe_scale = 1.0
@@ -122,14 +125,14 @@ def main():
 
     import logging
     log_freq = 100
-    checkpoint_freq = 50
+    checkpoint_freq = 10
     logging.basicConfig(stream=sys.stdout, level=logging.INFO)
     logger = logging.getLogger()
     from model.ijepa_utils import AverageMeter, CSVLogger, gpu_timer, grad_logger
 
 
     # -- make csv_logger
-    log_file = r'E:\estudy\ST-SSL\code\ST-SSL\logs\logs.csv'
+    log_file = r'D:\omer\ST-SSL\logs\pretrain_logs\pretrain_log.csv'
     csv_logger = CSVLogger(log_file,
                             ('%d', 'epoch'),
                             ('%d', 'itr'),
@@ -140,7 +143,7 @@ def main():
 
     import os
     tag = r"jepa"
-    folder = r"E:\estudy\ST-SSL\code\ST-SSL\logs"
+    folder = r"D:\omer\ST-SSL\logs\singleBLK_try2"
     log_file = os.path.join(folder, f'{tag}_r{rank}.csv')
     save_path = os.path.join(folder, f'{tag}' + '-ep{epoch}.pth.tar')
     latest_path = os.path.join(folder, f'{tag}-latest.pth.tar')
@@ -166,6 +169,7 @@ def main():
         
         logger.info('Epoch %d' % (epoch + 1))
         loss_meter = AverageMeter()
+        test_loss_meter = AverageMeter()
         time_meter = AverageMeter()
         # print("\n\n\nbefore enmerating loader")
         for itr, (data, target) in enumerate(train_loader):
@@ -174,7 +178,7 @@ def main():
             data = data[:, 0, :, :].squeeze(1)  ## select just one graph
             # print("data.shape: ", data.shape)   ## torch.Size([32, 200, 2])
             B, N, D = data.size()
-            data = data.view(B, args.row, args.col, D) ## reshape to 2D grid 
+            data = data.view(B, args.row, args.col, D).to(args.device) ## reshape to 2D grid 
             # print("data.shape: ", data.shape)   ## torch.Size([32, 20, 10, 2])
             
             def generateMasks(data):
@@ -189,11 +193,11 @@ def main():
                 masks_pred = torch.zeros(4, B, R, C, dtype=torch.uint8)
 
                 ## select deltas before sample loop. 
-
-                delta_h_ctxt = torch.randint(4, 10, (1,))        ## low (inclusive), high (exclusive)
-                delta_w_ctxt = torch.randint(4, 10, (1,))  
-                delta_h_trgt = torch.randint(2, 5, (1,))  
-                delta_w_trgt = torch.randint(2, 5, (1,))  
+                ## grid_size: 20x10
+                delta_h_ctxt = torch.randint(10, 13, (1,))        ## low (inclusive), high (exclusive)
+                delta_w_ctxt = torch.randint(6, 8, (1,))  
+                delta_h_trgt = torch.randint(4, 6, (1,))  
+                delta_w_trgt = torch.randint(2, 3, (1,))  
                 
                 for b in range(B):
                     # Select h1, w1 for the encoding mask with constraints
@@ -209,7 +213,10 @@ def main():
 
                     # Generate four prediction masks (can be overlapping with each other, but not with context mask)
                     for i in range(4):
+                        n=0
                         while True:
+                            if n>2000:
+                                print(f"cant find valid mask n={n}, stuck...")
                             # Smaller random sizes for prediction masks
                             h1 = torch.randint(0, R, (1,))
                             if h1 + delta_h_trgt > R:
@@ -224,6 +231,7 @@ def main():
 
                             # Check if it overlaps with the encoding mask
                             if torch.any(masks_enc[b] & temp_mask):
+                                n+=1
                                 continue  # Overlaps, try again
 
                             # No overlap, set this mask
@@ -300,17 +308,67 @@ def main():
             loss_meter.update(loss)
             time_meter.update(etime)
 
+            ## eval time
+            def test_step():
+                for itr, (data, target) in enumerate(test_loader):
+                    data = data[:, 0, :, :].squeeze(1)  ## select just one graph
+                    # print("data.shape: ", data.shape)   ## torch.Size([32, 200, 2])
+                    B, N, D = data.size()
+                    data = data.view(B, args.row, args.col, D).to(args.device) ## reshape to 2D grid 
+                    imgs, masks_enc, masks_pred = generateMasks(data)
+                    imgs = imgs.permute(0, 3, 1, 2)  ## [B, R, C, D] -> [B, D, R, C]
+                    masks_pred = masks_pred.flatten(2) ## [B, 4, R, C] -> [B, 4, R*C]
+                    masks_enc = masks_enc.flatten(1).unsqueeze(1) ## [B, R, C] -> [B, 1, R*C]
+                    with torch.no_grad():
+                        def forward_target():    ## mask target tokens after encoding
+                            with torch.no_grad():  #sg
+                                h = target_encoder(imgs, masks=None)  ## VisionTransformer  masks_enc=None
+                                h = F.layer_norm(h, (h.size(-1),))  # normalize over feature-dim
+                                B = len(h)
+                                # print("h.shape: ", h.shape)    ## torch.Size([32, 200, 256])
+                                # -- all tokens updated, now create 4 targets
+                                # -- create targets (masked regions of h)
+                                # print("\n\nh.shape (before apply_masks_targets): ", h.shape, "mask_pred.shape: ", masks_pred.shape, "\n\n")
+                                h = apply_masks_targets(h, masks_pred)
+                                # print("\n\nh.shape (after apply_masks_targets): ", h.shape, "\n\n") 
+                                # h = repeat_interleave_batch(h, B, repeat=len(masks_enc))    ## does nothing as len(x)==B and repeat==1
+                                return h
+
+                        def forward_context():    ## mask context tokens before encoding
+                            z = encoder(imgs, masks=masks_enc)  ## VisionTransformer
+                            # print("(before encoder) imgs.shape: ", imgs.shape, " masks_enc.shape: ", masks_enc.shape, "(after encoder) z.shape: ", z.shape)
+                            """input to predictor is z: [32, 45, 256]"""
+                            z = predictor(z, masks_enc, masks_pred)   ## VisionTransformerPredictor
+                            return z
+
+                        def loss_fn(z, h):
+                            loss = F.smooth_l1_loss(z, h)
+                            # loss = AllReduce.apply(loss)
+                            return loss
+
+                        # Step 1. Forward
+                        # with torch.cuda.amp.autocast(dtype=torch.bfloat16):
+                        h = forward_target()
+                        z = forward_context()
+                        test_loss = loss_fn(z, h)
+
+
+                    return float(test_loss)
+            test_loss = test_step()
+            test_loss_meter.update(test_loss)
             # -- Logging
             import numpy as np
             def log_stats():
                 csv_logger.log(epoch + 1, itr, loss, etime)
                 if (itr % log_freq == 0) or np.isnan(loss) or np.isinf(loss):
-                    logger.info('[%d, %5d] loss: %.3f '
+                    logger.info('[%d, %5d] loss: %.5f '
+                                'test_loss: %.5f '
                                 '[wd: %.2e] [lr: %.2e] '
                                 '[mem: %.2e] '
                                 '(%.1f ms)'
                                 % (epoch + 1, itr,
                                     loss_meter.avg,
+                                    test_loss_meter.avg,
                                     _new_wd,
                                     _new_lr,
                                     torch.cuda.max_memory_allocated() / 1024.**2,

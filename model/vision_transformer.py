@@ -138,14 +138,14 @@ class Attention(nn.Module):
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
         q, k, v = qkv[0], qkv[1], qkv[2]
 
-        attn = (q @ k.transpose(-2, -1)) * self.scale
-        attn = attn.softmax(dim=-1)
+        attn1 = (q @ k.transpose(-2, -1)) * self.scale
+        attn = attn1.softmax(dim=-1)
         attn = self.attn_drop(attn)
 
         x = (attn @ v).transpose(1, 2).reshape(B, N, C)
         x = self.proj(x)
         x = self.proj_drop(x)
-        return x, attn
+        return x, attn1
 
 
 class Block(nn.Module):
@@ -162,10 +162,10 @@ class Block(nn.Module):
 
     def forward(self, x, return_attention=False):
         y, attn = self.attn(self.norm1(x))
-        if return_attention:
-            return attn
         x = x + self.drop_path(y)
         x = x + self.drop_path(self.mlp(self.norm2(x)))
+        if return_attention:
+            return x, attn
         return x
 
 
@@ -438,11 +438,13 @@ class VisionTransformer(nn.Module):
 
         # -- fwd prop
         for i, blk in enumerate(self.blocks):
-            x = blk(x)
-
+            x, attn = blk(x, return_attention=True)
+            # x = blk(x)
+            attn_list = [attn] if i == 0 else attn_list + [attn]
         if self.norm is not None:
             x = self.norm(x)
 
+        # return x, attn_list
         return x
 
     """check this"""
