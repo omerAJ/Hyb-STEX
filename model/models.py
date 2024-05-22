@@ -47,7 +47,7 @@ class STSSL(nn.Module):
         # self.cross_attention1 = PositionWise_cross_Attention(64, 4)
         # self.cross_attention2 = PositionWise_cross_Attention(64, 4)
 
-        # self.ff = PositionwiseFeedForward(d_model=128, d_ff=64*4)
+        self.ff = PositionwiseFeedForward(d_model=128, d_ff=64*4)
         # self.ffA1 = PositionwiseFeedForward(d_model=64, d_ff=64*4)
         # self.ffB1 = PositionwiseFeedForward(d_model=64, d_ff=64*4)
         # self.ffA2 = PositionwiseFeedForward(d_model=64, d_ff=64*4)
@@ -76,14 +76,24 @@ class STSSL(nn.Module):
         self.additional_sa_flag = args.additional_sa_flag
 
         if graph_init == "eye":
+            adj = "data/NYCTaxi/adj_mx.npz"
+            adj = np.load(adj)["adj_mx"]
             self.learnable_graph = nn.Parameter(torch.eye(adj.shape[1]).float(), requires_grad=False)
         elif graph_init == "zeros":             ## eye sconv because of cheb approximation. actual adj will be: [eye, zero, zero]
+            adj = "data/NYCTaxi/adj_mx.npz"
+            adj = np.load(adj)["adj_mx"]
             self.learnable_graph = nn.Parameter(torch.zeros_like(torch.tensor(adj).float()), requires_grad=False)
         elif graph_init == "no_sconv":             ## no sconv because of sconv flag, but still need to set some placeholder value to run.
+            adj = "data/NYCTaxi/adj_mx.npz"
+            adj = np.load(adj)["adj_mx"]
             self.learnable_graph = nn.Parameter(torch.zeros_like(torch.tensor(adj).float()), requires_grad=False)
         elif graph_init == "ones":
+            adj = "data/NYCTaxi/adj_mx.npz"
+            adj = np.load(adj)["adj_mx"]
             self.learnable_graph = nn.Parameter(torch.ones_like(torch.tensor(adj).float()), requires_grad=False)
         elif graph_init == "random":
+            adj = "data/NYCTaxi/adj_mx.npz"
+            adj = np.load(adj)["adj_mx"]
             self.learnable_graph = nn.Parameter(torch.empty_like(torch.tensor(adj).float()), requires_grad=False)
             self.xavier_uniform_init(self.learnable_graph)
 
@@ -191,6 +201,14 @@ class STSSL(nn.Module):
         # learnable_graph = learnable_graph / T
         # learnable_graph = torch.softmax(learnable_graph, dim=1)
         learnable_graph = self.learnable_graph
+        # print("learnable_graph.shape: ", learnable_graph.shape)  
+        # print(f"type(learnable_graph): {type(learnable_graph)}")
+        
+        """
+        # import matplotlib.pyplot as plt
+        # plt.matshow(learnable_graph.cpu().detach().numpy())
+        # plt.show()
+        """
         repr1A = self.encoderA(view1A, learnable_graph) # view1: n,l,v,c; graph: v,v 
         repr1B = self.encoderB(view1B, learnable_graph) # view1: n,l,v,c; graph: v,v 
         # repr1C = self.encoderC(view1C, graph) # view1: n,l,v,c; graph: v,v 
