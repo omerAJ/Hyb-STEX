@@ -120,7 +120,8 @@ def main():
     ipe_scale = 1.0
     momentum_scheduler = (ema[0] + i*(ema[1]-ema[0])/(ipe*num_epochs*ipe_scale)
                             for i in range(int(ipe*num_epochs*ipe_scale)+1))
-
+    
+    # for _ in range(240): print("momentum_scheduler: ", next(momentum_scheduler))
 
 
     import logging
