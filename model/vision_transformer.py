@@ -444,8 +444,8 @@ class VisionTransformer(nn.Module):
         if self.norm is not None:
             x = self.norm(x)
 
-        # return x, attn_list
-        return x
+        return x, attn_list
+        # return x
 
     """check this"""
     def interpolate_pos_encoding(self, x, pos_embed):

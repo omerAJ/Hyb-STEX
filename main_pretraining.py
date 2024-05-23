@@ -56,15 +56,15 @@ def main():
         img_size=(args.row, args.col),
         patch_size=1,
         in_chans=2,
-        embed_dim=64,
+        embed_dim=8,
         predictor_embed_dim=None,
         depth=1,
         predictor_depth=None,
-        num_heads=1,
-        mlp_ratio=4,
+        num_heads=4,
+        mlp_ratio=2,
         qkv_bias=True,
         qk_scale=None,
-        drop_rate=0.0,
+        drop_rate=0.2,
         attn_drop_rate=0.2,
         drop_path_rate=0.1,
         norm_layer=torch.nn.LayerNorm,
@@ -72,14 +72,14 @@ def main():
     )
     predictor = VisionTransformerPredictor(
         img_size=(args.row, args.col),
-        embed_dim=64,
-        predictor_embed_dim=64//2,
+        embed_dim=8,
+        predictor_embed_dim=8//2,
         depth=1,
-        num_heads=1,
-        mlp_ratio=4,
+        num_heads=4,
+        mlp_ratio=2,
         qkv_bias=True,
         qk_scale=None,
-        drop_rate=0.0,
+        drop_rate=0.2,
         attn_drop_rate=0.2,
         drop_path_rate=0.1,
         norm_layer=torch.nn.LayerNorm,
@@ -95,7 +95,7 @@ def main():
     final_lr = 1.0e-06
     lr = 0.001
     ipe = len(train_loader)
-    warmup = 40
+    warmup = 10
     ipe_scale = 1.0
     use_bfloat16 = True
     optimizer, scaler, scheduler, wd_scheduler = init_opt(
@@ -126,28 +126,30 @@ def main():
 
     import logging
     log_freq = 100
-    checkpoint_freq = 10
+    checkpoint_freq = 2
     logging.basicConfig(stream=sys.stdout, level=logging.INFO)
     logger = logging.getLogger()
     from model.ijepa_utils import AverageMeter, CSVLogger, gpu_timer, grad_logger
 
 
     # -- make csv_logger
-    log_file = r'D:\omer\ST-SSL\logs\pretrain_logs\pretrain_log.csv'
+    rank=0
+    world_size=1
+    import os
+    tag = r"jepa"
+    folder = r"D:\omer\ST-SSL\logs\singleBLK_dim8_biggerPatches"
+    log_file = os.path.join(folder, f'{tag}_r{rank}.csv')
+    save_path = os.path.join(folder, f'{tag}' + '-ep{epoch}.pth.tar')
+    latest_path = os.path.join(folder, f'{tag}-latest.pth.tar')
+    log_file = os.path.join(folder, f'{tag}-log.csv')
+    log_file = fr'D:\omer\ST-SSL\logs\pretrain_logs\pretrain_log.csv'
     csv_logger = CSVLogger(log_file,
                             ('%d', 'epoch'),
                             ('%d', 'itr'),
                             ('%.5f', 'loss'),
                             ('%d', 'time (ms)'))
-    rank=0
-    world_size=1
+   
 
-    import os
-    tag = r"jepa"
-    folder = r"D:\omer\ST-SSL\logs\singleBLK_try2"
-    log_file = os.path.join(folder, f'{tag}_r{rank}.csv')
-    save_path = os.path.join(folder, f'{tag}' + '-ep{epoch}.pth.tar')
-    latest_path = os.path.join(folder, f'{tag}-latest.pth.tar')
     def save_checkpoint(epoch):
         save_dict = {
             'encoder': encoder.state_dict(),
@@ -173,10 +175,10 @@ def main():
         test_loss_meter = AverageMeter()
         time_meter = AverageMeter()
         # print("\n\n\nbefore enmerating loader")
-        for itr, (data, target) in enumerate(train_loader):
-            
+        for train_itr, (data, target) in enumerate(train_loader):
+            b = torch.randint(0, 32, (1,))
             # print("data.shape: ", data.shape)   ## torch.Size([32, 35, 200, 2])
-            data = data[:, 0, :, :].squeeze(1)  ## select just one graph
+            data = data[:, b, :, :].squeeze(1)  ## select just one graph
             # print("data.shape: ", data.shape)   ## torch.Size([32, 200, 2])
             B, N, D = data.size()
             data = data.view(B, args.row, args.col, D).to(args.device) ## reshape to 2D grid 
@@ -195,17 +197,17 @@ def main():
 
                 ## select deltas before sample loop. 
                 ## grid_size: 20x10
-                delta_h_ctxt = torch.randint(10, 13, (1,))        ## low (inclusive), high (exclusive)
+                delta_h_ctxt = torch.randint(9, 13, (1,))        ## low (inclusive), high (exclusive)
                 delta_w_ctxt = torch.randint(6, 8, (1,))  
-                delta_h_trgt = torch.randint(4, 6, (1,))  
-                delta_w_trgt = torch.randint(2, 3, (1,))  
+                delta_h_trgt = torch.randint(4, 7, (1,))  
+                delta_w_trgt = torch.randint(3, 5, (1,))  
                 
                 for b in range(B):
                     # Select h1, w1 for the encoding mask with constraints
-                    h1 = torch.randint(0, R, (1,))
+                    h1 = torch.randint(0, R-delta_h_ctxt, (1,))
                     if h1 + delta_h_ctxt > R:
                         h1 = R - delta_h_ctxt
-                    w1 = torch.randint(0, C, (1,))
+                    w1 = torch.randint(0, C-delta_w_ctxt, (1,))
                     if w1 + delta_w_ctxt > C:
                         w1 = C - delta_w_ctxt
                     
@@ -217,12 +219,13 @@ def main():
                         n=0
                         while True:
                             if n>2000:
-                                print(f"cant find valid mask n={n}, stuck...")
+                                # print(f"cant find valid mask n={n}, stuck...")
+                                return None    
                             # Smaller random sizes for prediction masks
-                            h1 = torch.randint(0, R, (1,))
+                            h1 = torch.randint(0, R-delta_h_trgt, (1,))
                             if h1 + delta_h_trgt > R:
                                 h1 = R - delta_h_trgt
-                            w1 = torch.randint(0, C, (1,))
+                            w1 = torch.randint(0, C-delta_w_trgt, (1,))
                             if w1 + delta_w_trgt > C:
                                 w1 = C - delta_w_trgt
 
@@ -240,8 +243,13 @@ def main():
                             break
 
                 return (data, masks_enc, masks_pred.transpose(0, 1))  
-
-            imgs, masks_enc, masks_pred = generateMasks(data)
+            data = generateMasks(data)
+            if data is None:
+                # print(f"generateMasks returned None for Epoch, itr: {epoch, train_itr}")
+                continue
+            else:
+                imgs, masks_enc, masks_pred = data
+            
             imgs = imgs.permute(0, 3, 1, 2)  ## [B, R, C, D] -> [B, D, R, C]
             masks_pred = masks_pred.flatten(2) ## [B, 4, R, C] -> [B, 4, R*C]
             masks_enc = masks_enc.flatten(1).unsqueeze(1) ## [B, R, C] -> [B, 1, R*C]
@@ -251,8 +259,11 @@ def main():
             """flattened imgs and masks using .flatten() method."""
             """visualizing the context and target masks on the image"""
             """
-            for i in range(4): masks_enc[0, :, :][masks_pred[i, 0, :, :] == 1] = 2
-            print("masked tensor: \n\n", masks_enc[0, :, :])    
+            masks_enc = masks_enc.view(B, 1, args.row, args.col).squeeze(1)
+            masks_pred = masks_pred.view(B, 4, args.row, args.col)
+            for b in range(32):
+                for i in range(4): masks_enc[b, :, :][masks_pred[b, i, :, :] == 1] = 2
+                print("masked tensor: \n\n", masks_enc[b, :, :])    
             """
             
             def train_step():
@@ -316,7 +327,12 @@ def main():
                     # print("data.shape: ", data.shape)   ## torch.Size([32, 200, 2])
                     B, N, D = data.size()
                     data = data.view(B, args.row, args.col, D).to(args.device) ## reshape to 2D grid 
-                    imgs, masks_enc, masks_pred = generateMasks(data)
+                    data = generateMasks(data)
+                    if data is None:
+                        print(f"generateMasks returned None for Epoch, itr: {epoch, train_itr}")
+                        continue
+                    else:
+                        imgs, masks_enc, masks_pred = data
                     imgs = imgs.permute(0, 3, 1, 2)  ## [B, R, C, D] -> [B, D, R, C]
                     masks_pred = masks_pred.flatten(2) ## [B, 4, R, C] -> [B, 4, R*C]
                     masks_enc = masks_enc.flatten(1).unsqueeze(1) ## [B, R, C] -> [B, 1, R*C]
@@ -355,19 +371,20 @@ def main():
 
 
                     return float(test_loss)
-            test_loss = test_step()
-            test_loss_meter.update(test_loss)
+            
             # -- Logging
             import numpy as np
             def log_stats():
-                csv_logger.log(epoch + 1, itr, loss, etime)
-                if (itr % log_freq == 0) or np.isnan(loss) or np.isinf(loss):
+                csv_logger.log(epoch + 1, train_itr, loss, etime)
+                if (train_itr % log_freq == 0) or np.isnan(loss) or np.isinf(loss):
+                    test_loss = test_step()
+                    test_loss_meter.update(test_loss)
                     logger.info('[%d, %5d] loss: %.5f '
                                 'test_loss: %.5f '
                                 '[wd: %.2e] [lr: %.2e] '
                                 '[mem: %.2e] '
                                 '(%.1f ms)'
-                                % (epoch + 1, itr,
+                                % (epoch + 1, train_itr,
                                     loss_meter.avg,
                                     test_loss_meter.avg,
                                     _new_wd,
@@ -377,7 +394,7 @@ def main():
 
                     if grad_stats is not None:
                         logger.info('[%d, %5d] grad_stats: [%.2e %.2e] (%.2e, %.2e)'
-                                    % (epoch + 1, itr,
+                                    % (epoch + 1, train_itr,
                                         grad_stats.first_layer,
                                         grad_stats.last_layer,
                                         grad_stats.min,
