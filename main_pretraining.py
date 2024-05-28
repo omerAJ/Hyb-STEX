@@ -137,12 +137,12 @@ def main():
     world_size=1
     import os
     tag = r"jepa"
-    folder = r"D:\omer\ST-SSL\logs\singleBLK_dim8_biggerPatches"
-    log_file = os.path.join(folder, f'{tag}_r{rank}.csv')
+    folder = r"E:\estudy\ST-SSL\code\ST-SSL\logs\singleBLK_dim8_newSampling"
+    # log_file = os.path.join(folder, f'{tag}_r{rank}.csv')
     save_path = os.path.join(folder, f'{tag}' + '-ep{epoch}.pth.tar')
     latest_path = os.path.join(folder, f'{tag}-latest.pth.tar')
     log_file = os.path.join(folder, f'{tag}-log.csv')
-    log_file = fr'D:\omer\ST-SSL\logs\pretrain_logs\pretrain_log.csv'
+    # log_file = fr'D:\omer\ST-SSL\logs\pretrain_logs\pretrain_log.csv'
     csv_logger = CSVLogger(log_file,
                             ('%d', 'epoch'),
                             ('%d', 'itr'),
@@ -184,11 +184,52 @@ def main():
             data = data.view(B, args.row, args.col, D).to(args.device) ## reshape to 2D grid 
             # print("data.shape: ", data.shape)   ## torch.Size([32, 20, 10, 2])
             
+            
             def generateMasks(data):
-                """
-                :param data: tensor of shape [B, R, C, D]
-                :returns: (data, 1x masks_enc, 4x masks_pred)
-                """
+                # :param data: tensor of shape [B, R, C, D]
+                # :returns: (data, 1x masks_enc, 4x masks_pred)
+                import numpy as np
+                grid_pd = np.load(r"E:\estudy\ST-SSL\code\ST-SSL\data\NYCTaxi\grid_pd.npy")
+                _pd = grid_pd.flatten()
+                B, R, C, D = data.size()
+
+                # Initialize masks
+                masks_enc = torch.zeros(B, R, C, dtype=torch.uint8)
+                masks_pred = torch.zeros(4, B, R, C, dtype=torch.uint8)
+
+                ## select size of context and target masks before sample loop.
+                ## grid_size: 20x10
+                
+                masks_enc = masks_enc.flatten(1)
+                masks_pred = masks_pred.flatten(2)
+                ctxt_size = torch.randint(50, 100, (1,)).item()       ## low (inclusive), high (exclusive)
+                trgt_size = torch.randint(50//4, 100//4, (1,)).item()  
+                # print(f"ctxt_size: {ctxt_size}, trgt_size: {trgt_size}")
+                # print(f"masks_enc.shape: {masks_enc.shape}, masks_pred.shape: {masks_pred.shape}")  ##m asks_enc.shape: torch.Size([32, 200]), masks_pred.shape: torch.Size([4, 32, 200])
+                for b in range(B):
+                    pd = _pd.copy()
+                    # print(f"\n\ncxtz: {ctxt_size}")
+                    ctxt_indices = np.random.choice(R*C, size=ctxt_size, replace=False, p=pd)
+                    # print(f"mask_enc.shape: {masks_enc.shape} ")
+                    # print(f"mask_enc.shape: {masks_enc.shape} ")
+                    masks_enc[b, ctxt_indices] = 1 
+                    pd[ctxt_indices] = 0           ## set ctxt indices to 0 so that those nodes are not repeated in trgt masks
+                    pd /= pd.sum()
+                    # Generate four prediction masks (can be overlapping with each other, but not with context mask)
+                    for i in range(4):
+                        # Smaller random sizes for prediction masks
+                        trgt_indices = np.random.choice(R*C, size = trgt_size, replace=False, p=pd) 
+                        masks_pred[i, b, trgt_indices] = 1
+                masks_enc = masks_enc.view(B, 1, R*C)
+                masks_pred = masks_pred.view(4, B, R*C)
+                return (data, masks_enc, masks_pred.transpose(0, 1))  
+            
+            """
+            def generateMasks(data):
+                
+                # :param data: tensor of shape [B, R, C, D]
+                # :returns: (data, 1x masks_enc, 4x masks_pred)
+                
                 B, R, C, D = data.size()
 
                 # Initialize masks
@@ -197,13 +238,14 @@ def main():
 
                 ## select deltas before sample loop. 
                 ## grid_size: 20x10
-                delta_h_ctxt = torch.randint(9, 13, (1,))        ## low (inclusive), high (exclusive)
-                delta_w_ctxt = torch.randint(6, 8, (1,))  
-                delta_h_trgt = torch.randint(4, 7, (1,))  
-                delta_w_trgt = torch.randint(3, 5, (1,))  
+                delta_h_ctxt = torch.randint(9, 13, (1,)).item()       ## low (inclusive), high (exclusive)
+                delta_w_ctxt = torch.randint(6, 8, (1,)).item()  
+                delta_h_trgt = torch.randint(4, 7, (1,)).item()  
+                delta_w_trgt = torch.randint(3, 5, (1,)).item()  
                 
                 for b in range(B):
-                    # Select h1, w1 for the encoding mask with constraints
+                    
+                    # print(f"R: {R}, delta_h_ctxt: {delta_h_ctxt}" )
                     h1 = torch.randint(0, R-delta_h_ctxt, (1,))
                     if h1 + delta_h_ctxt > R:
                         h1 = R - delta_h_ctxt
@@ -243,13 +285,14 @@ def main():
                             break
 
                 return (data, masks_enc, masks_pred.transpose(0, 1))  
+            """
             data = generateMasks(data)
             if data is None:
                 # print(f"generateMasks returned None for Epoch, itr: {epoch, train_itr}")
                 continue
             else:
                 imgs, masks_enc, masks_pred = data
-            
+            # print("generated masks: \n", "imgs.shape: ", imgs.shape, " masks_enc.shape: ", masks_enc.shape, " masks_pred.shape: ", masks_pred.shape, "\n\n\n")
             imgs = imgs.permute(0, 3, 1, 2)  ## [B, R, C, D] -> [B, D, R, C]
             masks_pred = masks_pred.flatten(2) ## [B, 4, R, C] -> [B, 4, R*C]
             masks_enc = masks_enc.flatten(1).unsqueeze(1) ## [B, R, C] -> [B, 1, R*C]
@@ -261,11 +304,21 @@ def main():
             """
             masks_enc = masks_enc.view(B, 1, args.row, args.col).squeeze(1)
             masks_pred = masks_pred.view(B, 4, args.row, args.col)
+            def count_unique_elements(masks_enc):
+                import numpy as np
+                unique_elements, counts = np.unique(masks_enc, return_counts=True)
+                return dict(zip(unique_elements, counts))
             for b in range(32):
                 for i in range(4): masks_enc[b, :, :][masks_pred[b, i, :, :] == 1] = 2
                 print("masked tensor: \n\n", masks_enc[b, :, :])    
+                print(count_unique_elements(masks_enc[b, :, :].cpu().numpy()))
+                # mask_ctxt = masks_enc.clone()
+                # for i in range(4): 
+                #     masks_enc = mask_ctxt.clone()
+                #     masks_enc[b, :, :][masks_pred[b, i, :, :] == 1] = 2
+                #     print(f"\n\nmask tensor (mask_{i}): \n\n", masks_enc[b, :, :])    
+                #     print(count_unique_elements(masks_enc[b, :, :].cpu().numpy()))
             """
-            
             def train_step():
                 _new_lr = scheduler.step()
                 _new_wd = wd_scheduler.step()
@@ -309,10 +362,11 @@ def main():
                 optimizer.zero_grad()
 
                 # Step 3. momentum update of target encoder
-                with torch.no_grad():
-                    m = next(momentum_scheduler)
-                    for param_q, param_k in zip(encoder.parameters(), target_encoder.parameters()):
-                        param_k.data.mul_(m).add_((1.-m) * param_q.detach().data)
+                
+                # with torch.no_grad():
+                #     m = next(momentum_scheduler)
+                #     for param_q, param_k in zip(encoder.parameters(), target_encoder.parameters()):
+                #         param_k.data.mul_(m).add_((1.-m) * param_q.detach().data)
 
                 return (float(loss), _new_lr, _new_wd, grad_stats)
             

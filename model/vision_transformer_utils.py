@@ -103,7 +103,7 @@ def apply_masks_targets(x, masks):
     masks = masks.transpose(0, 1)  ## [B, num_masks, N] -> [num_masks, B, N]
     for m in masks:
         ## m is [B, N]
-        # print("in apply_masks_targets: \n", "m.shape: ", m.shape, " x.shape: ", x.shape) ##[32, 200], [32, 200, 256]
+        # print("in apply_masks_targets: \n", "m.shape: ", sum(m), " x.shape: ", x.shape) ##[32, 200], [32, 200, 256]
         # mask_keep = m.unsqueeze(-1).repeat(1, 1, x.size(-1))
         # print("mask_keep.shape: ", mask_keep.shape)    ## [32, 200, 256]
         x_ = [x[i][m[i].bool()] for i in range(x.shape[0])]
@@ -112,6 +112,7 @@ def apply_masks_targets(x, masks):
         # print("x_.shape: ", x_.shape)    ## [32, 12, 256]
         # print(f"len(x_): {len(x_)}", "x_[0].shape: ", x_[0].shape)    ## [num of target tokens per sample per mask, D]
         all_x += [x_]
+    # print(f"len(all_x): {len(all_x)}")
     all_x = torch.cat(all_x, dim=0)
     # print("all_x.shape: ", all_x.shape)    ## [32*4, 12, 256]
     return all_x
