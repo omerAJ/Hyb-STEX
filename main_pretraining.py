@@ -60,13 +60,13 @@ def main():
         predictor_embed_dim=None,
         depth=1,
         predictor_depth=None,
-        num_heads=4,
+        num_heads=1,
         mlp_ratio=2,
         qkv_bias=True,
         qk_scale=None,
-        drop_rate=0.2,
-        attn_drop_rate=0.2,
-        drop_path_rate=0.1,
+        drop_rate=0.3,
+        attn_drop_rate=0.3,
+        drop_path_rate=0.2,
         norm_layer=torch.nn.LayerNorm,
         init_std=0.02
     )
@@ -75,13 +75,13 @@ def main():
         embed_dim=8,
         predictor_embed_dim=8//2,
         depth=1,
-        num_heads=4,
+        num_heads=1,
         mlp_ratio=2,
         qkv_bias=True,
         qk_scale=None,
-        drop_rate=0.2,
-        attn_drop_rate=0.2,
-        drop_path_rate=0.1,
+        drop_rate=0.3,
+        attn_drop_rate=0.3,
+        drop_path_rate=0.2,
         norm_layer=torch.nn.LayerNorm,
         init_std=0.02
     )
@@ -91,9 +91,9 @@ def main():
 
     wd = 0.04
     final_wd = 0.4
-    start_lr = 0.0002
+    start_lr = 0.00002
     final_lr = 1.0e-06
-    lr = 0.001
+    lr = 0.0001
     ipe = len(train_loader)
     warmup = 10
     ipe_scale = 1.0
@@ -137,12 +137,12 @@ def main():
     world_size=1
     import os
     tag = r"jepa"
-    folder = r"E:\estudy\ST-SSL\code\ST-SSL\logs\singleBLK_dim8_newSampling"
-    # log_file = os.path.join(folder, f'{tag}_r{rank}.csv')
+    folder = r"D:\omer\ST-SSL\logs\singleBLK_dim8_singleHead"
+    log_file = os.path.join(folder, f'{tag}_r{rank}.csv')
     save_path = os.path.join(folder, f'{tag}' + '-ep{epoch}.pth.tar')
     latest_path = os.path.join(folder, f'{tag}-latest.pth.tar')
     log_file = os.path.join(folder, f'{tag}-log.csv')
-    # log_file = fr'D:\omer\ST-SSL\logs\pretrain_logs\pretrain_log.csv'
+    log_file = fr'D:\omer\ST-SSL\logs\pretrain_logs\pretrain_log.csv'
     csv_logger = CSVLogger(log_file,
                             ('%d', 'epoch'),
                             ('%d', 'itr'),
@@ -422,17 +422,17 @@ def main():
                         h = forward_target()
                         z = forward_context()
                         test_loss = loss_fn(z, h)
+                        test_loss_meter.update(test_loss)
 
-
-                    return float(test_loss)
+                    return test_loss_meter
             
             # -- Logging
             import numpy as np
             def log_stats():
                 csv_logger.log(epoch + 1, train_itr, loss, etime)
                 if (train_itr % log_freq == 0) or np.isnan(loss) or np.isinf(loss):
-                    test_loss = test_step()
-                    test_loss_meter.update(test_loss)
+                    test_loss_meter = test_step()
+                    
                     logger.info('[%d, %5d] loss: %.5f '
                                 'test_loss: %.5f '
                                 '[wd: %.2e] [lr: %.2e] '
