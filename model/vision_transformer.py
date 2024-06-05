@@ -15,6 +15,7 @@ from model.vision_transformer_utils import (
     repeat_interleave_batch,
     apply_masks_ctxt,
     apply_masks_targets,
+    apply_masks_indices,
 )
 
 def get_2d_sincos_pos_embed(embed_dim, rows, cols, cls_token=False):
@@ -133,19 +134,35 @@ class Attention(nn.Module):
         self.proj = nn.Linear(dim, dim)
         self.proj_drop = nn.Dropout(proj_drop)
 
-    def forward(self, x):
+    def forward(self, x, indices):
         B, N, C = x.shape
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
         q, k, v = qkv[0], qkv[1], qkv[2]
-
+        qk = [q, k]
         attn1 = (q @ k.transpose(-2, -1)) * self.scale
+        # import matplotlib.pyplot as plt
+        # plt.imshow(indices[0, 0, :, :].cpu().numpy())
+        # plt.colorbar(label='Attention Weight')
+        # plt.show()
+        if indices is not None:
+            # print("NOT masking attention matrix")
+            # print(f"indices.shape: {indices.shape}")  ## [1, 200, 1]
+            nodes = indices.clone()
+            nodes = nodes.expand_as(attn1)
+            indices = indices.transpose(-1, -2)
+            indices = indices.expand_as(attn1)#.transpose(-1, -2) ## expand to [b, 200, 200] by repeating rows
+            # attn1[indices] = -torch.inf
+            attn1[nodes & ~nodes.transpose(-1, -2)] = -torch.inf    ## bad rows and good cols
+            attn1[~nodes & nodes.transpose(-1, -2)] = -torch.inf    ## good rows and bad cols
+        
         attn = attn1.softmax(dim=-1)
+        attn1 = [attn1, indices]
         attn = self.attn_drop(attn)
 
         x = (attn @ v).transpose(1, 2).reshape(B, N, C)
         x = self.proj(x)
         x = self.proj_drop(x)
-        return x, attn1
+        return x, attn1, qk
 
 
 class Block(nn.Module):
@@ -160,12 +177,12 @@ class Block(nn.Module):
         mlp_hidden_dim = int(dim * mlp_ratio)
         self.mlp = MLP(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
 
-    def forward(self, x, return_attention=False):
-        y, attn = self.attn(self.norm1(x))
+    def forward(self, x, indices, return_attention=False):
+        y, attn, qk = self.attn(self.norm1(x), indices)
         x = x + self.drop_path(y)
         x = x + self.drop_path(self.mlp(self.norm2(x)))
         if return_attention:
-            return x, attn
+            return x, attn, qk
         return x
 
 
@@ -219,7 +236,7 @@ class VisionTransformerPredictor(nn.Module):
     """ Vision Transformer """
     def __init__(
         self,
-        imgt_size=(20, 10),
+        img_size=(20, 10),
         embed_dim=768,
         predictor_embed_dim=384,
         depth=6,
@@ -239,11 +256,11 @@ class VisionTransformerPredictor(nn.Module):
         self.mask_token = nn.Parameter(torch.zeros(1, 1, predictor_embed_dim))
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]  # stochastic depth decay rule
         # --
-        num_patches = imgt_size[0] * imgt_size[1]
+        num_patches = img_size[0] * img_size[1]
         self.predictor_pos_embed = nn.Parameter(torch.zeros(1, num_patches, predictor_embed_dim),
                                                 requires_grad=False)
         predictor_pos_embed = get_2d_sincos_pos_embed(self.predictor_pos_embed.shape[-1],
-                                                      imgt_size[0], imgt_size[1],
+                                                      img_size[0], img_size[1],
                                                       cls_token=False)
         self.predictor_pos_embed.data.copy_(torch.from_numpy(predictor_pos_embed).float().unsqueeze(0))
         # --
@@ -291,6 +308,13 @@ class VisionTransformerPredictor(nn.Module):
         if not isinstance(masks_pred, list):
             # masks_pred = [masks_pred]
             pass
+        _, _, N = x.shape
+        
+        """
+        indices = x<5
+        indices = indices[0, 0, ...]
+        indices = indices.view(-1, 1)  ## [200, 1]
+        """
 
         # -- Batch Size
         # print("x.shape", x.shape, "masks_enc.shape", masks_enc.shape, "masks_pred.shape", masks_pred.shape)
@@ -324,10 +348,11 @@ class VisionTransformerPredictor(nn.Module):
         x = x.repeat(masks_pred.shape[1], 1, 1) 
         # print(f"x.shape (after repeat): {x.shape}")  
         x = torch.cat([x, pred_tokens], dim=1)   ## [32*4, 42+6, 128]
-
+        # print(f"\n\nx.shape (after cat): {x.shape}")
+        # indices = apply_masks_indices(indices, masks_pred)
         # -- fwd prop
         for blk in self.predictor_blocks:
-            x = blk(x)
+            x = blk(x, indices=None)
         x = self.predictor_norm(x)
 
         # -- return preds for mask tokens
@@ -420,32 +445,63 @@ class VisionTransformer(nn.Module):
                 # masks = [masks]
                 pass ## no need to convert mask to list
 
+        ## get indices for nodes to mask in attention
+        # print(f"x.shape: {x.shape}")
+        # print(x)
+        _, _, R, C = x.shape
+        N = R*C
+        _x = x.clone().sum(dim=1)
+        # print(f"_x.shape: {_x.shape}")
+        # print("\n_x: \n", _x)
+        indices = _x<-24.50  ## indices where bad sensor, dont keep these in attention
+        # print(indices.shape)  ## [1, 70, 20, 10]
+        # print(indices)
+        indices = indices[0, ...]
+        # print("indices.shape: ", indices.shape)   ## [20, 10]
+        indices = indices.view(-1, 1)  ## [200, 1]
+        # print("indices.shape: ", indices.shape)
+
         # -- patchify x
         x = self.patch_embed(x)
+        upX = x.clone()
         # x = self.up_projection(x)
         # print("x.shape", x.shape)
         B, N, D = x.shape
-
+        # x = torch.sum(x, dim=2)
+        
         # -- add positional embedding to x
         pos_embed = self.interpolate_pos_encoding(x, self.pos_embed)
+        
+        
+        """zero x"""
+        print(f"setting x=0")
+        x=torch.zeros_like(x)
+        beforePosX = x.clone()
+        
         x = x + pos_embed   ## add complete pos_emb before indexing
-
+        
+        posX = x.clone()
         # -- mask x
         if masks is not None:
             # print("\n\nbefore apply_masks_ctxt: \n\n", "x.shape", x.shape, "masks.shape", masks.shape) ## x: [32, 200, 256] masks: [32, 1, 200]
+            # print(f"x.shape (before masks): {x.shape}")
+            # print(f"indices.shape (before masks): {indices.shape}")
             x = apply_masks_ctxt(x, masks)
+            indices = apply_masks_indices(indices, masks)
+            # print(f"x.shape (after masks): {x.shape}")
+            # print(f"indices.shape (after masks): {indices.shape}")
             # print("\nafter apply_masks_ctxt: \n\n", "x.shape", x.shape)  ## [32, 45, 256]
 
         # -- fwd prop
         for i, blk in enumerate(self.blocks):
-            x, attn = blk(x, return_attention=True)
+            x, attn, qk = blk(x, indices, return_attention=True)
             # x = blk(x)
             attn_list = [attn] if i == 0 else attn_list + [attn]
         if self.norm is not None:
             x = self.norm(x)
 
-        # return x, attn_list
-        return x
+        return x, attn_list, upX, beforePosX, posX
+        # return x
 
     """check this"""
     def interpolate_pos_encoding(self, x, pos_embed):

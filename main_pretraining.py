@@ -21,7 +21,7 @@ torch.backends.cudnn.benchmark = True
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--config_filename', '-cf', default='configs/NYCTaxi.yaml', 
+    parser.add_argument('--config_filename', '-cf', default='configs/BJTaxi.yaml', 
                         type=str, help='the configuration to use')
 
     args = parser.parse_args()
@@ -55,18 +55,18 @@ def main():
     encoder = VisionTransformer(
         img_size=(args.row, args.col),
         patch_size=1,
-        in_chans=2,
+        in_chans=70,
         embed_dim=8,
         predictor_embed_dim=None,
         depth=1,
         predictor_depth=None,
         num_heads=1,
         mlp_ratio=2,
-        qkv_bias=True,
+        qkv_bias=False,
         qk_scale=None,
-        drop_rate=0.3,
-        attn_drop_rate=0.3,
-        drop_path_rate=0.2,
+        drop_rate=0.4,
+        attn_drop_rate=0.4,
+        drop_path_rate=0.3,
         norm_layer=torch.nn.LayerNorm,
         init_std=0.02
     )
@@ -77,11 +77,11 @@ def main():
         depth=1,
         num_heads=1,
         mlp_ratio=2,
-        qkv_bias=True,
+        qkv_bias=False,
         qk_scale=None,
-        drop_rate=0.3,
-        attn_drop_rate=0.3,
-        drop_path_rate=0.2,
+        drop_rate=0.4,
+        attn_drop_rate=0.4,
+        drop_path_rate=0.3,
         norm_layer=torch.nn.LayerNorm,
         init_std=0.02
     )
@@ -137,12 +137,11 @@ def main():
     world_size=1
     import os
     tag = r"jepa"
-    folder = r"D:\omer\ST-SSL\logs\singleBLK_dim8_singleHead"
+    folder = r"E:\estudy\ST-SSL\code\ST-SSL\logs\test"
     log_file = os.path.join(folder, f'{tag}_r{rank}.csv')
     save_path = os.path.join(folder, f'{tag}' + '-ep{epoch}.pth.tar')
     latest_path = os.path.join(folder, f'{tag}-latest.pth.tar')
     log_file = os.path.join(folder, f'{tag}-log.csv')
-    log_file = fr'D:\omer\ST-SSL\logs\pretrain_logs\pretrain_log.csv'
     csv_logger = CSVLogger(log_file,
                             ('%d', 'epoch'),
                             ('%d', 'itr'),
@@ -178,7 +177,9 @@ def main():
         for train_itr, (data, target) in enumerate(train_loader):
             b = torch.randint(0, 32, (1,))
             # print("data.shape: ", data.shape)   ## torch.Size([32, 35, 200, 2])
-            data = data[:, b, :, :].squeeze(1)  ## select just one graph
+            # data = data[:, b, :, :].squeeze(1)  ## select just one graph
+            B, T, N, D = data.size()
+            data = data.transpose(1, 2).reshape(B, N, -1)
             # print("data.shape: ", data.shape)   ## torch.Size([32, 200, 2])
             B, N, D = data.size()
             data = data.view(B, args.row, args.col, D).to(args.device) ## reshape to 2D grid 
@@ -189,8 +190,8 @@ def main():
                 # :param data: tensor of shape [B, R, C, D]
                 # :returns: (data, 1x masks_enc, 4x masks_pred)
                 import numpy as np
-                grid_pd = np.load(r"E:\estudy\ST-SSL\code\ST-SSL\data\NYCTaxi\grid_pd.npy")
-                _pd = grid_pd.flatten()
+                # grid_pd = np.load(r"E:\estudy\ST-SSL\code\ST-SSL\data\NYCTaxi\grid_pd.npy")
+                # _pd = grid_pd.flatten()
                 B, R, C, D = data.size()
 
                 # Initialize masks
@@ -202,23 +203,30 @@ def main():
                 
                 masks_enc = masks_enc.flatten(1)
                 masks_pred = masks_pred.flatten(2)
-                ctxt_size = torch.randint(50, 100, (1,)).item()       ## low (inclusive), high (exclusive)
-                trgt_size = torch.randint(50//4, 100//4, (1,)).item()  
+                # ctxt_size = torch.randint(50, 100, (1,)).item()       ## low (inclusive), high (exclusive)
+                # trgt_size = torch.randint(50//4, 100//4, (1,)).item()  
+                ctxt_size = torch.randint(300, 800, (1,)).item()       ## low (inclusive), high (exclusive)
+                leftOutNodes = R*C - ctxt_size
+                trgt_size = torch.randint(leftOutNodes//2, leftOutNodes, (1,)).item()  
                 # print(f"ctxt_size: {ctxt_size}, trgt_size: {trgt_size}")
                 # print(f"masks_enc.shape: {masks_enc.shape}, masks_pred.shape: {masks_pred.shape}")  ##m asks_enc.shape: torch.Size([32, 200]), masks_pred.shape: torch.Size([4, 32, 200])
+                _try=0
                 for b in range(B):
-                    pd = _pd.copy()
+                    # pd = _pd.copy()
                     # print(f"\n\ncxtz: {ctxt_size}")
-                    ctxt_indices = np.random.choice(R*C, size=ctxt_size, replace=False, p=pd)
+                    # ctxt_indices = np.random.choice(R*C, size=ctxt_size, replace=False, p=pd)
+                    ctxt_indices = np.random.choice(R*C, size=ctxt_size, replace=False)
+                    available_indices = np.setdiff1d(np.arange(R*C), ctxt_indices)
                     # print(f"mask_enc.shape: {masks_enc.shape} ")
                     # print(f"mask_enc.shape: {masks_enc.shape} ")
                     masks_enc[b, ctxt_indices] = 1 
-                    pd[ctxt_indices] = 0           ## set ctxt indices to 0 so that those nodes are not repeated in trgt masks
-                    pd /= pd.sum()
+                    # pd[ctxt_indices] = 0           ## set ctxt indices to 0 so that those nodes are not repeated in trgt masks
+                    # pd /= pd.sum()
                     # Generate four prediction masks (can be overlapping with each other, but not with context mask)
                     for i in range(4):
                         # Smaller random sizes for prediction masks
-                        trgt_indices = np.random.choice(R*C, size = trgt_size, replace=False, p=pd) 
+                        trgt_indices = np.random.choice(available_indices, size=trgt_size, replace=False)
+                        # trgt_indices = np.random.choice(R*C, size = trgt_size, replace=False, p=pd) 
                         masks_pred[i, b, trgt_indices] = 1
                 masks_enc = masks_enc.view(B, 1, R*C)
                 masks_pred = masks_pred.view(4, B, R*C)
@@ -363,10 +371,10 @@ def main():
 
                 # Step 3. momentum update of target encoder
                 
-                # with torch.no_grad():
-                #     m = next(momentum_scheduler)
-                #     for param_q, param_k in zip(encoder.parameters(), target_encoder.parameters()):
-                #         param_k.data.mul_(m).add_((1.-m) * param_q.detach().data)
+                with torch.no_grad():
+                    m = next(momentum_scheduler)
+                    for param_q, param_k in zip(encoder.parameters(), target_encoder.parameters()):
+                        param_k.data.mul_(m).add_((1.-m) * param_q.detach().data)
 
                 return (float(loss), _new_lr, _new_wd, grad_stats)
             
@@ -377,8 +385,10 @@ def main():
             ## eval time
             def test_step():
                 for itr, (data, target) in enumerate(test_loader):
-                    data = data[:, 0, :, :].squeeze(1)  ## select just one graph
+                    # data = data[:, 0, :, :].squeeze(1)  ## select just one graph
                     # print("data.shape: ", data.shape)   ## torch.Size([32, 200, 2])
+                    B, T, N, D = data.size()
+                    data = data.transpose(1, 2).reshape(B, N, -1)
                     B, N, D = data.size()
                     data = data.view(B, args.row, args.col, D).to(args.device) ## reshape to 2D grid 
                     data = generateMasks(data)
