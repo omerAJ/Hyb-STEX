@@ -80,7 +80,7 @@ if __name__=='__main__':
                     type=str, help='the configuration to use')
     parser.add_argument('--S_Loss', default=0, type=int, help='use S_Loss or not')
     parser.add_argument('--T_Loss', default=0, type=int, help='use T_Loss or not')
-    parser.add_argument('--seed', default=1, type=int, help='random seed to use')
+    parser.add_argument('--seed', "-s", default=1, type=int, help='random seed to use')
     parser.add_argument('--comment', "-c", default="noComment", type=str, help='comment about the experiment')
     parser.add_argument('--cheb_order', "-K", default=3, type=int, help='calculate the chebyshev polynomials up to this order')
     parser.add_argument('--graph_init', "-g", default="neighbours", type=str, help='how to initialize the learnable graph')

@@ -119,17 +119,17 @@ class STSSL(nn.Module):
             self.learnable_graph = nn.Parameter(torch.from_numpy(adj).float(), requires_grad=False)
         
         elif graph_init == "pre_trained_random" and args.learnable_flag == False:
-            adj = "data/NYCTaxi/randomSampling_adj_mx.npz"
+            adj = "data/NYCTaxi/V2maskedAttentionADJ.npz"
             adj = np.load(adj)["adj_mx"]
             self.learnable_graph = nn.Parameter(torch.from_numpy(adj).float(), requires_grad=False)
 
         elif graph_init == "pre_trained_thresholded" and args.learnable_flag == False:
-            adj = "data/NYCTaxi/randomSampling_Thresholded_adj_mx.npz"
+            adj = "data/NYCTaxi/V2maskedAttentionADJ_T.npz"
             adj = np.load(adj)["adj_mx"]
             self.learnable_graph = nn.Parameter(torch.from_numpy(adj).float(), requires_grad=False)
 
         elif graph_init == "pre_trained_symmetric" and args.learnable_flag == False:
-            adj = "data/NYCTaxi/randomSampling_symmetric_adj_mx.npz"
+            adj = "data/NYCTaxi/V2maskedAttentionADJ_S.npz"
             adj = np.load(adj)["adj_mx"]
             self.learnable_graph = nn.Parameter(torch.from_numpy(adj).float(), requires_grad=False)
 
