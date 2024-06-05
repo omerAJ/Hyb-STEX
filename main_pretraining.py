@@ -21,7 +21,7 @@ torch.backends.cudnn.benchmark = True
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--config_filename', '-cf', default='configs/BJTaxi.yaml', 
+    parser.add_argument('--config_filename', '-cf', default='configs/NYCBike1.yaml', 
                         type=str, help='the configuration to use')
 
     args = parser.parse_args()
@@ -55,7 +55,7 @@ def main():
     encoder = VisionTransformer(
         img_size=(args.row, args.col),
         patch_size=1,
-        in_chans=70,
+        in_chans=38,
         embed_dim=64,
         predictor_embed_dim=None,
         depth=4,
@@ -141,7 +141,7 @@ def main():
     world_size=1
     import os
     tag = r"jepa"
-    folder = r"D:\omer\ST-SSL\logs\BJTaxi_learnedPosEmbed"
+    folder = r"E:\estudy\ST-SSL\code\ST-SSL\logs\NYCBike1_learnedPosEmbed"
     log_file = os.path.join(folder, f'{tag}_r{rank}.csv')
     save_path = os.path.join(folder, f'{tag}' + '-ep{epoch}.pth.tar')
     latest_path = os.path.join(folder, f'{tag}-latest.pth.tar')
@@ -211,7 +211,7 @@ def main():
                 masks_pred = masks_pred.flatten(2)
                 # ctxt_size = torch.randint(50, 100, (1,)).item()       ## low (inclusive), high (exclusive)
                 # trgt_size = torch.randint(50//4, 100//4, (1,)).item()  
-                ctxt_size = torch.randint(50, 150, (1,)).item()       ## low (inclusive), high (exclusive)
+                ctxt_size = torch.randint(40, 100, (1,)).item()       ## low (inclusive), high (exclusive)
                 leftOutNodes = R*C - ctxt_size
                 trgt_size = torch.randint(leftOutNodes//2, leftOutNodes, (1,)).item()  
                 # print(f"ctxt_size: {ctxt_size}, trgt_size: {trgt_size}")

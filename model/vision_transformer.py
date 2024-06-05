@@ -528,8 +528,10 @@ class VisionTransformer(nn.Module):
         # x=torch.zeros_like(x)
         beforePosX = x.clone()
         
+        temp = torch.arange(N).unsqueeze(0).repeat(B, 1).to(x.device)
+        learnable_pos_embed = self.learnable_pos(temp)
 
-        x = x + self.learnable_pos(torch.arange(N).unsqueeze(0).repeat(B, 1, 1).to(x.device))
+        x = x + learnable_pos_embed
         # x = x + pos_embed   ## add complete pos_emb before indexing
         
         posX = x.clone()
@@ -552,8 +554,8 @@ class VisionTransformer(nn.Module):
         if self.norm is not None:
             x = self.norm(x)
 
-        # return x, attn_list, upX, beforePosX, posX
-        return x
+        return x, attn_list, upX, beforePosX, posX
+        # return x
 
     """check this"""
     def interpolate_pos_encoding(self, x, pos_embed):
