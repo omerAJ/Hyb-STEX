@@ -56,12 +56,12 @@ def main():
         img_size=(args.row, args.col),
         patch_size=1,
         in_chans=70,
-        embed_dim=8,
+        embed_dim=64,
         predictor_embed_dim=None,
-        depth=1,
+        depth=4,
         predictor_depth=None,
-        num_heads=1,
-        mlp_ratio=2,
+        num_heads=4,
+        mlp_ratio=4,
         qkv_bias=False,
         qk_scale=None,
         drop_rate=0.4,
@@ -72,11 +72,11 @@ def main():
     )
     predictor = VisionTransformerPredictor(
         img_size=(args.row, args.col),
-        embed_dim=8,
-        predictor_embed_dim=8//2,
+        embed_dim=64,
+        predictor_embed_dim=64//2,
         depth=1,
-        num_heads=1,
-        mlp_ratio=2,
+        num_heads=4,
+        mlp_ratio=4,
         qkv_bias=False,
         qk_scale=None,
         drop_rate=0.4,
@@ -88,6 +88,10 @@ def main():
 
     import copy
     target_encoder = copy.deepcopy(encoder)
+
+    encoder = encoder.to(args.device)
+    predictor = predictor.to(args.device)
+    target_encoder = target_encoder.to(args.device)
 
     wd = 0.04
     final_wd = 0.4
@@ -137,7 +141,7 @@ def main():
     world_size=1
     import os
     tag = r"jepa"
-    folder = r"E:\estudy\ST-SSL\code\ST-SSL\logs\test"
+    folder = r"D:\omer\ST-SSL\logs\BJTaxi_learnedPosEmbed"
     log_file = os.path.join(folder, f'{tag}_r{rank}.csv')
     save_path = os.path.join(folder, f'{tag}' + '-ep{epoch}.pth.tar')
     latest_path = os.path.join(folder, f'{tag}-latest.pth.tar')
@@ -175,6 +179,7 @@ def main():
         time_meter = AverageMeter()
         # print("\n\n\nbefore enmerating loader")
         for train_itr, (data, target) in enumerate(train_loader):
+            data=data.to()
             b = torch.randint(0, 32, (1,))
             # print("data.shape: ", data.shape)   ## torch.Size([32, 35, 200, 2])
             # data = data[:, b, :, :].squeeze(1)  ## select just one graph
@@ -184,6 +189,7 @@ def main():
             B, N, D = data.size()
             data = data.view(B, args.row, args.col, D).to(args.device) ## reshape to 2D grid 
             # print("data.shape: ", data.shape)   ## torch.Size([32, 20, 10, 2])
+            
             
             
             def generateMasks(data):
@@ -205,7 +211,7 @@ def main():
                 masks_pred = masks_pred.flatten(2)
                 # ctxt_size = torch.randint(50, 100, (1,)).item()       ## low (inclusive), high (exclusive)
                 # trgt_size = torch.randint(50//4, 100//4, (1,)).item()  
-                ctxt_size = torch.randint(300, 800, (1,)).item()       ## low (inclusive), high (exclusive)
+                ctxt_size = torch.randint(50, 150, (1,)).item()       ## low (inclusive), high (exclusive)
                 leftOutNodes = R*C - ctxt_size
                 trgt_size = torch.randint(leftOutNodes//2, leftOutNodes, (1,)).item()  
                 # print(f"ctxt_size: {ctxt_size}, trgt_size: {trgt_size}")
@@ -353,6 +359,8 @@ def main():
 
                 def loss_fn(z, h):
                     loss = F.smooth_l1_loss(z, h)
+                    loss_l2 = F.mse_loss(z, h)
+                    loss+=loss_l2
                     # loss = AllReduce.apply(loss)
                     return loss
 
@@ -424,6 +432,8 @@ def main():
 
                         def loss_fn(z, h):
                             loss = F.smooth_l1_loss(z, h)
+                            loss_l2 = F.mse_loss(z, h)
+                            loss+=loss_l2
                             # loss = AllReduce.apply(loss)
                             return loss
 

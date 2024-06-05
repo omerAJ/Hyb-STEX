@@ -232,6 +232,37 @@ class ConvEmbed(nn.Module):
         return p.flatten(2).transpose(1, 2)
 
 
+class LearnablePositionalEncoding(nn.Module):
+    def __init__(self, max_seq_length, embedding_dim):
+        """
+        Initializes the learnable positional encoding module.
+        
+        Args:
+        max_seq_length (int): The maximum length of the input sequences.
+        embedding_dim (int): The dimensionality of the embeddings.
+        """
+        super(LearnablePositionalEncoding, self).__init__()
+        # Define a learnable embedding layer
+        self.position_embeddings = nn.Embedding(max_seq_length, embedding_dim)
+
+    def forward(self, x):
+        """
+        Forward pass of the module.
+        
+        Args:
+        x (torch.Tensor): Tensor of shape (batch_size, seq_length) containing the 
+                          indices of the positions in the sequence.
+        
+        Returns:
+        torch.Tensor: Tensor of shape (batch_size, seq_length, embedding_dim) containing
+                      the positional embeddings.
+        """
+        # Get the positional embeddings
+        position = torch.arange(x.size(1), device=x.device).unsqueeze(0).repeat(x.size(0), 1)
+        pos_embeddings = self.position_embeddings(position)
+        
+        return pos_embeddings
+    
 class VisionTransformerPredictor(nn.Module):
     """ Vision Transformer """
     def __init__(
@@ -256,8 +287,11 @@ class VisionTransformerPredictor(nn.Module):
         self.mask_token = nn.Parameter(torch.zeros(1, 1, predictor_embed_dim))
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]  # stochastic depth decay rule
         # --
-        num_patches = img_size[0] * img_size[1]
-        self.predictor_pos_embed = nn.Parameter(torch.zeros(1, num_patches, predictor_embed_dim),
+        self.num_patches = img_size[0] * img_size[1]
+
+        self.learnable_pos = LearnablePositionalEncoding(self.num_patches, predictor_embed_dim)
+
+        self.predictor_pos_embed = nn.Parameter(torch.zeros(1, self.num_patches, predictor_embed_dim),
                                                 requires_grad=False)
         predictor_pos_embed = get_2d_sincos_pos_embed(self.predictor_pos_embed.shape[-1],
                                                       img_size[0], img_size[1],
@@ -308,7 +342,6 @@ class VisionTransformerPredictor(nn.Module):
         if not isinstance(masks_pred, list):
             # masks_pred = [masks_pred]
             pass
-        _, _, N = x.shape
         
         """
         indices = x<5
@@ -322,28 +355,39 @@ class VisionTransformerPredictor(nn.Module):
 
         # -- map from encoder-dim to pedictor-dim
         x = self.predictor_embed(x)    ## x: [32, 45, 256] -> [32, 45, pred_emb_dim]
-
+        # print(f"x.shape: {x.shape}")
+        # print(f"N: {N}")
+        N = self.num_patches
+        temp = torch.arange(N).unsqueeze(0).repeat(B, 1).to(x.device)
+        # print(f"temp.shape: {temp.shape}")
+        learnable_pos_embed_x = self.learnable_pos(temp)
         # -- add positional embedding to x tokens
-        x_pos_embed = self.predictor_pos_embed.repeat(B, 1, 1)
+        # x_pos_embed = self.predictor_pos_embed.repeat(B, 1, 1)
         # print(f"x.shape: {x.shape}", f"B: {B}", "x_pos_embed.shape", x_pos_embed.shape, "masks_enc.shape", masks_enc.shape)  
-        x += apply_masks_ctxt(x_pos_embed, masks_enc)
+        # print(f"x.shape: {x.shape}", f"B: {B}", "learnable_pos_embed_x.shape", learnable_pos_embed_x.shape)
+        masked_learnable_pos_embed_x = apply_masks_ctxt(learnable_pos_embed_x, masks_enc)
+        # print(f"masked_learnable_pos_embed_x.shape: {masked_learnable_pos_embed_x.shape}")
+        x += masked_learnable_pos_embed_x
         # print(f"x.shape: {x.shape}")    ## [32, 30, 128]
         _, N_ctxt, D = x.shape   ## N_ctxt is the number of context tokens
 
         # -- concat mask tokens to x
-        pos_embs = self.predictor_pos_embed.repeat(B, 1, 1)
+        # pos_embs = self.predictor_pos_embed.repeat(B, 1, 1)
+        temp = torch.arange(N).unsqueeze(0).repeat(B, 1).to(x.device)
+        learnable_pos_embed_target =  self.learnable_pos(temp)
+        
         # print("applying target mask on pos_embs", "pos_embs.shape", pos_embs.shape, "masks_pred.shape", masks_pred.shape) ## pos_embs:[32, 200, 128], masks_pred:[32, 4, 200]
-        pos_embs = apply_masks_targets(pos_embs, masks_pred)
+        learnable_pos_embed_target = apply_masks_targets(learnable_pos_embed_target, masks_pred)
         # print("pos_embs.shape", pos_embs.shape)   ## [32*4, 6(number of tokens to select as target per sample per mask), 128]
         ## number of pred_tokens i need is 32*4*6 = 768
         
-        pos_embs = repeat_interleave_batch(pos_embs, B, repeat=masks_enc.shape[1])   ## repeat=no. of enc masks
+        # pos_embs = repeat_interleave_batch(pos_embs, B, repeat=masks_enc.shape[1])   ## repeat=no. of enc masks
         # print("pos_embs.shape", pos_embs.shape)   ## [32*4, 6(number of tokens to select as target per sample per mask), 128]
         # --
-        pred_tokens = self.mask_token.repeat(pos_embs.size(0), pos_embs.size(1), 1)
+        pred_tokens = self.mask_token.repeat(learnable_pos_embed_target.size(0), learnable_pos_embed_target.size(1), 1)
         # print("pred_tokens.shape", pred_tokens.shape)   ## [32*4, 6(number of target tokens per sample per mask), 128]
         # --
-        pred_tokens += pos_embs
+        pred_tokens += learnable_pos_embed_target
         # print(f"x.shape: {x.shape}")  ## [32, 42, 128]
         x = x.repeat(masks_pred.shape[1], 1, 1) 
         # print(f"x.shape (after repeat): {x.shape}")  
@@ -362,6 +406,9 @@ class VisionTransformerPredictor(nn.Module):
         x = self.predictor_proj(x)
 
         return x
+
+
+
 
 
 class VisionTransformer(nn.Module):
@@ -398,6 +445,8 @@ class VisionTransformer(nn.Module):
         
         # self.up_projection = nn.Linear(2, embed_dim)
         num_patches = img_size[0] * img_size[1]
+
+        self.learnable_pos = LearnablePositionalEncoding(num_patches, embed_dim)
 
         # --
         self.pos_embed = nn.Parameter(torch.zeros(1, num_patches, embed_dim), requires_grad=False)
@@ -453,12 +502,13 @@ class VisionTransformer(nn.Module):
         _x = x.clone().sum(dim=1)
         # print(f"_x.shape: {_x.shape}")
         # print("\n_x: \n", _x)
-        indices = _x<-24.50  ## indices where bad sensor, dont keep these in attention
+        
+        # indices = _x<-24.50  ## indices where bad sensor, dont keep these in attention
         # print(indices.shape)  ## [1, 70, 20, 10]
         # print(indices)
-        indices = indices[0, ...]
+        # indices = indices[0, ...]
         # print("indices.shape: ", indices.shape)   ## [20, 10]
-        indices = indices.view(-1, 1)  ## [200, 1]
+        # indices = indices.view(-1, 1)  ## [200, 1]
         # print("indices.shape: ", indices.shape)
 
         # -- patchify x
@@ -474,11 +524,13 @@ class VisionTransformer(nn.Module):
         
         
         """zero x"""
-        print(f"setting x=0")
-        x=torch.zeros_like(x)
+        # print(f"setting x=0")
+        # x=torch.zeros_like(x)
         beforePosX = x.clone()
         
-        x = x + pos_embed   ## add complete pos_emb before indexing
+
+        x = x + self.learnable_pos(torch.arange(N).unsqueeze(0).repeat(B, 1, 1).to(x.device))
+        # x = x + pos_embed   ## add complete pos_emb before indexing
         
         posX = x.clone()
         # -- mask x
@@ -487,21 +539,21 @@ class VisionTransformer(nn.Module):
             # print(f"x.shape (before masks): {x.shape}")
             # print(f"indices.shape (before masks): {indices.shape}")
             x = apply_masks_ctxt(x, masks)
-            indices = apply_masks_indices(indices, masks)
+            # indices = apply_masks_indices(indices, masks)
             # print(f"x.shape (after masks): {x.shape}")
             # print(f"indices.shape (after masks): {indices.shape}")
             # print("\nafter apply_masks_ctxt: \n\n", "x.shape", x.shape)  ## [32, 45, 256]
 
         # -- fwd prop
         for i, blk in enumerate(self.blocks):
-            x, attn, qk = blk(x, indices, return_attention=True)
+            x, attn, qk = blk(x, indices=None, return_attention=True)
             # x = blk(x)
             attn_list = [attn] if i == 0 else attn_list + [attn]
         if self.norm is not None:
             x = self.norm(x)
 
-        return x, attn_list, upX, beforePosX, posX
-        # return x
+        # return x, attn_list, upX, beforePosX, posX
+        return x
 
     """check this"""
     def interpolate_pos_encoding(self, x, pos_embed):
