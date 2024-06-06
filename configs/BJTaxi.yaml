@@ -1,6 +1,6 @@
 ## global
 seed: 31
-device: cuda:0
+device: cpu
 mode: train
 best_path: None
 debug: False # true means no log in file

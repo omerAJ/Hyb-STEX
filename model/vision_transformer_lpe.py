@@ -284,7 +284,7 @@ class VisionTransformerPredictor(nn.Module):
     ):
         super().__init__()
         self.predictor_embed = nn.Linear(embed_dim, predictor_embed_dim, bias=True)
-        self.mask_token = nn.Parameter(torch.zeros(1, 1, embed_dim))    ## predictor_embed_dim -> embed_dim  Now adding pos embed to embed dim and then reducing to predictor_embed_dim
+        self.mask_token = nn.Parameter(torch.zeros(1, 1, predictor_embed_dim))
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]  # stochastic depth decay rule
         # --
         self.num_patches = img_size[0] * img_size[1]
@@ -336,7 +336,7 @@ class VisionTransformerPredictor(nn.Module):
             if m.bias is not None:
                 nn.init.constant_(m.bias, 0)
 
-    def forward(self, x, masks_enc, masks_pred, pe):
+    def forward(self, x, masks_enc, masks_pred):
         assert (masks_pred is not None) and (masks_enc is not None), 'Cannot run predictor without mask indices'
 
         if not isinstance(masks_enc, list):
@@ -358,10 +358,6 @@ class VisionTransformerPredictor(nn.Module):
         B = len(x) // masks_enc.shape[1]   ## masks_enc is [32, 1, 200], just in case  x: [32, 45, 256]
 
         # -- map from encoder-dim to pedictor-dim
-        masked_pos_embed_learnable = apply_masks_ctxt(pe, masks_enc)
-        # print(f"masked_learnable_pos_embed_x.shape: {masked_learnable_pos_embed_x.shape}")
-        x += masked_pos_embed_learnable
-        
         x = self.predictor_embed(x)    ## x: [32, 45, 256] -> [32, 45, pred_emb_dim]
         # print(f"x.shape: {x.shape}")
         # print(f"N: {N}")
@@ -373,6 +369,9 @@ class VisionTransformerPredictor(nn.Module):
         # x_pos_embed = self.predictor_pos_embed.repeat(B, 1, 1)    
         # print(f"x.shape: {x.shape}", f"B: {B}", "x_pos_embed.shape", x_pos_embed.shape, "masks_enc.shape", masks_enc.shape)  
         # print(f"x.shape: {x.shape}", f"B: {B}", "learnable_pos_embed_x.shape", learnable_pos_embed_x.shape)
+        masked_pos_embed_learnable = apply_masks_ctxt(self.pos_embed_learnable.repeat(B, 1, 1), masks_enc)
+        # print(f"masked_learnable_pos_embed_x.shape: {masked_learnable_pos_embed_x.shape}")
+        x += masked_pos_embed_learnable
         # print(f"x.shape: {x.shape}")    ## [32, 30, 128]
         _, N_ctxt, D = x.shape   ## N_ctxt is the number of context tokens
 
@@ -380,7 +379,7 @@ class VisionTransformerPredictor(nn.Module):
         # pos_embs = self.predictor_pos_embed.repeat(B, 1, 1)
         # temp = torch.arange(N).unsqueeze(0).repeat(B, 1).to(x.device)
         # learnable_pos_embed_target =  self.learnable_pos(temp)
-        pos_embed_target_learnable =  pe
+        pos_embed_target_learnable =  self.pos_embed_learnable.repeat(B, 1, 1)
         
         # print("applying target mask on pos_embs", "pos_embs.shape", pos_embs.shape, "masks_pred.shape", masks_pred.shape) ## pos_embs:[32, 200, 128], masks_pred:[32, 4, 200]
         pos_embed_target_learnable = apply_masks_targets(pos_embed_target_learnable, masks_pred)
@@ -394,11 +393,6 @@ class VisionTransformerPredictor(nn.Module):
         # print("pred_tokens.shape", pred_tokens.shape)   ## [32*4, 6(number of target tokens per sample per mask), 128]
         # --
         pred_tokens += pos_embed_target_learnable
-
-
-        ## now send to predictor_embed_dim
-        pred_tokens = self.predictor_embed(pred_tokens)
-
         # print(f"x.shape: {x.shape}")  ## [32, 42, 128]
         x = x.repeat(masks_pred.shape[1], 1, 1) 
         # print(f"x.shape (after repeat): {x.shape}")  
@@ -500,7 +494,7 @@ class VisionTransformer(nn.Module):
             if m.bias is not None:
                 nn.init.constant_(m.bias, 0)
 
-    def forward(self, x, masks=None, pe=None):
+    def forward(self, x, masks=None):
         if masks is not None:
             if not isinstance(masks, list):
                 # masks = [masks]
@@ -542,10 +536,7 @@ class VisionTransformer(nn.Module):
         
         # temp = torch.arange(N).unsqueeze(0).repeat(B, 1).to(x.device)
         # learnable_pos_embed = self.learnable_pos(temp)
-        if pe is not None:
-            pos_embed_learnable = pe
-        else:
-            pos_embed_learnable = self.pos_embed_learnable.repeat(B, 1, 1)
+        pos_embed_learnable = self.pos_embed_learnable.repeat(B, 1, 1)
         x = x + pos_embed_learnable
         # x = x + pos_embed   ## add complete pos_emb before indexing
         
@@ -569,11 +560,8 @@ class VisionTransformer(nn.Module):
         if self.norm is not None:
             x = self.norm(x)
 
-        # return x, pos_embed_learnable, attn_list, upX, beforePosX, posX
-        if pe is None:
-            return x, pos_embed_learnable
-        else:
-            return x
+        return x, attn_list, upX, beforePosX, posX
+        # return x
 
     """check this"""
     def interpolate_pos_encoding(self, x, pos_embed):

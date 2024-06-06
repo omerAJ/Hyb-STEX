@@ -21,7 +21,7 @@ torch.backends.cudnn.benchmark = True
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--config_filename', '-cf', default='configs/NYCBike1.yaml', 
+    parser.add_argument('--config_filename', '-cf', default='configs/NYCTaxi.yaml', 
                         type=str, help='the configuration to use')
 
     args = parser.parse_args()
@@ -55,7 +55,7 @@ def main():
     encoder = VisionTransformer(
         img_size=(args.row, args.col),
         patch_size=1,
-        in_chans=38,
+        in_chans=70,
         embed_dim=64,
         predictor_embed_dim=None,
         depth=4,
@@ -74,7 +74,7 @@ def main():
         img_size=(args.row, args.col),
         embed_dim=64,
         predictor_embed_dim=64//2,
-        depth=1,
+        depth=2,
         num_heads=4,
         mlp_ratio=4,
         qkv_bias=False,
@@ -141,17 +141,24 @@ def main():
     world_size=1
     import os
     tag = r"jepa"
-    folder = r"E:\estudy\ST-SSL\code\ST-SSL\logs\NYCBike1_learnedPosEmbed"
+    folder = r"D:\omer\ST-SSL\logs\NYCTaxi_lpe_shared"
+    if not os.path.exists(folder):
+        os.makedirs(folder)
     log_file = os.path.join(folder, f'{tag}_r{rank}.csv')
     save_path = os.path.join(folder, f'{tag}' + '-ep{epoch}.pth.tar')
     latest_path = os.path.join(folder, f'{tag}-latest.pth.tar')
     log_file = os.path.join(folder, f'{tag}-log.csv')
+    if os.path.exists(log_file):
+        raise FileExistsError("Log file already exists in the folder.")
+        return 0
+    print(f"Log file: {log_file}")
     csv_logger = CSVLogger(log_file,
                             ('%d', 'epoch'),
                             ('%d', 'itr'),
                             ('%.5f', 'loss'),
                             ('%d', 'time (ms)'))
-   
+    
+    
 
     def save_checkpoint(epoch):
         save_dict = {
@@ -211,9 +218,9 @@ def main():
                 masks_pred = masks_pred.flatten(2)
                 # ctxt_size = torch.randint(50, 100, (1,)).item()       ## low (inclusive), high (exclusive)
                 # trgt_size = torch.randint(50//4, 100//4, (1,)).item()  
-                ctxt_size = torch.randint(40, 100, (1,)).item()       ## low (inclusive), high (exclusive)
+                ctxt_size = torch.randint(50, 170, (1,)).item()       ## low (inclusive), high (exclusive)
                 leftOutNodes = R*C - ctxt_size
-                trgt_size = torch.randint(leftOutNodes//2, leftOutNodes, (1,)).item()  
+                trgt_size = torch.randint(2*leftOutNodes//3, leftOutNodes, (1,)).item()  
                 # print(f"ctxt_size: {ctxt_size}, trgt_size: {trgt_size}")
                 # print(f"masks_enc.shape: {masks_enc.shape}, masks_pred.shape: {masks_pred.shape}")  ##m asks_enc.shape: torch.Size([32, 200]), masks_pred.shape: torch.Size([4, 32, 200])
                 _try=0
@@ -336,9 +343,9 @@ def main():
             def train_step():
                 _new_lr = scheduler.step()
                 _new_wd = wd_scheduler.step()
-                def forward_target():    ## mask target tokens after encoding
+                def forward_target(pe=None):    ## mask target tokens after encoding
                     with torch.no_grad():  #sg
-                        h = target_encoder(imgs, masks=None)  ## VisionTransformer  masks_enc=None
+                        h = target_encoder(imgs, masks=None, pe=pe)  ## VisionTransformer  masks_enc=None
                         h = F.layer_norm(h, (h.size(-1),))  # normalize over feature-dim
                         B = len(h)
                         # print("h.shape: ", h.shape)    ## torch.Size([32, 200, 256])
@@ -351,11 +358,11 @@ def main():
                         return h
 
                 def forward_context():    ## mask context tokens before encoding
-                    z = encoder(imgs, masks=masks_enc)  ## VisionTransformer
+                    z, pe = encoder(imgs, masks=masks_enc, pe=None)  ## VisionTransformer
                     # print("(before encoder) imgs.shape: ", imgs.shape, " masks_enc.shape: ", masks_enc.shape, "(after encoder) z.shape: ", z.shape)
                     """input to predictor is z: [32, 45, 256]"""
-                    z = predictor(z, masks_enc, masks_pred)   ## VisionTransformerPredictor
-                    return z
+                    z = predictor(x=z, masks_enc=masks_enc, masks_pred=masks_pred, pe=pe)   ## VisionTransformerPredictor
+                    return z, pe
 
                 def loss_fn(z, h):
                     loss = F.smooth_l1_loss(z, h)
@@ -366,8 +373,9 @@ def main():
 
                 # Step 1. Forward
                 # with torch.cuda.amp.autocast(dtype=torch.bfloat16):
-                h = forward_target()
-                z = forward_context()
+                z, pe = forward_context()
+                h = forward_target(pe=pe)
+                
                 loss = loss_fn(z, h)
 
                 #  Step 2. Backward & step
@@ -409,9 +417,9 @@ def main():
                     masks_pred = masks_pred.flatten(2) ## [B, 4, R, C] -> [B, 4, R*C]
                     masks_enc = masks_enc.flatten(1).unsqueeze(1) ## [B, R, C] -> [B, 1, R*C]
                     with torch.no_grad():
-                        def forward_target():    ## mask target tokens after encoding
+                        def forward_target(pe=None):    ## mask target tokens after encoding
                             with torch.no_grad():  #sg
-                                h = target_encoder(imgs, masks=None)  ## VisionTransformer  masks_enc=None
+                                h = target_encoder(imgs, masks=None, pe=pe)  ## VisionTransformer  masks_enc=None
                                 h = F.layer_norm(h, (h.size(-1),))  # normalize over feature-dim
                                 B = len(h)
                                 # print("h.shape: ", h.shape)    ## torch.Size([32, 200, 256])
@@ -424,11 +432,11 @@ def main():
                                 return h
 
                         def forward_context():    ## mask context tokens before encoding
-                            z = encoder(imgs, masks=masks_enc)  ## VisionTransformer
+                            z, pe = encoder(imgs, masks=masks_enc, pe=None)  ## VisionTransformer
                             # print("(before encoder) imgs.shape: ", imgs.shape, " masks_enc.shape: ", masks_enc.shape, "(after encoder) z.shape: ", z.shape)
                             """input to predictor is z: [32, 45, 256]"""
-                            z = predictor(z, masks_enc, masks_pred)   ## VisionTransformerPredictor
-                            return z
+                            z = predictor(x=z, masks_enc=masks_enc, masks_pred=masks_pred, pe=pe)   ## VisionTransformerPredictor
+                            return z, pe
 
                         def loss_fn(z, h):
                             loss = F.smooth_l1_loss(z, h)
@@ -439,8 +447,8 @@ def main():
 
                         # Step 1. Forward
                         # with torch.cuda.amp.autocast(dtype=torch.bfloat16):
-                        h = forward_target()
-                        z = forward_context()
+                        z, pe = forward_context()
+                        h = forward_target(pe=pe)
                         test_loss = loss_fn(z, h)
                         test_loss_meter.update(test_loss)
 
