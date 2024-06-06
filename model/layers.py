@@ -291,6 +291,7 @@ class STEncoder(nn.Module):
         # print("x.shape (before sconv12): ", x.shape)  torch.Size([32, 32, 33, 200])
         if self.do_sconv:
             # x_skip = x
+            print("x.shape: ", x.shape, "Lk.shape: ", Lk.shape)
             x = self.sconv12(x, Lk)   # nclv
             # x = x + x_skip
             ## [b, c, t, n]

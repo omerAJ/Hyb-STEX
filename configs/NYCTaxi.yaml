@@ -1,5 +1,5 @@
 ## global
-seed: 31
+seed: 1
 device: cuda
 mode: train
 best_path: None 

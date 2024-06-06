@@ -113,25 +113,30 @@ class STSSL(nn.Module):
             adj = np.repeat(adj, 3, axis=0)
             self.learnable_graph = nn.Parameter(torch.from_numpy(adj).float(), requires_grad=True)
         
+        elif graph_init == "eye":
+            adj = f"data/{args.dataset}/adj_mx.npz"
+            adj = np.load(adj)["adj_mx"]
+            self.learnable_graph = nn.Parameter(torch.eye(adj.shape[1]).float(), requires_grad=False)
+        
         elif graph_init == "8_neighbours" and args.learnable_flag == False:
-            adj = "data/NYCTaxi/adj_mx.npz"
+            adj = f"data/{args.dataset}/adj_mx.npz"
             adj = np.load(adj)["adj_mx"]
             self.learnable_graph = nn.Parameter(torch.from_numpy(adj).float(), requires_grad=False)
         
-        elif graph_init == "pre_trained_random" and args.learnable_flag == False:
-            adj = "data/NYCTaxi/V2maskedAttentionADJ.npz"
+        elif graph_init == "shared_lpe_T" and args.learnable_flag == False:
+            adj = f"data/{args.dataset}/adj_lpe_shared_T.npz"
             adj = np.load(adj)["adj_mx"]
             self.learnable_graph = nn.Parameter(torch.from_numpy(adj).float(), requires_grad=False)
 
-        elif graph_init == "pre_trained_thresholded" and args.learnable_flag == False:
-            adj = "data/NYCTaxi/V2maskedAttentionADJ_T.npz"
+        elif graph_init == "shared_lpe_T_T" and args.learnable_flag == False:
+            adj = f"data/{args.dataset}/adj_lpe_shared_T_T.npz"
             adj = np.load(adj)["adj_mx"]
             self.learnable_graph = nn.Parameter(torch.from_numpy(adj).float(), requires_grad=False)
 
-        elif graph_init == "pre_trained_symmetric" and args.learnable_flag == False:
-            adj = "data/NYCTaxi/V2maskedAttentionADJ_S.npz"
-            adj = np.load(adj)["adj_mx"]
-            self.learnable_graph = nn.Parameter(torch.from_numpy(adj).float(), requires_grad=False)
+        # elif graph_init == "pre_trained_symmetric" and args.learnable_flag == False:
+        #     adj = "data/NYCTaxi/V2maskedAttentionADJ_S.npz"
+        #     adj = np.load(adj)["adj_mx"]
+        #     self.learnable_graph = nn.Parameter(torch.from_numpy(adj).float(), requires_grad=False)
 
 
         self.encoderA = STEncoder(Kt=3, Ks=args.cheb_order, blocks=[[2, int(args.d_model//2), args.d_model], [args.d_model, int(args.d_model//2), args.d_model]], 
