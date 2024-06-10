@@ -268,6 +268,7 @@ class Trainer(object):
 
         test_results = []
         # inflow
+        # print("y_pred.shape: ", y_pred.shape, "y_true.shape: ", y_true.shape)
         mae, mape = test_metrics(y_pred[..., 0], y_true[..., 0])
         logger.info("INFLOW, MAE: {:.2f}, MAPE: {:.4f}%".format(mae, mape*100))
         test_results.append([mae, mape])
