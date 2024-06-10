@@ -32,8 +32,8 @@ class STSSL(nn.Module):
         # self.channel_reducer2 = nn.Conv3d(in_channels=3, out_channels=1, kernel_size=(1, 1, 1), padding='same') ## padding='same' to keep output size same as input 
         # self.channel_reducer = nn.Conv3d(in_channels=3, out_channels=1, kernel_size=(1, 1, 1), padding='same') ## padding='same' to keep output size same as input 
 
-        self.attention1 = self_Attention(128, 4)
-        self.attention2 = self_Attention(128, 4)
+        self.attention1 = self_Attention(128, 2)
+        self.attention2 = self_Attention(128, 2)
         # self.attentionA1 = self_Attention(64, 4)
         # self.attentionA2 = self_Attention(64, 4)
         # self.attentionB1 = self_Attention(64, 4)
@@ -133,6 +133,10 @@ class STSSL(nn.Module):
             adj = np.load(adj)["adj_mx"]
             self.learnable_graph = nn.Parameter(torch.from_numpy(adj).float(), requires_grad=False)
 
+        elif graph_init == "shared_lpe_raw" and args.learnable_flag == False:
+            adj = f"data/{args.dataset}/adj_lpe_shared_raw.npz"
+            adj = np.load(adj)["adj_mx"]
+            self.learnable_graph = nn.Parameter(torch.from_numpy(adj).float(), requires_grad=False)
         # elif graph_init == "pre_trained_symmetric" and args.learnable_flag == False:
         #     adj = "data/NYCTaxi/V2maskedAttentionADJ_S.npz"
         #     adj = np.load(adj)["adj_mx"]

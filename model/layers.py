@@ -175,6 +175,10 @@ class STEncoder(nn.Module):
         if graph_init == "no_sconv":
             self.do_sconv = False
 
+        self.do_cheb = True
+        if graph_init == "shared_lpe_raw":
+            self.do_cheb = False
+
         self.learnable_flag = learnable_flag
 
         if input_length - 2 * (Kt - 1) * len(blocks) <= 0:
@@ -254,12 +258,12 @@ class STEncoder(nn.Module):
     def forward(self, x0, learnable_graph):
         # print("x0.shape: ", x0.shape)
         # print("graph.shape: ", graph.shape)
-        if self.learnable_flag == False:
+        if self.learnable_flag == False and self.do_cheb == True:
             lap_mx = self._cal_laplacian(learnable_graph)      ## from adj to laplacian
             Lk = self._cheb_polynomial(lap_mx, self.Ks)
-        elif self.learnable_flag == True:
+        elif self.learnable_flag == True or self.do_cheb == False:
             # Lk = graph.unsqueeze(0)
-            Lk = learnable_graph
+            Lk = learnable_graph.unsqueeze(0)
         # # print("Lk.shape: ", Lk.shape)
         # Lk = graph.unsqueeze(0)
 
@@ -291,7 +295,7 @@ class STEncoder(nn.Module):
         # print("x.shape (before sconv12): ", x.shape)  torch.Size([32, 32, 33, 200])
         if self.do_sconv:
             # x_skip = x
-            print("x.shape: ", x.shape, "Lk.shape: ", Lk.shape)
+            # print("x.shape: ", x.shape, "Lk.shape: ", Lk.shape)
             x = self.sconv12(x, Lk)   # nclv
             # x = x + x_skip
             ## [b, c, t, n]
