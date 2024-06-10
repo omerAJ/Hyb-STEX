@@ -1,8 +1,8 @@
 ## global
 seed: 1
 device: cuda
-mode: train
-best_path: None 
+mode: test
+best_path: D:\omer\ST-SSL\experiments\NYCTaxi\pred__seed=1\20240607-132543\8_neighbours adj_mx, 2 sa on 128\best_model.pth 
 debug: False 
 
 ## data
