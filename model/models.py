@@ -137,6 +137,16 @@ class STSSL(nn.Module):
             adj = f"data/{args.dataset}/adj_lpe_shared_raw.npz"
             adj = np.load(adj)["adj_mx"]
             self.learnable_graph = nn.Parameter(torch.from_numpy(adj).float(), requires_grad=False)
+        
+        elif graph_init == "both" and args.learnable_flag == False:
+            adj_pt = f"data/{args.dataset}/adj_lpe_shared_raw.npz"
+            adj_pt = np.load(adj_pt)["adj_mx"]
+            adj_pt = np.expand_dims(adj_pt, axis=0)
+            adj_8 = f"data/{args.dataset}/adj_mx.npz"
+            adj_8 = np.load(adj_8)["adj_mx"]
+            adj_8 = np.expand_dims(adj_8, axis=0)
+            adj = np.concatenate((adj_8, adj_pt), axis=0)
+            self.learnable_graph = nn.Parameter(torch.from_numpy(adj).float(), requires_grad=False)
         # elif graph_init == "pre_trained_symmetric" and args.learnable_flag == False:
         #     adj = "data/NYCTaxi/V2maskedAttentionADJ_S.npz"
         #     adj = np.load(adj)["adj_mx"]

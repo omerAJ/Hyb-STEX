@@ -179,6 +179,9 @@ class STEncoder(nn.Module):
         if graph_init == "shared_lpe_raw":
             self.do_cheb = False
 
+        self.both = False
+        if graph_init == "both":
+            self.both = True
         self.learnable_flag = learnable_flag
 
         if input_length - 2 * (Kt - 1) * len(blocks) <= 0:
@@ -258,7 +261,17 @@ class STEncoder(nn.Module):
     def forward(self, x0, learnable_graph):
         # print("x0.shape: ", x0.shape)
         # print("graph.shape: ", graph.shape)
-        if self.learnable_flag == False and self.do_cheb == True:
+        if self.both == True:
+            print(f"learnable_graph: {learnable_graph[0].shape}, {learnable_graph[1].shape}")
+            adj_8, adj_pt = learnable_graph[0], learnable_graph[1]
+            lap_mx_8 = self._cal_laplacian(adj_8)
+            Lk_8 = self._cheb_polynomial(lap_mx_8, self.Ks)
+            print(f"Lk_8: {Lk_8.shape}, adj_pt: {adj_pt.shape}")
+            Lk = torch.cat((Lk_8, adj_pt.unsqueeze(0)), dim=0)
+            print(f"Lk: {Lk.shape}")
+
+        
+        elif self.learnable_flag == False and self.do_cheb == True:
             lap_mx = self._cal_laplacian(learnable_graph)      ## from adj to laplacian
             Lk = self._cheb_polynomial(lap_mx, self.Ks)
         elif self.learnable_flag == True or self.do_cheb == False:
@@ -425,7 +438,7 @@ class TemporalConvLayer(nn.Module):
 class SpatioConvLayer(nn.Module):
     def __init__(self, ks, c_in, c_out):
         super(SpatioConvLayer, self).__init__()
-        self.theta = nn.Parameter(torch.FloatTensor(c_in, c_out, ks)) # kernel: C_in*C_out*ks
+        self.theta = nn.Parameter(torch.FloatTensor(c_in, c_out, ks+1)) # kernel: C_in*C_out*ks
         self.b = nn.Parameter(torch.FloatTensor(1, c_out, 1, 1))
         self.align = Align(c_in, c_out)
         self.reset_parameters()
