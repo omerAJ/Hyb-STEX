@@ -277,7 +277,7 @@ class STEncoder(nn.Module):
         elif self.learnable_flag == True or self.do_cheb == False:
             # Lk = graph.unsqueeze(0)
             Lk = learnable_graph.unsqueeze(0)
-            print(f"Lk: {Lk.shape}")
+            # print(f"Lk: {Lk.shape}")
         # # print("Lk.shape: ", Lk.shape)
         # Lk = graph.unsqueeze(0)
 
@@ -439,7 +439,7 @@ class TemporalConvLayer(nn.Module):
 class SpatioConvLayer(nn.Module):
     def __init__(self, ks, c_in, c_out):
         super(SpatioConvLayer, self).__init__()
-        self.theta = nn.Parameter(torch.FloatTensor(c_in, c_out, ks+1)) # kernel: C_in*C_out*ks
+        self.theta = nn.Parameter(torch.FloatTensor(c_in, c_out, ks)) # kernel: C_in*C_out*ks
         self.b = nn.Parameter(torch.FloatTensor(1, c_out, 1, 1))
         self.align = Align(c_in, c_out)
         self.reset_parameters()

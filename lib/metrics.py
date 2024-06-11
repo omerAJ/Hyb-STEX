@@ -34,20 +34,15 @@ def mae_torch_evalLosses(pred, true, mask_value1=None, mask_value2=None):
         mae_original = torch.mean(torch.abs(pred[~mask1] - true[~mask1]))
         return mae1.item(), mae2.item(), mae3.item(), mask1.sum().item(), mask2.sum().item(), mask3.sum().item(), mae_original.item()
     
-def mae_torch(pred, true, mask_value1=None, mask_value2=None):
-    if mask_value1 is not None and mask_value2 is not None:
-        # Masks for different ranges
-        mask1 = true <= mask_value1  # Values less than mask_value1
-        mask2 = (true > mask_value1) & (true < mask_value2)  # Values between mask_value1 and mask_value2
-        mask3 = true >= mask_value2  # Values greater than mask_value2
-        
-        # Calculating MAE for each range
-        mae1 = torch.mean(torch.abs(pred[mask1] - true[mask1])) if mask1.any() else torch.tensor(float('nan'))
-        mae2 = torch.mean(torch.abs(pred[mask2] - true[mask2])) if mask2.any() else torch.tensor(float('nan'))
-        mae3 = torch.mean(torch.abs(pred[mask3] - true[mask3])) if mask3.any() else torch.tensor(float('nan'))
-        mae_original = torch.mean(torch.abs(pred[~mask1] - true[~mask1]))
-        return mae1.item(), mae2.item(), mae3.item(), mask1.sum().item(), mask2.sum().item(), mask3.sum().item(), mae_original.item()
-    
+def mae_torch(pred, true, mask_value=None):
+    if mask_value != None:
+        mask = torch.gt(true, mask_value)
+        # nodesMasked=mask[mask==True].shape[0]
+        # print("total nodes masked", nodesMasked, "/4096",  "nodes on average masked in each sample: ", nodesMasked/true.shape[0])
+        pred = torch.masked_select(pred, mask)
+        true = torch.masked_select(true, mask)
+    return torch.mean(torch.abs(true-pred))
+
 
 def mape_torch(pred, true, mask_value=None):
     if mask_value != None:
@@ -86,17 +81,19 @@ def test_metrics_evalLosses(pred, true, mask1=5, mask2=4000000):
     return mae_bad, mae_med, mae_good, mape, count_bad, count_med, count_good, mae_original
 
 
-def test_metrics(pred, true, mask1=5, mask2=None):
+
+def test_metrics(pred, true, mask1=5, mask2=5):
     # mask1 filter the very small value, mask2 filter the value lower than a defined threshold
     assert type(pred) == type(true)
     if type(pred) == np.ndarray:
         mae  = mae_np(pred, true, mask1)
         mape = mape_np(pred, true, mask2)
     elif type(pred) == torch.Tensor:
-        mae_bad, mae_med, mae_good, count_bad, count_med, count_good, mae_original  = mae_torch(pred, true, mask1, mask2)
+        mae  = mae_torch(pred, true, mask1).item()
         mape = mape_torch(pred, true, mask2).item()
     else:
         raise TypeError
-    return mae_bad, mae_med, mae_good, mape, count_bad, count_med, count_good, mae_original
+    return mae, mape
+
 
 
