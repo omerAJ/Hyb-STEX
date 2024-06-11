@@ -59,6 +59,7 @@ class MinMax11Scaler:
 
 def STDataloader(X, Y, batch_size, shuffle=True, drop_last=True):
     cuda = True if torch.cuda.is_available() else False
+    cuda = False
     TensorFloat = torch.cuda.FloatTensor if cuda else torch.FloatTensor
     X, Y = TensorFloat(X), TensorFloat(Y)
     data = torch.utils.data.TensorDataset(X, Y)
@@ -104,10 +105,11 @@ def get_dataloader(data_dir, dataset, batch_size, test_batch_size, scalar_type='
     scaler = normalize_data(np.concatenate([data['x_train'], data['x_val']], axis=0), scalar_type)
     # print("skip: ", skip)
     # Data format
+    print("\n\n!!Scaling is NOT off!!\n\n")
     for category in ['train', 'val', 'test']:
         data['x_' + category] = scaler.transform(data['x_' + category])
         data['y_' + category] = scaler.transform(data['y_' + category])
-    print("data['x_train'].shape: ", data['x_train'].shape, data['y_train'].shape)
+    print("data['x_train'].shape: ", data['x_train'].shape, data['y_train'].shape, "\n\n!!train shuffle is True!!\n\n")
     # Construct dataloader
     dataloader = {}
     dataloader['train'] = STDataloader(

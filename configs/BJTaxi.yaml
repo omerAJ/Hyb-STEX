@@ -9,10 +9,12 @@ debug: False # true means no log in file
 data_dir: data
 dataset: BJTaxi 
 input_length: 35 # 8+9*3
-batch_size: 12
+batch_size: 16
 test_batch_size: 20
 graph_file: data/BJTaxi/adj_mx.npz # num_nodes: 1024
 num_nodes: 1024
+row: 32
+col: 32
 
 ## model 
 d_input: 2                  # means inflow and outflow
@@ -25,6 +27,8 @@ nmb_prototype: 50           # number of cluster
 yita: 0.5                   # balance for inflow loss and outflow loss, $yita * inflow + (1 - yita) * outflow$
 
 ## train
+start_epoch: 0
+num_epochs: 500
 epochs: 1000
 lr_init: 0.0005
 early_stop: True

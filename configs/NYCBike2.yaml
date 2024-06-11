@@ -13,6 +13,8 @@ batch_size: 32
 test_batch_size: 32
 graph_file: data/NYCBike2/adj_mx.npz  # num_nodes 200 (20 x 10)
 num_nodes: 200
+row: 20
+col: 10
 
 ## model 
 d_input: 2                  # means inflow and outflow
@@ -25,7 +27,9 @@ nmb_prototype: 10           # number of clusters
 yita: 0.5                   # balance for inflow loss and outflow loss, $yita * inflow + (1 - yita) * outflow$
 
 ## train 
-epochs: 1000
+start_epoch: 0
+num_epochs: 500
+epochs: 500
 lr_init: 0.001 
 early_stop: True
 early_stop_patience: 30

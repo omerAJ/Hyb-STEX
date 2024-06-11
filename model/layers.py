@@ -167,8 +167,99 @@ class Discriminator(nn.Module):
                        ### input_length=args.input_length, num_nodes=args.num_nodes, droprate=args.dropout)
 import numpy as np
 import os
+# from einops import repeat
+import sys
+sys.path.insert(0, 'D:\\omer\\v-jepa\\jepa\\src\\models\\utils')
+
+from pos_embs import get_3d_sincos_pos_embed
+class fullyAttentiveEncoder(nn.Module):
+    def __init__(self, row, col, in_len, pos_emb_flag):
+        super(fullyAttentiveEncoder, self).__init__()
+
+        self.rows = row
+        self.cols = col
+        self.in_len = in_len
+        self.pos_emb_flag = pos_emb_flag
+        self.projection = nn.Linear(2, 32)
+        self.selfAttention1 = self_Attention(d_model=32, n_heads=4)
+        self.selfAttention2 = self_Attention(d_model=32, n_heads=4)
+        self.selfAttention3 = self_Attention(d_model=32, n_heads=4)
+        self.ff1 = PositionwiseFeedForward(d_model=32, d_ff=32*4, dropout=0.15)
+        self.ff2 = PositionwiseFeedForward(d_model=32, d_ff=32*4, dropout=0.15)
+        self.ff3 = PositionwiseFeedForward(d_model=32, d_ff=32*4, dropout=0.15)
+        self.out_conv1 = nn.Conv2d(self.in_len, 16, kernel_size=1)
+        self.out_conv2 = nn.Conv2d(16, 1, kernel_size=1)
+
+        emb_size=32
+        # self.pred_token = nn.Parameter(torch.randn(1,self.rows*self.cols, emb_size))
+        # self.pred_token = nn.Parameter(torch.randn(1, 1, emb_size))
+
+    def forward(self, x):
+        # print("x0.shape: ", x0.shape)      # x0.shape:  torch.Size([32, 8, 200, 2])
+        x = x.permute(0, 3, 1, 2)  # (batch_size, feature_dim, input_length, num_nodes), nclv
+        # x = x.view(x.size(0), x.size(1), x.size(2), self.rows, self.cols)  # (batch_size, feature_dim, input_length, row, col)
+
+        # print("x.shape: ", x.shape)  # x.shape:  torch.Size([32, 2, 8, 20, 10])
+        b, f, t, n = x.size()
+        x = x.view(x.size(0), x.size(1), -1).transpose(1, 2)  # (batch_size, row*col*time, feature_dim)
+        x = self.projection(x)   ## [b, nodes, features]
+        
+        # """ prepending cls token """
+        # pred_tokens = repeat(self.pred_token, '() n e -> b n e', b=b)
+        # x = torch.cat([pred_tokens, x], dim=1) #prepending the cls token
+        
+        # print("x.shape (after projection): ", x.shape)  
+        
+        d3SinCos = get_3d_sincos_pos_embed(32, grid_h=self.rows, grid_w=self.cols, grid_depth=self.in_len, cls_token=False)
+        pos_embed = nn.Parameter(torch.from_numpy(d3SinCos).float().unsqueeze(0), requires_grad=False).to(x.device)
+        # print("pos_embed.shape: ", pos_embed.shape, "x.shape: ", x.shape)
+        if self.pos_emb_flag:
+            x += pos_embed
+        x_copy = x
+        x = self.selfAttention1(x)
+        x += x_copy    # skip connection
+        x_copy = x
+        x = self.ff1(x)
+        x += x_copy    # skip connection
+
+        x_copy = x
+        x = self.selfAttention2(x)
+        x += x_copy    # skip connection
+        x_copy = x
+        x = self.ff2(x)
+        x += x_copy    # skip connection
+
+        x_copy = x
+        x = self.selfAttention3(x)
+        x += x_copy    # skip connection   
+        x_copy = x
+        x = self.ff3(x)
+        x += x_copy    # skip connection
+        
+        # print("x.shape (after self attention): ", x.shape)   ## [b, num_tokens+num_nodes, features]  first n are the token matrices, rearrange those to get the grid.
+
+        # x = x[:, 0:self.rows*self.cols, :]   ## [b, nodes, features]
+        # x = x.transpose(1, 2)    ## [b, features, nodes]
+        # x = x.unsqueeze(1)   ## [b, time, nodes, features]
+
+        """ reducing t dimension to 1 """
+        x = x.transpose(1, 2)    ## [b, features, nodes]
+        x = x.view(x.size(0), x.size(1), t, self.rows, self.cols)   ## [b, features, time, row, col]
+        x = x.view(x.size(0), x.size(1), t, -1)  ## [b, features, time, nodes] 
+        # print("x.shape (before conv): ", x.shape)
+        x = x.transpose(1, 2)  ## [b, time, features, nodes]
+        
+        x = self.out_conv1(x)
+        x = self.out_conv2(x)
+        
+        ## i need: n(l=1)vc
+        x = x.transpose(2, 3)
+        # print("x.shape (after conv): ", x.shape)
+        return x
+
+
 class STEncoder(nn.Module):
-    def __init__(self, Kt, Ks, blocks, input_length, num_nodes, graph_init, learnable_flag, droprate=0.1):
+    def __init__(self, Kt, Ks, blocks, input_length, num_nodes, graph_init, learnable_flag, row, col, droprate=0.1):
         super(STEncoder, self).__init__()        
         
         self.do_sconv = True
@@ -189,6 +280,7 @@ class STEncoder(nn.Module):
             c = blocks[0]
             self.tconv11 = TemporalConvLayer(Kt, c[0], c[1], "GLU", paddin='valid', flag=False)
             # self.represent = representationLayer(Kt, 1, c[1], "GLU", paddin='valid', flag=False)
+            self.represent = representationLayerOnGrid(Kt, c[0], c[1], self.row, self.col, "GLU", paddin='valid', flag=False)
             self.pooler = Pooler(input_length - (Kt - 1), c[1])
             
         
@@ -225,6 +317,7 @@ class STEncoder(nn.Module):
             c = blocks[0]
             self.tconv11 = TemporalConvLayer(Kt, c[0], c[1], "GLU")
             # self.represent = representationLayer(Kt, 1, c[1], "GLU", paddin='valid', flag=False)
+            self.represent = representationLayerOnGrid(Kt, c[0], c[1], self.row, self.col, "GLU", paddin='valid', flag=False)
             self.pooler = Pooler(input_length - (Kt - 1), c[1])
             
             self.sconv12 = SpatioConvLayer(Ks, c[1], c[1])
@@ -259,7 +352,7 @@ class STEncoder(nn.Module):
         
 
     def forward(self, x0, learnable_graph):
-        # print("x0.shape: ", x0.shape)
+        print("x0.shape: ", x0.shape)
         # print("graph.shape: ", graph.shape)
         if self.both == True:
             # print(f"learnable_graph: {learnable_graph[0].shape}, {learnable_graph[1].shape}")
@@ -294,15 +387,17 @@ class STEncoder(nn.Module):
         
         ## ST block 1
         
+        print("going into tconv ")  
+        x = self.tconv11(x)    # nclv          
+        
         """lets work here, as this is the start of embedding, so a bottleneck here would limit the performance downstream."""
         
         # print("x.shape (before tconv11): ", x.shape)  torch.Size([32, 2, 37, 200])
-        x = self.tconv11(x)    # nclv          
-        # x = self.represent(x)    # nclv          
-        # print("x.shape (after represent): ", x.shape)   ## torch.Size([32, 32, 35, 200])
-        
+        # x = self.represent(x)    # n1clv          
+        # print("x.shape (after represent): ", x.shape)   ## torch.Size([32, 32, 1, 35, 200])
+        # x = x.squeeze(2)  # nclv
         "...end..."
-        
+        # print("tconv done")
         x, x_agg, self.t_sim_mx = self.pooler(x)
         # print("x.shape (after pooler): ", x.shape)   torch.Size([32, 32, 33, 200])
         self.s_sim_mx = sim_global(x_agg, sim_type='cos')
@@ -316,7 +411,7 @@ class STEncoder(nn.Module):
             x = self.lns1(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)     ## ln([b, t, n, c]) -> [b, c, t, n]
         # print("x.shape (after sconv12): ", x.shape)  torch.Size([32, 32, 33, 200])
         x = self.tconv13(x)  
-        # print("x.shape (after tconv13): ", x.shape)    torch.Size([32, 64, 31, 200])
+        print("x.shape (after tconv13): ", x.shape) ##   torch.Size([32, 64, 31, 200])
         x = self.dropout1(self.ln1(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2))
         
         ## ST block 2
@@ -338,7 +433,7 @@ class STEncoder(nn.Module):
         # print("\n\n out_conv next: ")
         x = self.out_conv(x) # ncl(=1)v    ## filter_size = (l, 1), so dot product with time length and same kernel used for every node.
         # print("\n\nout_conv done\n\n")
-        # print("x.shape: (after out_conv)", x.shape)   torch.Size([32, 64, 1, 200])
+        print("x.shape: (after out_conv)", x.shape) ##  torch.Size([32, 64, 1, 200])
         x = self.dropout3(self.ln3(x.permute(0, 2, 3, 1))) # nlvc
         return x # nl(=1)vc
 
@@ -398,6 +493,29 @@ class Align(nn.Module):
             return F.pad(x, [0, 0, 0, 0, 0, self.c_out - self.c_in, 0, 0])
         return x  
 
+class AlignForRepresentation(nn.Module):
+    def __init__(self, c_in, c_out):
+        '''Align the input and output.
+        '''
+        super(AlignForRepresentation, self).__init__()
+        self.c_in = c_in
+        self.c_out = c_out
+        if c_in > c_out:
+            self.conv1x1 = nn.Conv3d(c_in, c_out, 1)  # filter=(1,1), similar to fc
+        self.reduceC = nn.Conv3d(c_in, c_in, (2, 1, 1))
+
+    def forward(self, x):  # x: (n,1,c,l,v)
+        # print("self.c_in: ", self.c_in, "self.c_out: ", self.c_out)
+        """also finish the c=2 -> c=1 so can squeeze that dimension later."""
+        # print("x.shape (before reduceC): ", x.shape)
+        # x = self.reduceC(x)
+        # print("x.shape (after reduceC): ", x.shape)
+        """end"""
+        if self.c_in > self.c_out:
+            return self.conv1x1(x)
+        if self.c_in < self.c_out:
+            return F.pad(x, [0, 0, 0, 0, 0, 0, 0, self.c_out - self.c_in, 0, 0])   ## pad takes index from reverse order, i.e., pad for last dimension in given first [pad left, pad right]
+        return x  
 class TemporalConvLayer(nn.Module):
     def __init__(self, kt, c_in, c_out, act="relu", paddin='valid', flag=False):
         super(TemporalConvLayer, self).__init__()
@@ -427,7 +545,8 @@ class TemporalConvLayer(nn.Module):
         if self.act == "GLU":
             # print("x.shape (GLU): ", x.shape)  torch.Size([32, 64, 27, 200])
             x_conv = self.conv(x)
-            # print("x_conv.shape (GLU): ", x_conv.shape)  torch.Size([32, 128, 1, 200])
+            # print("x_conv.shape (GLU): ", x_conv.shape)  ## torch.Size([32, 128, 1, 200])
+            # print("x_in.shape (after align): ", x_in.shape)
             return (x_conv[:, :self.c_out, :, :] + x_in) * torch.sigmoid(x_conv[:, self.c_out:, :, :])
         if self.act == "sigmoid":
             x_conv = self.conv(x)
@@ -435,6 +554,99 @@ class TemporalConvLayer(nn.Module):
             return torch.sigmoid(x_conv + x_in)  
         return torch.relu(self.conv(x) + x_in)  
 
+class representationLayerOnGrid(nn.Module):
+    def __init__(self, kt, c_in, c_out, row, col, act="relu", paddin='valid', flag=False):
+        super(representationLayerOnGrid, self).__init__()
+        self.row=row
+        self.col=col
+        self.kt = kt
+        self.act = act
+        self.c_out = c_out
+        self.align = AlignForRepresentation(c_in, c_out)
+        self.flag = flag
+        if self.act == "GLU":
+            self.conv = nn.Conv3d(c_in, c_out * 2, (kt, 3, 3), 1, padding=(0, 1, 1))
+        else:
+            self.conv = nn.Conv3d(c_in, c_out, (kt, 3, 3), 1, padding=(0, 1, 1))
+
+    def forward(self, x):
+        """
+        :param x: (n,c,l,v)
+        :return: (n,c,l-kt+1,v)   f is the number of filters, c is in/out
+        """
+        # print("x.shape (before align): ", x.shape)
+        # print("kt: ", self.kt)
+        # print("x.shape (before align): ", x.shape)
+        ## go from nclv -> nclv1v2
+        x = x.view(x.shape[0], x.shape[1], x.shape[2], self.row, self.col)
+        # print("x.shape (after view): ", x.shape)
+        if self.flag:
+            x_in = self.align(x)  
+        else:
+            # print("x.shape(before align): ", x.shape)  ## torch.Size([32, 1, 2, 37, 200])
+            temp = self.align(x)
+            # print("temp.shape(after align): ", temp.shape)
+            x_in = temp[:, :, 1:-1, :, :]   # align does nothing as c_in == c_out (in out_conv)
+            # print("x_in.shape(after align): ", x_in.shape)
+            
+        if self.act == "GLU":
+            # print("x.shape (GLU): ", x.shape) ## torch.Size([32, 64, 27, 200])
+            x_conv = self.conv(x)
+            # print("Representation layer: x_conv.shape (GLU): ", x_conv.shape) ## torch.Size([32, 128, 1, 200])
+            # print("x_in.shape: (after align)", x_in.shape)
+            x2 = (x_conv[:, :self.c_out, :, :, :] + x_in) * torch.sigmoid(x_conv[:, self.c_out:, :, :, :])
+            x2 = x2.view(x2.shape[0], x2.shape[1], x2.shape[2], x2.shape[3]*x2.shape[4])
+            return x2
+        if self.act == "sigmoid":
+            x_conv = self.conv(x)
+            # print("x_conv.shape: ", x_conv.shape)
+            x2 = torch.sigmoid(x_conv + x_in) 
+            x2 = x2.view(x2.shape[0], x2.shape[1], x2.shape[2], x2.shape[3]*x2.shape[4])
+            return x2 
+        return torch.relu(self.conv(x) + x_in)  
+
+class representationLayer(nn.Module):
+    def __init__(self, kt, c_in, c_out, act="relu", paddin='valid', flag=False):
+        super(representationLayer, self).__init__()
+        self.kt = kt
+        self.act = act
+        self.c_out = c_out
+        self.align = AlignForRepresentation(c_in, c_out)
+        self.flag = flag
+        if self.act == "GLU":
+            self.conv = nn.Conv3d(c_in, c_out * 2, (2, kt, 1), 1, padding=paddin)
+        else:
+            self.conv = nn.Conv3d(c_in, c_out, (2, kt, 1), 1, padding=paddin)
+
+    def forward(self, x):
+        """
+        :param x: (n,1,c,l,v)
+        :return: (n,f,c,l-kt+1,v)   f is the number of filters, c is in/out
+        """
+        # print("x.shape (before align): ", x.shape)
+        # print("kt: ", self.kt)
+        # print("x.shape (before align): ", x.shape)
+        x = x.unsqueeze(1)  ## nclv -> n1clv    ## to allow for 3d conv
+        if self.flag:
+            x_in = self.align(x)  
+        else:
+            # print("x.shape(before align): ", x.shape)  ## torch.Size([32, 1, 2, 37, 200])
+            temp = self.align(x)
+            # print("temp.shape(after align): ", temp.shape)
+            x_in = temp[:, :, :, self.kt - 1:, :]   # align does nothing as c_in == c_out (in out_conv)
+            # print("x_in.shape(after align): ", x_in.shape)
+            
+        if self.act == "GLU":
+            # print("x.shape (GLU): ", x.shape) ## torch.Size([32, 64, 27, 200])
+            x_conv = self.conv(x)
+            # print("Representation layer: x_conv.shape (GLU): ", x_conv.shape) ## torch.Size([32, 128, 1, 200])
+            # print("x_in.shape: (after align)", x_in.shape)
+            return (x_conv[:, :self.c_out, :, :, :] + x_in) * torch.sigmoid(x_conv[:, self.c_out:, :, :, :])
+        if self.act == "sigmoid":
+            x_conv = self.conv(x)
+            # print("x_conv.shape: ", x_conv.shape)
+            return torch.sigmoid(x_conv + x_in)  
+        return torch.relu(self.conv(x) + x_in)  
 
 class SpatioConvLayer(nn.Module):
     def __init__(self, ks, c_in, c_out):
@@ -561,6 +773,7 @@ class actuallyMLP(nn.Module):
         return x
 
 
+
 class self_Attention(nn.Module):
     def __init__(self, d_model, n_heads):
         super(self_Attention, self).__init__()
@@ -657,7 +870,7 @@ class PositionWise_cross_Attention(nn.Module):
         return output
     
 class PositionwiseFeedForward(nn.Module):
-    def __init__(self, d_model, d_ff, dropout=0.1):
+    def __init__(self, d_model, d_ff, dropout=0.15):
         super(PositionwiseFeedForward, self).__init__()
         self.d_model = d_model
         self.d_ff = d_ff
@@ -702,7 +915,7 @@ class SpatialAttention(nn.Module):
         return x    
 """
 
-"""
+"""spatial attention with shared matrix for each time step"""
 class SpatialAttention(nn.Module):
     def __init__(self, d_model, n_heads):
         super(SpatialAttention, self).__init__()
@@ -742,7 +955,7 @@ class SpatialAttention(nn.Module):
         # print("(output of spatial attention) x.shape: ", x.shape)     ## torch.Size([32, 200, 33, 32])
         # output = self.norm(output.transpose(1, 2)).transpose(1, 2)
         return output
-"""
+
 
 """ looped implementation
 class SpatialAttention(nn.Module):
@@ -787,7 +1000,8 @@ class SpatialAttention(nn.Module):
         return output
     """
 
-
+"""einsum implementation of independent matrices for each timestep"""
+"""
 class SpatialAttention(nn.Module):
     def __init__(self, d_model, n_timesteps, n_heads):
         super(SpatialAttention, self).__init__()
@@ -833,3 +1047,6 @@ class SpatialAttention(nn.Module):
         output = output.transpose(1, 3)
         
         return output
+    """
+
+"""end"""
