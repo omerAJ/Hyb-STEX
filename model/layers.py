@@ -270,6 +270,14 @@ class STEncoder(nn.Module):
         if graph_init == "shared_lpe_raw":
             self.do_cheb = False
 
+        self.batched_cheb = False
+        if graph_init == "batched_cheb":
+            self.batched_cheb = True
+        
+        self.batched_no_cheb = False
+        if graph_init == "batched_no_cheb":
+            self.batched_no_cheb = True
+
         self.both = False
         if graph_init == "both":
             self.both = True
@@ -279,14 +287,12 @@ class STEncoder(nn.Module):
             self.Ks=Ks
             c = blocks[0]
             self.tconv11 = TemporalConvLayer(Kt, c[0], c[1], "GLU", paddin='valid', flag=False)
-            # self.represent = representationLayer(Kt, 1, c[1], "GLU", paddin='valid', flag=False)
-            self.represent = representationLayerOnGrid(Kt, c[0], c[1], self.row, self.col, "GLU", paddin='valid', flag=False)
+            # self.represent = representationLayerOnGrid(Kt, c[0], c[1], self.row, self.col, "GLU", paddin='valid', flag=False)
             self.pooler = Pooler(input_length - (Kt - 1), c[1])
             
         
             self.sconv12 = SpatioConvLayer(Ks, c[1], c[1])
             t = input_length + 2 - 2 - 2 
-            # self.sconv12 = SpatialAttention(d_model=c[1], n_timesteps=t, n_heads=1)
             
             self.tconv13 = TemporalConvLayer(Kt, c[1], c[2], paddin='same', flag=True)
             self.ln1 = nn.LayerNorm([num_nodes, c[2]])
@@ -297,7 +303,6 @@ class STEncoder(nn.Module):
             
             self.sconv22 = SpatioConvLayer(Ks, c[1], c[1])
             t = input_length + 2 - 2 - 2 - 2 - 2 
-            # self.sconv22 = SpatialAttention(d_model=c[1], n_timesteps=t, n_heads=1)
             
             self.tconv23 = TemporalConvLayer(Kt, c[1], c[2], paddin='same', flag=True)
             self.ln2 = nn.LayerNorm([num_nodes, c[2]])
@@ -316,13 +321,11 @@ class STEncoder(nn.Module):
             self.Ks=Ks
             c = blocks[0]
             self.tconv11 = TemporalConvLayer(Kt, c[0], c[1], "GLU")
-            # self.represent = representationLayer(Kt, 1, c[1], "GLU", paddin='valid', flag=False)
-            self.represent = representationLayerOnGrid(Kt, c[0], c[1], self.row, self.col, "GLU", paddin='valid', flag=False)
+            # self.represent = representationLayerOnGrid(Kt, c[0], c[1], self.row, self.col, "GLU", paddin='valid', flag=False)
             self.pooler = Pooler(input_length - (Kt - 1), c[1])
             
             self.sconv12 = SpatioConvLayer(Ks, c[1], c[1])
             t = input_length + 2 - 2 - 2 
-            # self.sconv12 = SpatialAttention(d_model=c[1], n_timesteps=t, n_heads=1)
             self.lns1 = nn.LayerNorm([num_nodes, c[1]])
             self.tconv13 = TemporalConvLayer(Kt, c[1], c[2])
             self.ln1 = nn.LayerNorm([num_nodes, c[2]])
@@ -333,7 +336,6 @@ class STEncoder(nn.Module):
             
             self.sconv22 = SpatioConvLayer(Ks, c[1], c[1])
             t = input_length + 2 - 2 - 2 - 2 - 2 
-            # self.sconv22 = SpatialAttention(d_model=c[1], n_timesteps=t, n_heads=1)
             self.lns2 = nn.LayerNorm([num_nodes, c[1]])
             self.tconv23 = TemporalConvLayer(Kt, c[1], c[2])
             self.ln2 = nn.LayerNorm([num_nodes, c[2]])
@@ -348,36 +350,35 @@ class STEncoder(nn.Module):
             self.dropout3 = nn.Dropout(droprate)
             self.receptive_field = input_length + Kt -1
 
-            self.learnable_flag = learnable_flag
         
 
     def forward(self, x0, learnable_graph):
-        print("x0.shape: ", x0.shape)
-        # print("graph.shape: ", graph.shape)
-        if self.both == True:
-            # print(f"learnable_graph: {learnable_graph[0].shape}, {learnable_graph[1].shape}")
+        
+        if self.batched_cheb == True:
+            lap_mx = self._cal_laplacian_batched(learnable_graph)      ## from adj to laplacian
+            Lk = self._cheb_polynomial_batched(lap_mx, self.Ks)
+            # Lk=learnable_graph.unsqueeze(1)
+            # Lk = Lk.unsqueeze(1)
+            # print(f"bathced cheb done \n\n")
+        elif self.batched_no_cheb == True:
+            Lk=learnable_graph.unsqueeze(1)
+
+        elif self.both == True:
             adj_8, adj_pt = learnable_graph[0], learnable_graph[1]
             lap_mx_8 = self._cal_laplacian(adj_8)
             Lk_8 = self._cheb_polynomial(lap_mx_8, self.Ks)
-            # print(f"Lk_8: {Lk_8.shape}, adj_pt: {adj_pt.shape}")
             Lk = torch.cat((Lk_8, adj_pt.unsqueeze(0)), dim=0)
-            # print(f"Lk: {Lk.shape}")
-
+            
         
         elif self.learnable_flag == False and self.do_cheb == True:
             lap_mx = self._cal_laplacian(learnable_graph)      ## from adj to laplacian
             Lk = self._cheb_polynomial(lap_mx, self.Ks)
+            # print(f"\nLk overwritten \n")
         elif self.learnable_flag == True or self.do_cheb == False:
-            # Lk = graph.unsqueeze(0)
-            Lk = learnable_graph.unsqueeze(0)
-            print(f"Lk: {Lk.shape}")
-        # # print("Lk.shape: ", Lk.shape)
-        # Lk = graph.unsqueeze(0)
+            # Lk = learnable_graph.unsqueeze(0)
+            Lk = learnable_graph
+            # print(f"Lk: {Lk.shape}")
 
-        ## if stacking learnbale and og mats
-        # lap_mx = self._cal_laplacian(graph)      ## from adj to laplacian
-        # Lk = self._cheb_polynomial(lap_mx, self.Ks)
-        # Lk = torch.cat((Lk, learnable_graph), dim=0)
         in_len = x0.size(1) # x0, nlvc
         if in_len < self.receptive_field:
             x = F.pad(x0, (0,0,0,0,self.receptive_field-in_len,0))
@@ -385,55 +386,25 @@ class STEncoder(nn.Module):
             x = x0
         x = x.permute(0, 3, 1, 2)  # (batch_size, feature_dim, input_length, num_nodes), nclv 
         
-        ## ST block 1
-        
-        print("going into tconv ")  
         x = self.tconv11(x)    # nclv          
         
-        """lets work here, as this is the start of embedding, so a bottleneck here would limit the performance downstream."""
-        
-        # print("x.shape (before tconv11): ", x.shape)  torch.Size([32, 2, 37, 200])
-        # x = self.represent(x)    # n1clv          
-        # print("x.shape (after represent): ", x.shape)   ## torch.Size([32, 32, 1, 35, 200])
-        # x = x.squeeze(2)  # nclv
-        "...end..."
-        # print("tconv done")
         x, x_agg, self.t_sim_mx = self.pooler(x)
-        # print("x.shape (after pooler): ", x.shape)   torch.Size([32, 32, 33, 200])
         self.s_sim_mx = sim_global(x_agg, sim_type='cos')
-        # print("x.shape (before sconv12): ", x.shape)  torch.Size([32, 32, 33, 200])
         if self.do_sconv:
-            # x_skip = x
-            # print("x.shape: ", x.shape, "Lk.shape: ", Lk.shape)
-            x = self.sconv12(x, Lk)   # nclv
-            # x = x + x_skip
-            ## [b, c, t, n]
+            x = self.sconv12(x, Lk)   # nclv      
             x = self.lns1(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)     ## ln([b, t, n, c]) -> [b, c, t, n]
-        # print("x.shape (after sconv12): ", x.shape)  torch.Size([32, 32, 33, 200])
         x = self.tconv13(x)  
-        print("x.shape (after tconv13): ", x.shape) ##   torch.Size([32, 64, 31, 200])
         x = self.dropout1(self.ln1(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2))
         
         ## ST block 2
         x = self.tconv21(x)
-        # print("x.shape (after tconv21): ", x.shape)  torch.Size([32, 32, 29, 200])
-        # print("x.shape (before sconv22): ", x.shape)  torch.Size([32, 32, 29, 200])
         if self.do_sconv:
-            # x_skip = x
             x = self.sconv22(x, Lk)   # nclv
-            # x = x + x_skip
             x = self.lns2(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)
-        # print("x.shape (after sconv22): ", x.shape)  torch.Size([32, 32, 29, 200])
         x = self.tconv23(x)
-        # print("x.shape (after tconv23): ", x.shape)  torch.Size([32, 64, 27, 200])
         x = self.dropout2(self.ln2(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2))
 
-        ## out block
-        # print("x.shape: (before out_conv)", x.shape)   torch.Size([32, 64, 27, 200]) 
-        # print("\n\n out_conv next: ")
         x = self.out_conv(x) # ncl(=1)v    ## filter_size = (l, 1), so dot product with time length and same kernel used for every node.
-        # print("\n\nout_conv done\n\n")
-        print("x.shape: (after out_conv)", x.shape) ##  torch.Size([32, 64, 1, 200])
         x = self.dropout3(self.ln3(x.permute(0, 2, 3, 1))) # nlvc
         return x # nl(=1)vc
 
@@ -473,6 +444,51 @@ class STEncoder(nn.Module):
         graph = graph + I # add self-loop to prevent zero in D
         D = torch.diag(torch.sum(graph, dim=-1) ** (-0.5))
         L = I - torch.mm(torch.mm(D, graph), D)
+        return L
+    
+    def _cheb_polynomial_batched(self, laplacian, K):
+        """
+        Compute the Chebyshev Polynomial, according to the graph laplacian.
+
+        :param laplacian: the graph laplacian, [b, v, v].
+        :return: the multi order Chebyshev laplacian, [b, K, v, v].
+        """
+        # print("approximating cheb_polynomial of order {}".format(K))
+        B, N, N = laplacian.size()  
+        multi_order_laplacian = torch.zeros([B, K, N, N], device=laplacian.device, dtype=torch.float) 
+        multi_order_laplacian[:, 0] = torch.eye(N, device=laplacian.device, dtype=torch.float)
+
+        if K == 1:
+            return multi_order_laplacian
+        else:
+            multi_order_laplacian[:, 1] = laplacian.clone()
+            if K == 2:
+                return multi_order_laplacian
+            else:
+                for k in range(2, K):
+                    temp = 2 * torch.bmm(laplacian, multi_order_laplacian[:, k-1].clone()) - multi_order_laplacian[:, k-2].clone()
+                    multi_order_laplacian[:, k] = temp.clone()
+        # print("multi_order_laplacian.shape: ", multi_order_laplacian.shape)
+        return multi_order_laplacian
+
+    def _cal_laplacian_batched(self, graph):
+        """
+        return the laplacian of the graph.
+
+        :param graph: the graph structure **without** self loop, [b, v, v].
+        :param normalize: whether to used the normalized laplacian.
+        :return: graph laplacian.
+        """
+        I = torch.eye(graph.size(1), device=graph.device, dtype=graph.dtype)
+        graph = graph + I # add self-loop to prevent zero in D
+        # graph=graph[0, : ,:]
+        B, N, N = graph.size()
+        D = torch.zeros(B, N, N, device=graph.device, dtype=graph.dtype)
+        for i in range(B):
+            D[i] = torch.diag(torch.sum(graph[i], dim=-1) ** (-0.5))
+        # D = torch.diag(torch.sum(graph, dim=-1) ** (-0.5))
+        # print("D.shape: ", D.shape, "graph.shape: ", graph.shape)
+        L = I - torch.bmm(torch.bmm(D, graph), D)
         return L
 
 class Align(nn.Module):
@@ -534,23 +550,15 @@ class TemporalConvLayer(nn.Module):
         :param x: (n,c,l,v)
         :return: (n,c,l-kt+1,v)
         """
-        # print("x.shape (before align): ", x.shape)
-        # print("kt: ", self.kt)
-        # print("x.shape (before align): ", x.shape)
         if self.flag:
             x_in = self.align(x)  
         else:
             x_in = self.align(x)[:, :, self.kt - 1:, :]   # align does nothing as c_in == c_out
-        # print("x_in.shape: ", x_in.shape)
         if self.act == "GLU":
-            # print("x.shape (GLU): ", x.shape)  torch.Size([32, 64, 27, 200])
             x_conv = self.conv(x)
-            # print("x_conv.shape (GLU): ", x_conv.shape)  ## torch.Size([32, 128, 1, 200])
-            # print("x_in.shape (after align): ", x_in.shape)
             return (x_conv[:, :self.c_out, :, :] + x_in) * torch.sigmoid(x_conv[:, self.c_out:, :, :])
         if self.act == "sigmoid":
             x_conv = self.conv(x)
-            # print("x_conv.shape: ", x_conv.shape)
             return torch.sigmoid(x_conv + x_in)  
         return torch.relu(self.conv(x) + x_in)  
 
@@ -574,32 +582,20 @@ class representationLayerOnGrid(nn.Module):
         :param x: (n,c,l,v)
         :return: (n,c,l-kt+1,v)   f is the number of filters, c is in/out
         """
-        # print("x.shape (before align): ", x.shape)
-        # print("kt: ", self.kt)
-        # print("x.shape (before align): ", x.shape)
-        ## go from nclv -> nclv1v2
         x = x.view(x.shape[0], x.shape[1], x.shape[2], self.row, self.col)
-        # print("x.shape (after view): ", x.shape)
         if self.flag:
             x_in = self.align(x)  
         else:
-            # print("x.shape(before align): ", x.shape)  ## torch.Size([32, 1, 2, 37, 200])
             temp = self.align(x)
-            # print("temp.shape(after align): ", temp.shape)
             x_in = temp[:, :, 1:-1, :, :]   # align does nothing as c_in == c_out (in out_conv)
-            # print("x_in.shape(after align): ", x_in.shape)
             
         if self.act == "GLU":
-            # print("x.shape (GLU): ", x.shape) ## torch.Size([32, 64, 27, 200])
             x_conv = self.conv(x)
-            # print("Representation layer: x_conv.shape (GLU): ", x_conv.shape) ## torch.Size([32, 128, 1, 200])
-            # print("x_in.shape: (after align)", x_in.shape)
             x2 = (x_conv[:, :self.c_out, :, :, :] + x_in) * torch.sigmoid(x_conv[:, self.c_out:, :, :, :])
             x2 = x2.view(x2.shape[0], x2.shape[1], x2.shape[2], x2.shape[3]*x2.shape[4])
             return x2
         if self.act == "sigmoid":
             x_conv = self.conv(x)
-            # print("x_conv.shape: ", x_conv.shape)
             x2 = torch.sigmoid(x_conv + x_in) 
             x2 = x2.view(x2.shape[0], x2.shape[1], x2.shape[2], x2.shape[3]*x2.shape[4])
             return x2 
@@ -623,35 +619,25 @@ class representationLayer(nn.Module):
         :param x: (n,1,c,l,v)
         :return: (n,f,c,l-kt+1,v)   f is the number of filters, c is in/out
         """
-        # print("x.shape (before align): ", x.shape)
-        # print("kt: ", self.kt)
-        # print("x.shape (before align): ", x.shape)
         x = x.unsqueeze(1)  ## nclv -> n1clv    ## to allow for 3d conv
         if self.flag:
             x_in = self.align(x)  
         else:
-            # print("x.shape(before align): ", x.shape)  ## torch.Size([32, 1, 2, 37, 200])
             temp = self.align(x)
-            # print("temp.shape(after align): ", temp.shape)
             x_in = temp[:, :, :, self.kt - 1:, :]   # align does nothing as c_in == c_out (in out_conv)
-            # print("x_in.shape(after align): ", x_in.shape)
             
         if self.act == "GLU":
-            # print("x.shape (GLU): ", x.shape) ## torch.Size([32, 64, 27, 200])
             x_conv = self.conv(x)
-            # print("Representation layer: x_conv.shape (GLU): ", x_conv.shape) ## torch.Size([32, 128, 1, 200])
-            # print("x_in.shape: (after align)", x_in.shape)
             return (x_conv[:, :self.c_out, :, :, :] + x_in) * torch.sigmoid(x_conv[:, self.c_out:, :, :, :])
         if self.act == "sigmoid":
             x_conv = self.conv(x)
-            # print("x_conv.shape: ", x_conv.shape)
             return torch.sigmoid(x_conv + x_in)  
         return torch.relu(self.conv(x) + x_in)  
 
 class SpatioConvLayer(nn.Module):
     def __init__(self, ks, c_in, c_out):
         super(SpatioConvLayer, self).__init__()
-        self.theta = nn.Parameter(torch.FloatTensor(c_in, c_out, ks+1)) # kernel: C_in*C_out*ks
+        self.theta = nn.Parameter(torch.FloatTensor(c_in, c_out, ks)) # kernel: C_in*C_out*ks
         self.b = nn.Parameter(torch.FloatTensor(1, c_out, 1, 1))
         self.align = Align(c_in, c_out)
         self.reset_parameters()
@@ -663,20 +649,13 @@ class SpatioConvLayer(nn.Module):
         init.uniform_(self.b, -bound, bound)
 
     def forward(self, x, Lk):
-        ## [bs, channels, timesteps, nodes]
-        # x.shape:  torch.Size([32, 32, 17, 128]) Lk.shape:  torch.Size([3, 128, 128])
-        # x_c.shape :  torch.Size([32, 32, 17, 3, 128]) Lk.shape:  torch.Size([3, 128, 128])
-        # x_gc.shape :  torch.Size([32, 32, 17, 128])
-        # x_in.shape :  torch.Size([32, 32, 17, 128])
-        # print("x.shape: ", x.shape, "Lk.shape: ", Lk.shape)
-        # print("x.shape: ", x.shape, "Lk.shape: ", Lk.shape, "self.theta.shape: ", self.theta.shape, "self.b.shape: ", self.b.shape)
-        x_c = torch.einsum("knm,bitm->bitkn", Lk, x)              ## Ax      this is simply the multiplication of the adjacency matrix with the input for message passing. Each nodes updates as the sum of the nodes in its neighbourhood
-    
-        # print("x_c.shape : ", x_c.shape, "Lk.shape: ", Lk.shape)
+        x_c = torch.einsum("bknm,bitm->bitkn", Lk, x)              ## Ax      this is simply the multiplication of the adjacency matrix with the input for message passing. Each nodes updates as the sum of the nodes in its neighbourhood
+        # print("x_c.shape: ", x_c.shape, "theta.shape: ", self.theta.shape, "x.shape: ", x.shape, "Lk.shape: ", Lk.shape)   
+        
+        # x_c.shape:  torch.Size([32, 32, 33, 1, 200]) theta.shape:  torch.Size([32, 32, 3]) x.shape:  torch.Size([32, 32, 33, 200]) Lk.shape:  torch.Size([32, 1, 200, 200])
+        # x_c.shape:  torch.Size([32, 32, 33, 1, 200]) theta.shape:  torch.Size([32, 32, 3]) x.shape:  torch.Size([32, 32, 33, 200]) Lk.shape:  torch.Size([1, 200, 200])
         x_gc = torch.einsum("iok,bitkn->botn", self.theta, x_c) + self.b 
-        # print("x_gc.shape : ", x_gc.shape)
         x_in = self.align(x) 
-        # print("x_in.shape : ", x_in.shape)
         return torch.relu(x_gc + x_in)
 
 class Pooler(nn.Module):
@@ -710,15 +689,9 @@ class Pooler(nn.Module):
         :return x_agg: region embedding for spatial similarity, nvc
         :return A: temporal attention, lnv
         """
-        # print("x.shape (before align): ", x.shape)
         x_in = self.align(x)[:, :, -self.n_query:, :] # ncqv
-        # print("x_in.shape: ", x_in.shape)
-        # calculate the attention matrix A using key x   
-        # print("x.shape: ", x.shape, "self.att(x).shape: ", self.att(x).shape)
         A = self.att(x) # x: nclv, A: nqlv 
         A = F.softmax(A, dim=2) # nqlv
-        # print("A.shape: ", A.shape)
-        # calculate region embeding using attention matrix A
         x = torch.einsum('nclv,nqlv->ncqv', x, A)
         x_agg = self.agg(x).squeeze(2) # ncqv->ncv
         x_agg = torch.einsum('ncv->nvc', x_agg) # ncv->nvc

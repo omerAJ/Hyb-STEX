@@ -6,63 +6,35 @@ from model.aug import (
     aug_topology, 
     aug_traffic, 
 )
+
 from model.layers import (
     fullyAttentiveEncoder,
     STEncoder, 
     SpatialHeteroModel, 
     TemporalHeteroModel, 
-    MLP,
-    actuallyMLP,
+    MLP,    actuallyMLP,
     self_Attention,
     cross_Attention, 
     PositionWise_cross_Attention,
     PositionwiseFeedForward,
 )
+
 import numpy as np
 class STSSL(nn.Module):
     def __init__(self, args):
         super(STSSL, self).__init__()
     
-        # self.channel_reducer1 = nn.Conv3d(in_channels=3, out_channels=1, kernel_size=(1, 1, 1), padding='same') ## padding='same' to keep output size same as input 
-        # self.channel_reducer2 = nn.Conv3d(in_channels=3, out_channels=1, kernel_size=(1, 1, 1), padding='same') ## padding='same' to keep output size same as input 
-        # self.channel_reducer = nn.Conv3d(in_channels=3, out_channels=1, kernel_size=(1, 1, 1), padding='same') ## padding='same' to keep output size same as input 
-
-        # self.attention1 = self_Attention(128, 4)
-        # self.attention2 = self_Attention(128, 4)
-        # self.attentionA1 = self_Attention(64, 4)
-        # self.attentionA2 = self_Attention(64, 4)
-        # self.attentionB1 = self_Attention(64, 4)
-        # self.attentionB2 = self_Attention(64, 4)
-        # self.add_attentionA1 = self_Attention(64, 4)
-        # self.add_attentionB1 = self_Attention(64, 4)
-        # self.add_attentionA2 = self_Attention(64, 4)
-        # self.add_attentionB2 = self_Attention(64, 4)
-
+        self.attention1 = self_Attention(128, 4)
+        self.attention2 = self_Attention(128, 4)
 
         # self.cross_attention1 = PositionWise_cross_Attention(64, 4)
         # self.cross_attention2 = PositionWise_cross_Attention(64, 4)
 
         self.ff = PositionwiseFeedForward(d_model=128, d_ff=64*4)
-        # self.ffA1 = PositionwiseFeedForward(d_model=64, d_ff=64*4)
-        # self.ffB1 = PositionwiseFeedForward(d_model=64, d_ff=64*4)
-        # self.ffA2 = PositionwiseFeedForward(d_model=64, d_ff=64*4)
-        # self.ffB2 = PositionwiseFeedForward(d_model=64, d_ff=64*4)
-        # self.ffCA1 = PositionwiseFeedForward(d_model=64, d_ff=64*4)
-        # self.ffCA2 = PositionwiseFeedForward(d_model=64, d_ff=64*4)
-        # traffic flow prediction branch
-        self.mlp = MLP(args.d_model, args.d_output)
-        # self.mlpRepr = MLP(2*args.d_model, args.d_model)
-        # temporal heterogenrity modeling branch
-        # self.thm = TemporalHeteroModel(args.d_model, args.batch_size, args.num_nodes, args.device)
-        # spatial heterogenrity modeling branch
-        # self.shm = SpatialHeteroModel(args.d_model, args.nmb_prototype, args.batch_size, args.shm_temp)
+        self.mlp = MLP(2*args.d_model, args.d_output)
         self.mae = masked_mae_loss(mask_value=5.0)
-        # self.mae = masked_mae_loss(mask_value=None)
         self.args = args
-        # adj = args.graph_file
-        # adj = np.load(adj)["adj_mx"]
         graph_init = args.graph_init
-        
         ## attention flags
         self.self_attention_flag = args.self_attention_flag
         self.cross_attention_flag = args.cross_attention_flag
@@ -143,130 +115,204 @@ class STSSL(nn.Module):
             adj_8 = np.expand_dims(adj_8, axis=0)
             adj = np.concatenate((adj_8, adj_pt), axis=0)
             self.learnable_graph = nn.Parameter(torch.from_numpy(adj).float(), requires_grad=False)
-        # elif graph_init == "pre_trained_symmetric" and args.learnable_flag == False:
-        #     adj = "data/NYCTaxi/V2maskedAttentionADJ_S.npz"
-        #     adj = np.load(adj)["adj_mx"]
-        #     self.learnable_graph = nn.Parameter(torch.from_numpy(adj).float(), requires_grad=False)
-
 
         self.dataset = args.dataset
 
-        if self.dataset == "NYCBike1":
-            self.encoderA = fullyAttentiveEncoder(row=args.row, col=args.col, in_len=4, pos_emb_flag=self.pos_emb_flag)
-            self.encoderB = fullyAttentiveEncoder(row=args.row, col=args.col, in_len=5, pos_emb_flag=self.pos_emb_flag)
-        else:
-            self.encoderA = fullyAttentiveEncoder(row=args.row, col=args.col, in_len=8, pos_emb_flag=self.pos_emb_flag)
-            self.encoderB = fullyAttentiveEncoder(row=args.row, col=args.col, in_len=9, pos_emb_flag=self.pos_emb_flag)
-
-        """
+        
         self.encoderA = STEncoder(Kt=3, Ks=args.cheb_order, blocks=[[2, int(args.d_model//2), args.d_model], [args.d_model, int(args.d_model//2), args.d_model]], 
                         input_length=args.input_length, num_nodes=args.num_nodes, droprate=args.dropout, graph_init=graph_init, learnable_flag=args.learnable_flag, row=args.row, col=args.col)
         self.encoderB = STEncoder(Kt=3, Ks=args.cheb_order, blocks=[[2, int(args.d_model//2), args.d_model], [args.d_model, int(args.d_model//2), args.d_model]], 
                         input_length=args.input_length, num_nodes=args.num_nodes, droprate=args.dropout, graph_init=graph_init, learnable_flag=args.learnable_flag, row=args.row, col=args.col)         
-        """
         
-        # self.learnable_graph = nn.Parameter(torch.from_numpy(adj).float(), requires_grad=True)
-        # self.learnable_graph = nn.Parameter(torch.zeros_like(torch.tensor(adj).float()), requires_grad=True)
-        # self.learnable_graph = nn.Parameter(torch.eye(adj.shape[1]).float(), requires_grad=False)
-
-        # nn.init.xavier_uniform_(self.learnable_graph)        
-    
+        
+        
         # ## norms
-        # self.layernorm1 = nn.LayerNorm(128)
-        # self.layernorm2 = nn.LayerNorm(128)
-        # self.layernorm3 = nn.LayerNorm(128)
-        # self.layernorm4 = nn.LayerNorm(64)
-        # self.layernorm5 = nn.LayerNorm(64)
-        # self.layernorm6 = nn.LayerNorm(64)
-        # self.layernorm7 = nn.LayerNorm(64)
-        # self.layernorm8 = nn.LayerNorm(64)
-        # self.layernorm9 = nn.LayerNorm(64)
-        # self.layernorm10 = nn.LayerNorm(64)
-        # self.layernorm11 = nn.LayerNorm(64)
-        # self.layernorm12 = nn.LayerNorm(64)
-        # self.layernorm13 = nn.LayerNorm(64)
-        # self.layernorm14 = nn.LayerNorm(64)
-        # self.layernorm15 = nn.LayerNorm(64)
-        # self.layernorm16 = nn.LayerNorm(64)
+        self.layernorm1 = nn.LayerNorm(128)
+        self.layernorm2 = nn.LayerNorm(128)
+        self.layernorm3 = nn.LayerNorm(128)
+        
 
         self.dataset = args.dataset
         self.row = args.row
         self.col = args.col
+        self.add_8_neighbours = args.add_8
+        self.add_eye = args.add_eye
+
+        neighbours = f"data/{args.dataset}/adj_mx.npz"
+        neighbours = np.load(neighbours)["adj_mx"]
+        self.neighbours = nn.Parameter(torch.from_numpy(neighbours).float(), requires_grad=False).to(self.args.device)
+        self.eye = torch.eye(args.num_nodes).to(self.args.device)
+        
+        self.add_x_encoder = args.add_x_encoder
+
+        from model.vision_transformer import VisionTransformer
+        self.encoder = VisionTransformer(
+        img_size=(self.args.row, self.args.col),
+        patch_size=1,
+        in_chans=args.input_length*2,
+        embed_dim=64,
+        predictor_embed_dim=None,
+        depth=4,
+        predictor_depth=None,
+        num_heads=4,
+        mlp_ratio=4,
+        qkv_bias=False,
+        qk_scale=None,
+        drop_rate=0.4,
+        attn_drop_rate=0.4,
+        drop_path_rate=0.3,
+        norm_layer=torch.nn.LayerNorm,
+        init_std=0.02
+        )
+        self.encoder = self.encoder.to(self.args.device)
+        r_path = fr"D:\omer\ST-SSL\logs\{self.dataset}_lpe_shared\jepa-latest.pth.tar"
+        checkpoint = torch.load(r_path, map_location=torch.device('cpu'))
+        pretrained_dict = checkpoint['encoder']
+        msg = self.encoder.load_state_dict(pretrained_dict)
+        print(f"msg: {msg}")
+        self.freeze_encoder = self.args.freeze_encoder
+        if self.freeze_encoder:
+            print("Freezing encoder")
+            for param in self.encoder.parameters():
+                param.requires_grad = False
+
+
     def xavier_uniform_init(self, tensor):
         fan_in, fan_out = nn.init._calculate_fan_in_and_fan_out(tensor)
         std = np.sqrt(2.0 / (fan_in + fan_out))
         nn.init.uniform_(tensor, -std, std) 
 
+    def threshold_top(self, tensor, top_n=8):
+        top_values, top_indices = torch.topk(tensor, k=top_n, dim=2, largest=True, sorted=False)
+        mask = torch.zeros_like(tensor, dtype=torch.float32)
+        mask.scatter_(1, top_indices, True).detach()
+        # thresholded_tensor = torch.where(mask, tensor, torch.zeros_like(tensor))
+        # thresholded_tensor = torch.where(mask, torch.ones_like(tensor), torch.zeros_like(tensor))
+        thresholded_tensor = mask*tensor
+        return thresholded_tensor
+
+    def threshold_top_values(self, tensor):
+        mask = torch.zeros_like(tensor).detach()
+        
+        for i in range(tensor.size(0)):
+            top_values, top_indices = tensor[i].topk(8, dim=1, largest=True, sorted=False)
+            mask[i].scatter_(1, top_indices, 1)
+        
+        return mask#*tensor
+    
+    def threshold_top_values_ste(self, tensor):
+        mask = torch.zeros_like(tensor).detach()
+        
+        for i in range(tensor.size(0)):
+            top_values, top_indices = tensor[i].topk(8, dim=1, largest=True, sorted=False)
+            mask[i].scatter_(1, top_indices, 1)
+        # Forward pass: hard thresholding
+        thresholded_tensor = mask
+
+        # Hook to modify the gradient during the backward pass: implement STE
+        thresholded_tensor = (thresholded_tensor - tensor).detach() + tensor
+        return thresholded_tensor
+    
+    def smooth_threshold_top_values(self, tensor, top_k=8, scale=10):
+        thresholded_tensor = torch.zeros_like(tensor)
+        for i in range(tensor.size(0)):
+            values, _ = tensor[i].topk(top_k, dim=1, largest=True, sorted=True)
+            min_top_value = values[:, -1:]  # Minimum value among the top-k values   
+            thresholded_tensor[i] = torch.sigmoid(scale * (tensor[i] - min_top_value))
+        return thresholded_tensor
+
+    torch.autograd.set_detect_anomaly(True)
     def forward(self, view1, graph):
-        # input_sequence_dict = {"A":[-4, 19], "B":[-9, -4], "C":[-14, -9], "D":[-19, -14]}
-        # input_sequence_dict = {"A":[-8, 35], "B":[-17, -8], "C":[-26, -17], "D":[-35, -26]}
-        # print("view1.shape: ", view1.shape, "graph.shape: ", graph.shape)  # view1.shape:  torch.Size([32, 19, 128, 2]) graph.shape:  torch.Size([128, 128])
-        
-        
+        print("view1.shape: ", view1.shape)
         if self.dataset == "NYCBike1":
             view1A = view1[:, -4:19, :, :]
             view1B = view1[:, -9:-4, :, :]
         elif self.dataset == "NYCBike2" or self.dataset == "NYCTaxi" or self.dataset == "BJTaxi": 
             view1A = view1[:, -8:35, :, :]
             view1B = view1[:, -17:-8, :, :]
-        
-        # view1C = view1[:, -14:-9, :, :]
-        # view1D = view1[:, -19:-14, :, :]
-        # print("\n\n graph.shape: ", graph.shape)  ## graph.shape:  torch.Size([128, 128])
+        view1A = view1A.to(self.args.device)
+        view1B = view1B.to(self.args.device)
 
-        # print("view1A.shape: ", view1A.shape, "view1B1.shape: ", view1B1.shape, "view1B2.shape: ", view1B2.shape, "view1B3.shape: ", view1B3.shape)
-        # view1B = torch.cat((view1B1, view1B2, view1B3), dim=1)
-        # print("\n\nview1B.shape: ", view1B.shape)  ## view1B.shape:  torch.Size([32, 3, 5, 128, 2])
-        # view1BIN = view1B[..., 0].unsqueeze(-1)
-        # print("view1BIN.shape: ", view1BIN.shape)  ## view1BIN.shape:  torch.Size([32, 3, 5, 128])  unsqueeze(-1) to get last dim back
-        # view1BOUT = view1B[..., 1].unsqueeze(-1)
+        """get learnable_graph from jepa block here"""
+        """lets try just putting the pretrained encoders here and passing the inputs through them to get attention map for every time step"""
         
-        # view1B = self.channel_reducer(view1B).squeeze(1)
-        
-        
-        # view1BIN = self.channel_reducer1(view1BIN).squeeze(1)
-        # view1BOUT = self.channel_reducer2(view1BOUT).squeeze(1)
-        # view1B = torch.cat((view1BIN, view1BOUT), dim=-1)
-        # print("view1B_reduced.shape: ", view1B_reduced.shape)
-        
-        # learnable_graph = torch.matmul(self.matrices1, self.matrices2.transpose(1, 2))
-        # learnable_graph = torch.relu(learnable_graph)
+        view1 = view1    ## n,l,v,c
+        B, T, N, D = view1.size()
+        view1 = view1.transpose(1, 2).reshape(B, N, -1)
+        B, N, D = view1.size()
 
-        ## softmax with temp
-        # T=10
-        # learnable_graph = learnable_graph / T
-        # learnable_graph = torch.softmax(learnable_graph, dim=1)
+        view1 = view1.view(B, self.args.row, self.args.col, D).to(self.args.device)
+        view1 = view1.permute(0, 3, 1, 2)  # [B, D, R, C]
+        B, D, R, C = view1.size()
+        masks_enc = torch.ones(B, 1, R*C, dtype=torch.uint8)
+        x_encoder, _, attn_list, _, _, _ = self.encoder(view1, masks=masks_enc, pe=None)  ## VisionTransformer
+        # print("attn_list: ", len(attn_list))
+        # print("attn_list[0].shape: ", attn_list[0].shape)
+        ## apply softmax to each attention matrix
+        attn_list = [attn.softmax(dim=-1) for attn in attn_list]
+        attn_list = torch.stack(attn_list)  # Stack the matrices along a new dimension
+        # print("attn_list.shape: ", attn_list.shape)
+        avg_attn = torch.mean(attn_list, dim=0)
+        # print("avg_attn.shape: ", avg_attn.shape)
+        avg_attn = torch.mean(avg_attn, dim=1)
+        # print("avg_attn.shape: ", avg_attn.shape)       ## [32, 200, 200]
+        import matplotlib.pyplot as plt
+        # avg_attn = attn_list[0][:, 0, ...]
+        # print("avg_attn.shape: ", avg_attn.shape)       ## [32, 200, 200]
         
-        repr1A = self.encoderA(view1A) # view1: n,l,v,c; graph: v,v 
-        repr1B = self.encoderB(view1B) # view1: n,l,v,c; graph: v,v 
-        
-        """
-        learnable_graph = self.learnable_graph
-        # print("learnable_graph.shape: ", learnable_graph.shape)  
-        # print(f"type(learnable_graph): {type(learnable_graph)}")
-        
-        """
-        # import matplotlib.pyplot as plt
-        # plt.matshow(learnable_graph.cpu().detach().numpy())
+        # plt.imshow(avg_attn[0, :, :].detach().cpu().numpy())
         # plt.show()
-        """
+        
+        avg_attn = self.threshold_top_values_ste(avg_attn)
+        # plt.imshow(avg_attn[0, :, :].detach().cpu().numpy())
+        # plt.show()
+        
+        if self.add_8_neighbours: 
+            avg_attn += self.neighbours
+        if self.add_eye:
+            avg_attn += self.eye
+        # import matplotlib.pyplot as plt
+        # plt.imshow(avg_attn[0, :, :].detach().cpu().numpy())
+        # plt.show()
+        # plt.imshow(avg_attn[1, :, :].detach().cpu().numpy())
+        # plt.show()
+        # plt.imshow(avg_attn[2, :, :].detach().cpu().numpy())
+        # plt.show()
+        # plt.imshow(avg_attn[3, :, :].detach().cpu().numpy())
+        # plt.show()
+        # plt.imshow(avg_attn[4, :, :].detach().cpu().numpy())
+        # plt.show()
+        # plt.imshow(avg_attn[5, :, :].detach().cpu().numpy())
+        # plt.show()
+        # plt.imshow(avg_attn[6, :, :].detach().cpu().numpy())
+        # plt.show()
+        # plt.imshow(avg_attn[7, :, :].detach().cpu().numpy())
+        # plt.show()
+        # # #avg_attn.shape: [32, 200, 200]   ## one attention map for each sample in the batch
+        """ end here """
+        
+        learnable_graph = avg_attn   ## make 1st channel dimension for einsum to properly message pass
+        
+        # learnable_graph = avg_attn[0, :, :].unsqueeze(0)  ## for single sample
+
+        # learnable_graph = self.learnable_graph.unsqueeze(0)  
+        # B, _, _, _ = view1A.size()
+        # learnable_graph = learnable_graph.repeat(B, 1, 1, 1)
+
+        # print(f"view1A.shape: {view1A.shape}, x_encoder.shape: {x_encoder.shape}")
+        ##  x_encoder.shape: torch.Size([32, 200, 64]) 64 dim represenation for each node that is spatially aware of surrounding nodes. Lets add this to the output of encoder
+
+
+        """ check einsum implementation for message passing, is running but probly wrong """
         repr1A = self.encoderA(view1A, learnable_graph) # view1: n,l,v,c; graph: v,v 
         repr1B = self.encoderB(view1B, learnable_graph) # view1: n,l,v,c; graph: v,v 
-        """
-
-        # repr1C = self.encoderC(view1C, graph) # view1: n,l,v,c; graph: v,v 
-        # repr1D = self.encoderD(view1D, graph) # view1: n,l,v,c; graph: v,v 
-        
-        # print("repr1A.shape: ", repr1A.shape) # repr1A.shape:  torch.Size([32, 1, 128, 64])
-        # print("repr1B.shape: ", repr1B.shape) # repr1B.shape:  torch.Size([32, 1, 128, 64])
-        
-        #### combine the representation from EncoderA and EncoderB ####
-        # before cross attention, first lets update A and B using self attention
-        
+        # print(f"repr1A.shape: {repr1A.shape}, repr1B.shape: {repr1B.shape}")
+        if self.add_x_encoder:
+            repr1A += x_encoder.unsqueeze(1)
+            repr1B += x_encoder.unsqueeze(1)
         combined_repr = torch.cat((repr1A, repr1B), dim=3)            ## combine along the channel dimension d_model
-        # combined_repr = self.mlpRepr(combined_repr)
         
-        """
+        
         if self.self_attention_flag:
             combined_repr = combined_repr.squeeze(1)
             if self.feedforward_flag:
@@ -289,171 +335,7 @@ class STSSL(nn.Module):
             if self.layer_norm_flag == True:
                 combined_repr = self.layernorm3(combined_repr)
             combined_repr = combined_repr.unsqueeze(1)
-        """
 
-
-        """
-        print("combined_repr.shape: ", combined_repr.shape)
-        if self.self_attention_flag == True:
-            repr1A = repr1A.squeeze(1)
-            repr1B = repr1B.squeeze(1)
-
-            repr1A_copy = repr1A
-            repr1B_copy = repr1B
-
-            repr1A = self.attentionA1(repr1A)
-            repr1B = self.attentionB1(repr1B)  
-            
-            repr1A = repr1A + repr1A_copy  # skip connection
-            repr1B = repr1B + repr1B_copy  # skip connection
-
-            if self.layer_norm_flag == True:
-                repr1A = self.layernorm1(repr1A)
-                repr1B = self.layernorm2(repr1B)
-
-            repr1A_copy = repr1A
-            repr1B_copy = repr1B
-
-            if self.feedforward_flag == True:
-                repr1A = self.ffA1(repr1A)
-                repr1B = self.ffB1(repr1B)
-
-                repr1A = repr1A + repr1A_copy  # skip connection
-                repr1B = repr1B + repr1B_copy  # skip connection
-                
-                
-                if self.layer_norm_flag == True:
-                    repr1A = self.layernorm3(repr1A)
-                    repr1B = self.layernorm4(repr1B)
-
-                repr1A_copy = repr1A
-                repr1B_copy = repr1B
-            
-            repr1A = self.attentionA2(repr1A)
-            repr1B = self.attentionB2(repr1B)  
-            
-            repr1A = repr1A + repr1A_copy  # skip connection
-            repr1B = repr1B + repr1B_copy  # skip connection
-            
-            if self.layer_norm_flag == True:
-                repr1A = self.layernorm5(repr1A)
-                repr1B = self.layernorm6(repr1B)
-
-            repr1A_copy = repr1A
-            repr1B_copy = repr1B
-            
-            if self.feedforward_flag == True:
-                repr1A = self.ffA2(repr1A)
-                repr1B = self.ffB2(repr1B)
-
-                repr1A = repr1A + repr1A_copy  # skip connection
-                repr1B = repr1B + repr1B_copy  # skip connection
-                
-                
-                if self.layer_norm_flag == True:
-                    repr1A = self.layernorm7(repr1A)
-                    repr1B = self.layernorm8(repr1B)
-
-            repr1A = repr1A.unsqueeze(1)
-            repr1B = repr1B.unsqueeze(1)
-
-        if self.cross_attention_flag == True:
-            repr1A = repr1A.squeeze(1)
-            repr1B = repr1B.squeeze(1)
-            
-            ### start: 1x cross attention
-
-            repr1A_copy = repr1A 
-            repr1A = self.cross_attention1(repr1A, repr1B)    ## need to update A using info from B and not the other way around. Cuz A is the most relevant info.      
-            repr1A = repr1A + repr1A_copy  # skip connection
-            
-            if self.layer_norm_flag == True:
-                repr1A = self.layernorm9(repr1A)
-            repr1A_copy = repr1A
-            ### end
-
-
-            ### start: 1x ff
-            if self.feedforward_flag == True:
-                repr1A = self.ffCA1(repr1A)
-                repr1A = repr1A + repr1A_copy  # skip connection
-                
-                if self.layer_norm_flag == True:
-                    repr1A = self.layernorm10(repr1A)           
-                repr1A_copy = repr1A
-            ### end
-
-
-            if self.additional_sa_flag == True:
-                repr1A_copy = repr1A
-                repr1B_copy = repr1B
-
-                repr1A = self.add_attentionA1(repr1A)
-                repr1B = self.add_attentionB1(repr1B)  
-                
-                repr1A = repr1A + repr1A_copy  # skip connection
-                repr1B = repr1B + repr1B_copy  # skip connection
-
-                if self.layer_norm_flag == True:
-                    repr1A = self.layernorm13(repr1A)
-                    repr1B = self.layernorm14(repr1B)
-                
-                repr1A_copy = repr1A
-                repr1B_copy = repr1B
-               
-            repr1A = self.cross_attention2(repr1A, repr1B)    ## need to update A using info from B and not the other way around. Cuz A is the most relevant info.   
-            repr1A = repr1A + repr1A_copy  # skip connection
-            
-            if self.layer_norm_flag == True:
-                repr1A = self.layernorm11(repr1A)
-            repr1A_copy = repr1A
-            
-            
-            if self.feedforward_flag == True:
-                repr1A = self.ffCA2(repr1A)
-                repr1A = repr1A + repr1A_copy  # skip connection
-                
-                if self.layer_norm_flag == True:
-                    repr1A = self.layernorm12(repr1A)
-            
-            
-            if self.additional_sa_flag == True:
-                repr1A_copy = repr1A
-                repr1B_copy = repr1B
-
-                repr1A = self.add_attentionA2(repr1A)
-                repr1B = self.add_attentionB2(repr1B)  
-                
-                repr1A = repr1A + repr1A_copy  # skip connection
-                repr1B = repr1B + repr1B_copy  # skip connection
-
-                if self.layer_norm_flag == True:
-                    repr1A = self.layernorm15(repr1A)
-                    repr1B = self.layernorm16(repr1B)
-                
-                repr1A_copy = repr1A
-                repr1B_copy = repr1B
-               
-            
-            repr1A = repr1A.unsqueeze(1)
-
-        """
-        
-
-
-        #### combine the representation from EncoderA and EncoderB ####
-        
-        ## now 2*d_model --> d_model
-        # print("combined_repr.shape: ", combined_repr.shape)
-        # combined_repr = self.mlpRepr(combined_repr)
-        # print("combined_repr.shape: ", combined_repr.shape)
-        # s_sim_mx = self.fetch_spatial_sim()
-        # graph2 = aug_topology(s_sim_mx, graph, percent=self.args.percent*2)
-        
-        # t_sim_mx = self.fetch_temporal_sim()
-        # view2 = aug_traffic(t_sim_mx, view1, percent=self.args.percent)
-        # print("view2.shape: ", view2.shape, "graph2.shape: ", graph2.shape)
-        # repr2 = self.encoder(view2, graph2)
         repr2 = None
         learnable_graph = None
         return combined_repr, learnable_graph

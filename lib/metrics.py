@@ -36,6 +36,7 @@ def mae_torch_evalLosses(pred, true, mask_value1=None, mask_value2=None):
     
 def mae_torch(pred, true, mask_value=None):
     if mask_value != None:
+        # print(f"true.device: {true.device}, pred.device: {pred.device}")
         mask = torch.gt(true, mask_value)
         # nodesMasked=mask[mask==True].shape[0]
         # print("total nodes masked", nodesMasked, "/4096",  "nodes on average masked in each sample: ", nodesMasked/true.shape[0])

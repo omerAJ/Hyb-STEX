@@ -85,7 +85,7 @@ if __name__=='__main__':
     parser.add_argument('--comment', "-c", default="noComment", type=str, help='comment about the experiment')
     parser.add_argument('--cheb_order', "-K", default=3, type=int, help='calculate the chebyshev polynomials up to this order')
     parser.add_argument('--graph_init', "-g", default="neighbours", type=str, help='how to initialize the learnable graph')
-
+    
     """
     if you pass bool flags in cli it will automatically make it true, irrespective if you pass True or False. If you dont pass it then it uses the default value.
     """
@@ -97,6 +97,10 @@ if __name__=='__main__':
     parser.add_argument('--learnable_flag', "-l", default=False, type=bool, help='wether to use learnable adj matrix')
     parser.add_argument('--rank', "-r", default=0, type=int, help='rank of adj matrix')
     parser.add_argument('--pos_emb_flag', "-pef", default=False, type=bool, help='wether to add pos_emb')
+    parser.add_argument('--add_8', "-a8", default=False, type=bool, help='wether to add 8_neighbours')
+    parser.add_argument('--add_eye', "-ai", default=False, type=bool, help='wether to add eye')
+    parser.add_argument('--add_x_encoder', "-axe", default=False, type=bool, help='wether to add output of encoder')
+    parser.add_argument('--freeze_encoder', "-fe", default=False, type=bool, help='wether to freeze encoder')
 
     # parser.add_argument('--input_length', default=0, type=int, help='# of samples to use for context')
     args = parser.parse_args()
@@ -121,6 +125,10 @@ if __name__=='__main__':
     configs['learnable_flag'] = args.learnable_flag
     configs['pos_emb_flag'] = args.pos_emb_flag
     configs['rank'] = args.rank
+    configs['add_8'] = args.add_8
+    configs['add_eye'] = args.add_eye
+    configs['add_x_encoder'] = args.add_x_encoder
+    configs['freeze_encoder'] = args.freeze_encoder
     # configs['input_length'] = args.input_length
     # experimentName = "pred_" + str(args.input_length) + "_"
     experimentName = "pred_"

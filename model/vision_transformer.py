@@ -154,9 +154,9 @@ class Attention(nn.Module):
             # attn1[indices] = -torch.inf
             attn1[nodes & ~nodes.transpose(-1, -2)] = -torch.inf    ## bad rows and good cols
             attn1[~nodes & nodes.transpose(-1, -2)] = -torch.inf    ## good rows and bad cols
-        
+        # attn1 = [attn1, indices]
         attn = attn1.softmax(dim=-1)
-        attn1 = [attn1, indices]
+        
         attn = self.attn_drop(attn)
 
         x = (attn @ v).transpose(1, 2).reshape(B, N, C)
@@ -569,7 +569,7 @@ class VisionTransformer(nn.Module):
         if self.norm is not None:
             x = self.norm(x)
 
-        # return x, pos_embed_learnable, attn_list, upX, beforePosX, posX
+        return x, pos_embed_learnable, attn_list, upX, beforePosX, posX
         if pe is None:
             return x, pos_embed_learnable
         else:
