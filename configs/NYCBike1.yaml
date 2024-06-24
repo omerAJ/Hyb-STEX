@@ -1,6 +1,6 @@
 ## global
 seed: 1
-device: cpu
+device: cuda
 mode: train
 best_path: None 
 debug: False  
@@ -30,8 +30,8 @@ yita: 0.6                   # balance for inflow loss and outflow loss, $yita * 
 
 ## train
 start_epoch: 0
-num_epochs: 1
-epochs: 500
+num_epochs: 1000
+epochs: 1000
 lr_init: 0.001
 early_stop: True
 early_stop_patience: 30

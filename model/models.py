@@ -44,23 +44,23 @@ class STSSL(nn.Module):
         self.pos_emb_flag = args.pos_emb_flag
 
         if graph_init == "eye":
-            adj = "data/NYCTaxi/adj_mx.npz"
+            adj = f"data/{args.dataset}/adj_mx.npz"
             adj = np.load(adj)["adj_mx"]
             self.learnable_graph = nn.Parameter(torch.eye(adj.shape[1]).float(), requires_grad=False)
         elif graph_init == "zeros":             ## eye sconv because of cheb approximation. actual adj will be: [eye, zero, zero]
-            adj = "data/NYCTaxi/adj_mx.npz"
+            adj = f"data/{args.dataset}/adj_mx.npz"
             adj = np.load(adj)["adj_mx"]
             self.learnable_graph = nn.Parameter(torch.zeros_like(torch.tensor(adj).float()), requires_grad=False)
         elif graph_init == "no_sconv":             ## no sconv because of sconv flag, but still need to set some placeholder value to run.
-            adj = "data/NYCTaxi/adj_mx.npz"
+            adj = f"data/{args.dataset}/adj_mx.npz"
             adj = np.load(adj)["adj_mx"]
             self.learnable_graph = nn.Parameter(torch.zeros_like(torch.tensor(adj).float()), requires_grad=False)
         elif graph_init == "ones":
-            adj = "data/NYCTaxi/adj_mx.npz"
+            adj = f"data/{args.dataset}/adj_mx.npz"
             adj = np.load(adj)["adj_mx"]
             self.learnable_graph = nn.Parameter(torch.ones_like(torch.tensor(adj).float()), requires_grad=False)
         elif graph_init == "random":
-            adj = "data/NYCTaxi/adj_mx.npz"
+            adj = f"data/{args.dataset}/adj_mx.npz"
             adj = np.load(adj)["adj_mx"]
             self.learnable_graph = nn.Parameter(torch.empty_like(torch.tensor(adj).float()), requires_grad=False)
             self.xavier_uniform_init(self.learnable_graph)
@@ -145,36 +145,36 @@ class STSSL(nn.Module):
         
         self.add_x_encoder = args.add_x_encoder
 
-        from model.vision_transformer import VisionTransformer
-        self.encoder = VisionTransformer(
-        img_size=(self.args.row, self.args.col),
-        patch_size=1,
-        in_chans=args.input_length*2,
-        embed_dim=64,
-        predictor_embed_dim=None,
-        depth=4,
-        predictor_depth=None,
-        num_heads=4,
-        mlp_ratio=4,
-        qkv_bias=False,
-        qk_scale=None,
-        drop_rate=0.4,
-        attn_drop_rate=0.4,
-        drop_path_rate=0.3,
-        norm_layer=torch.nn.LayerNorm,
-        init_std=0.02
-        )
-        self.encoder = self.encoder.to(self.args.device)
-        r_path = fr"D:\omer\ST-SSL\logs\{self.dataset}_lpe_shared\jepa-latest.pth.tar"
-        checkpoint = torch.load(r_path, map_location=torch.device('cpu'))
-        pretrained_dict = checkpoint['encoder']
-        msg = self.encoder.load_state_dict(pretrained_dict)
-        print(f"msg: {msg}")
-        self.freeze_encoder = self.args.freeze_encoder
-        if self.freeze_encoder:
-            print("Freezing encoder")
-            for param in self.encoder.parameters():
-                param.requires_grad = False
+        # from model.vision_transformer import VisionTransformer
+        # self.encoder = VisionTransformer(
+        # img_size=(self.args.row, self.args.col),
+        # patch_size=1,
+        # in_chans=args.input_length*2,
+        # embed_dim=64,
+        # predictor_embed_dim=None,
+        # depth=4,
+        # predictor_depth=None,
+        # num_heads=4,
+        # mlp_ratio=4,
+        # qkv_bias=False,
+        # qk_scale=None,
+        # drop_rate=0.4,
+        # attn_drop_rate=0.4,
+        # drop_path_rate=0.3,
+        # norm_layer=torch.nn.LayerNorm,
+        # init_std=0.02
+        # )
+        # self.encoder = self.encoder.to(self.args.device)
+        # r_path = fr"D:\omer\ST-SSL\logs\{self.dataset}_lpe_shared\jepa-latest.pth.tar"
+        # checkpoint = torch.load(r_path, map_location=torch.device('cpu'))
+        # pretrained_dict = checkpoint['encoder']
+        # msg = self.encoder.load_state_dict(pretrained_dict)
+        # print(f"msg: {msg}")
+        # self.freeze_encoder = self.args.freeze_encoder
+        # if self.freeze_encoder:
+        #     print("Freezing encoder")
+        #     for param in self.encoder.parameters():
+        #         param.requires_grad = False
 
 
     def xavier_uniform_init(self, tensor):
@@ -223,8 +223,10 @@ class STSSL(nn.Module):
 
     torch.autograd.set_detect_anomaly(True)
     def forward(self, view1, graph):
-        print("view1.shape: ", view1.shape)
+        
         if self.dataset == "NYCBike1":
+            if isinstance(view1, list):
+                view1 = torch.tensor(view1)
             view1A = view1[:, -4:19, :, :]
             view1B = view1[:, -9:-4, :, :]
         elif self.dataset == "NYCBike2" or self.dataset == "NYCTaxi" or self.dataset == "BJTaxi": 
@@ -236,6 +238,7 @@ class STSSL(nn.Module):
         """get learnable_graph from jepa block here"""
         """lets try just putting the pretrained encoders here and passing the inputs through them to get attention map for every time step"""
         
+        """
         view1 = view1    ## n,l,v,c
         B, T, N, D = view1.size()
         view1 = view1.transpose(1, 2).reshape(B, N, -1)
@@ -271,6 +274,7 @@ class STSSL(nn.Module):
             avg_attn += self.neighbours
         if self.add_eye:
             avg_attn += self.eye
+        """
         # import matplotlib.pyplot as plt
         # plt.imshow(avg_attn[0, :, :].detach().cpu().numpy())
         # plt.show()
@@ -291,11 +295,12 @@ class STSSL(nn.Module):
         # # #avg_attn.shape: [32, 200, 200]   ## one attention map for each sample in the batch
         """ end here """
         
-        learnable_graph = avg_attn   ## make 1st channel dimension for einsum to properly message pass
+        # learnable_graph = avg_attn   ## make 1st channel dimension for einsum to properly message pass
         
         # learnable_graph = avg_attn[0, :, :].unsqueeze(0)  ## for single sample
 
         # learnable_graph = self.learnable_graph.unsqueeze(0)  
+        learnable_graph = self.learnable_graph  
         # B, _, _, _ = view1A.size()
         # learnable_graph = learnable_graph.repeat(B, 1, 1, 1)
 
@@ -307,9 +312,13 @@ class STSSL(nn.Module):
         repr1A = self.encoderA(view1A, learnable_graph) # view1: n,l,v,c; graph: v,v 
         repr1B = self.encoderB(view1B, learnable_graph) # view1: n,l,v,c; graph: v,v 
         # print(f"repr1A.shape: {repr1A.shape}, repr1B.shape: {repr1B.shape}")
+        
+        """
         if self.add_x_encoder:
             repr1A += x_encoder.unsqueeze(1)
             repr1B += x_encoder.unsqueeze(1)
+        """
+
         combined_repr = torch.cat((repr1A, repr1B), dim=3)            ## combine along the channel dimension d_model
         
         

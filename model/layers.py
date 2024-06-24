@@ -283,6 +283,8 @@ class STEncoder(nn.Module):
             self.both = True
         self.learnable_flag = learnable_flag
 
+        self.graph_init = graph_init
+
         if input_length - 2 * (Kt - 1) * len(blocks) <= 0:
             self.Ks=Ks
             c = blocks[0]
@@ -354,7 +356,11 @@ class STEncoder(nn.Module):
 
     def forward(self, x0, learnable_graph):
         
-        if self.batched_cheb == True:
+        if self.graph_init == "8_neighbours":
+            lap_mx = self._cal_laplacian(learnable_graph)      ## from adj to laplacian
+            Lk = self._cheb_polynomial(lap_mx, self.Ks)
+
+        elif self.batched_cheb == True:
             lap_mx = self._cal_laplacian_batched(learnable_graph)      ## from adj to laplacian
             Lk = self._cheb_polynomial_batched(lap_mx, self.Ks)
             # Lk=learnable_graph.unsqueeze(1)
@@ -649,7 +655,8 @@ class SpatioConvLayer(nn.Module):
         init.uniform_(self.b, -bound, bound)
 
     def forward(self, x, Lk):
-        x_c = torch.einsum("bknm,bitm->bitkn", Lk, x)              ## Ax      this is simply the multiplication of the adjacency matrix with the input for message passing. Each nodes updates as the sum of the nodes in its neighbourhood
+        # x_c = torch.einsum("bknm,bitm->bitkn", Lk, x)              ## Ax      this is simply the multiplication of the adjacency matrix with the input for message passing. Each nodes updates as the sum of the nodes in its neighbourhood
+        x_c = torch.einsum("knm,bitm->bitkn", Lk, x)              ## Ax      this is simply the multiplication of the adjacency matrix with the input for message passing. Each nodes updates as the sum of the nodes in its neighbourhood
         # print("x_c.shape: ", x_c.shape, "theta.shape: ", self.theta.shape, "x.shape: ", x.shape, "Lk.shape: ", Lk.shape)   
         
         # x_c.shape:  torch.Size([32, 32, 33, 1, 200]) theta.shape:  torch.Size([32, 32, 3]) x.shape:  torch.Size([32, 32, 33, 200]) Lk.shape:  torch.Size([32, 1, 200, 200])

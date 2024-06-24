@@ -28,7 +28,7 @@ yita: 0.5                   # balance for inflow loss and outflow loss, $yita * 
 
 ## train
 start_epoch: 0
-num_epochs: 1
+num_epochs: 1000
 epochs: 1000
 lr_init: 0.0005
 early_stop: True
