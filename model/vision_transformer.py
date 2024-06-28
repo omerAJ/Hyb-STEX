@@ -569,7 +569,7 @@ class VisionTransformer(nn.Module):
         if self.norm is not None:
             x = self.norm(x)
 
-        # return x, pos_embed_learnable, attn_list, upX, beforePosX, posX
+        return x, pos_embed_learnable, attn_list, upX, beforePosX, posX
         if pe is None:
             return x, pos_embed_learnable
         else:

@@ -1,6 +1,6 @@
 ## global
 seed: 31
-device: cpu
+device: cuda
 mode: train
 best_path: None 
 debug: False 
