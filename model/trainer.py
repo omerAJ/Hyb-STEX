@@ -60,7 +60,14 @@ class Trainer(object):
         self.logger.info('Experiment log path in: {}'.format(args.log_dir))
         self.logger.info('Experiment configs are: {}'.format(args))
         self.logger.info('\nModel has {} M trainable parameters'.format(self.num_params/(1e6)))
-    
+
+        ema = [0.996, 1.0]
+        ipe = args.ipe
+        ipe_scale = 1.0
+        num_epochs=args.num_epochs
+        self.momentum_scheduler = (ema[0] + i*(ema[1]-ema[0])/(ipe*num_epochs*ipe_scale)
+                                for i in range(int(ipe*num_epochs*ipe_scale)+1))
+        
     def _get_dummy_input(self, dataloader, args):
         # Construct a suitable dummy input based on your dataloader and args
         # Example:
@@ -74,16 +81,17 @@ class Trainer(object):
         self.model.train()
         
         total_loss = 0
-        total_sep_loss = np.zeros(3) 
+        total_sep_loss = np.zeros(1) 
         for batch_idx, (data, target) in enumerate(self.train_loader):
             # print("data.shape: ", data.shape, target.shape)
             self.optimizer.zero_grad()
             
             # input shape: n,l,v,c; graph shape: v,v;
-            repr1, learnable_graph = self.model(data, self.graph) # nvc
+            repr1, learnable_graph, z, h = self.model(data, self.graph) # nvc
             
 
-            loss, sep_loss = self.model.loss(repr1, learnable_graph, target, self.scaler, loss_weights)
+            loss, sep_loss = self.model.loss(repr1, learnable_graph, target, self.scaler, loss_weights, z, h)
+            # print("sep_loss: ", sep_loss)
             assert not torch.isnan(loss)
             loss.backward()
 
@@ -94,6 +102,11 @@ class Trainer(object):
                     get_model_params([self.model]), 
                     self.args.max_grad_norm)
             self.optimizer.step()
+            with torch.no_grad():
+                m = next(self.momentum_scheduler)
+                for param_q, param_k in zip(self.model.encoder.parameters(), self.model.target_encoder.parameters()):
+                    param_k.data.mul_(m).add_((1.-m) * param_q.detach().data)
+
             total_loss += loss.item()
             total_sep_loss += sep_loss
         if epoch % 10 == 0:
@@ -142,8 +155,8 @@ class Trainer(object):
         total_val_loss = 0
         with torch.no_grad():
             for batch_idx, (data, target) in enumerate(val_dataloader):
-                repr1, repr2 = self.model(data, self.graph)
-                loss, sep_loss = self.model.loss(repr1, repr2, target, self.scaler, loss_weights)
+                repr1, repr2, z, h = self.model(data, self.graph)
+                loss, sep_loss = self.model.loss(repr1, repr2, target, self.scaler, loss_weights, z, h)
 
                 if not torch.isnan(loss):
                     total_val_loss += loss.item()
@@ -222,10 +235,10 @@ class Trainer(object):
             plt.plot(train_epoch_losses, label='Train Loss')
             plt.plot(val_epoch_losses, label='Val Loss')
 
-            labels = ["predict", "temporal", "spatial"]
+            labels = ["i-jepa"]
             # Plotting the separate losses
-            for i in range(3):
-                plt.plot([loss[i] for loss in sep_epoch_losses], label=f'Loss {labels[i]}')
+            print("sep_epoch_losses: ", sep_epoch_losses)
+            plt.plot(sep_epoch_losses, label=f'Loss {labels[0]}')
 
             plt.xlabel('Epochs')
             plt.ylabel('Loss')
@@ -258,7 +271,7 @@ class Trainer(object):
         y_true = []
         with torch.no_grad():
             for batch_idx, (data, target) in enumerate(dataloader):
-                repr1, repr2 = model(data, graph)                
+                repr1, repr2, _, _ = model(data, graph)                
                 pred_output = model.predict(repr1, repr2)
 
                 y_true.append(target)

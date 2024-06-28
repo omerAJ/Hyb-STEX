@@ -397,6 +397,8 @@ class STEncoder(nn.Module):
         x, x_agg, self.t_sim_mx = self.pooler(x)
         self.s_sim_mx = sim_global(x_agg, sim_type='cos')
         if self.do_sconv:
+            # print(f"x.shape: {x.shape}, before sconv12")
+            # x.shape: torch.Size([32, 32, 33, 200]), before sconv12
             x = self.sconv12(x, Lk)   # nclv      
             x = self.lns1(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)     ## ln([b, t, n, c]) -> [b, c, t, n]
         x = self.tconv13(x)  
@@ -405,6 +407,8 @@ class STEncoder(nn.Module):
         ## ST block 2
         x = self.tconv21(x)
         if self.do_sconv:
+            # print(f"x.shape: {x.shape}, before sconv22")
+            # x.shape: torch.Size([32, 32, 29, 200]), before sconv22
             x = self.sconv22(x, Lk)   # nclv
             x = self.lns2(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)
         x = self.tconv23(x)
@@ -485,16 +489,18 @@ class STEncoder(nn.Module):
         :param normalize: whether to used the normalized laplacian.
         :return: graph laplacian.
         """
-        I = torch.eye(graph.size(1), device=graph.device, dtype=graph.dtype)
+        B, N, _ = graph.shape
+        I = torch.eye(N, device=graph.device, dtype=graph.dtype).expand(B, N, N)
         graph = graph + I # add self-loop to prevent zero in D
-        # graph=graph[0, : ,:]
-        B, N, N = graph.size()
-        D = torch.zeros(B, N, N, device=graph.device, dtype=graph.dtype)
-        for i in range(B):
-            D[i] = torch.diag(torch.sum(graph[i], dim=-1) ** (-0.5))
+        # D = torch.zeros(B, N, N, device=graph.device, dtype=graph.dtype)
+        # for i in range(B):
+        #     D[i] = torch.diag(torch.sum(graph[i], dim=-1) ** (-0.5))
+        
+        D_sqrt_inv = torch.sum(graph, dim=-1).pow(-0.5)
+        D_sqrt_inv = torch.diag_embed(D_sqrt_inv)
         # D = torch.diag(torch.sum(graph, dim=-1) ** (-0.5))
         # print("D.shape: ", D.shape, "graph.shape: ", graph.shape)
-        L = I - torch.bmm(torch.bmm(D, graph), D)
+        L = I - torch.bmm(torch.bmm(D_sqrt_inv, graph), D_sqrt_inv)
         return L
 
 class Align(nn.Module):
@@ -655,8 +661,8 @@ class SpatioConvLayer(nn.Module):
         init.uniform_(self.b, -bound, bound)
 
     def forward(self, x, Lk):
-        # x_c = torch.einsum("bknm,bitm->bitkn", Lk, x)              ## Ax      this is simply the multiplication of the adjacency matrix with the input for message passing. Each nodes updates as the sum of the nodes in its neighbourhood
-        x_c = torch.einsum("knm,bitm->bitkn", Lk, x)              ## Ax      this is simply the multiplication of the adjacency matrix with the input for message passing. Each nodes updates as the sum of the nodes in its neighbourhood
+        x_c = torch.einsum("bknm,bitm->bitkn", Lk, x)              ## Ax      this is simply the multiplication of the adjacency matrix with the input for message passing. Each nodes updates as the sum of the nodes in its neighbourhood
+        # x_c = torch.einsum("knm,bitm->bitkn", Lk, x)              ## Ax      this is simply the multiplication of the adjacency matrix with the input for message passing. Each nodes updates as the sum of the nodes in its neighbourhood
         # print("x_c.shape: ", x_c.shape, "theta.shape: ", self.theta.shape, "x.shape: ", x.shape, "Lk.shape: ", Lk.shape)   
         
         # x_c.shape:  torch.Size([32, 32, 33, 1, 200]) theta.shape:  torch.Size([32, 32, 3]) x.shape:  torch.Size([32, 32, 33, 200]) Lk.shape:  torch.Size([32, 1, 200, 200])

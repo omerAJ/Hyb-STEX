@@ -36,6 +36,7 @@ def model_supervisor(args):
     graph = load_graph(args.graph_file, device=args.device)
     args.num_nodes = len(graph)
     
+    args.ipe = len(dataloader['train'])
     ## init model and set optimizer
     model = STSSL(args).to(args.device)
     model_parameters = get_model_params([model])
