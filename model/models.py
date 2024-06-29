@@ -83,7 +83,7 @@ class STSSL(nn.Module):
         self.encoder = VisionTransformer(
         img_size=(self.args.row, self.args.col),
         patch_size=1,
-        in_chans=args.input_length*2,
+        in_chans=2,
         embed_dim=64,
         predictor_embed_dim=None,
         depth=4,
@@ -144,6 +144,9 @@ class STSSL(nn.Module):
             print("Freezing encoder")
             for param in self.encoder.parameters():
                 param.requires_grad = False
+        
+        T = 17
+        self.weights = nn.Parameter(torch.ones(T) / T)
         
 
     def xavier_uniform_init(self, tensor):
@@ -209,9 +212,11 @@ class STSSL(nn.Module):
         if self.dataset == "NYCBike1":
             view1A = view1[:, -4:19, :, :]
             view1B = view1[:, -9:-4, :, :]
+            view1 = view1[:, -9:19, :, :]
         elif self.dataset == "NYCBike2" or self.dataset == "NYCTaxi" or self.dataset == "BJTaxi": 
             view1A = view1[:, -8:35, :, :]
             view1B = view1[:, -17:-8, :, :]
+            view1 = view1[:, -17:35, :, :]
         view1A = view1A.to(self.args.device)
         view1B = view1B.to(self.args.device)
         print(f"view1.shape: {view1.shape}, view1A.shape: {view1A.shape}, view1B.shape: {view1B.shape}")
@@ -219,28 +224,34 @@ class STSSL(nn.Module):
         """lets try just putting the pretrained encoders here and passing the inputs through them to get attention map for every time step"""
         
         B, T, N, D = view1.size()
-        view1 = view1.transpose(1, 2).reshape(B, N, -1)
-        B, N, D = view1.size()
+        z_list = []
+        h_list = []
+        for t in range(T):
+            _view1 = view1[:, t, :, :].unsqueeze(1)
+            B, T, N, D = _view1.size()
+            _view1 = _view1.transpose(1, 2).reshape(B, N, -1)
+            B, N, D = _view1.size()
 
-        view1 = view1.view(B, self.args.row, self.args.col, D).to(self.args.device)
-        # view1 = view1.permute(0, 3, 1, 2)  # [B, D, R, C]
-        # print("view1.shape: ", view1.shape)
-        B, R, C, D = view1.size()
+            _view1 = _view1.view(B, self.args.row, self.args.col, D).to(self.args.device)
+            B, R, C, D = _view1.size()
         
-        data = self.generateMasks(view1)
-        imgs, masks_enc, masks_pred = data
+            _view1 = self.generateMasks(_view1)
+            imgs, masks_enc, masks_pred = _view1
+            
+            imgs = imgs.permute(0, 3, 1, 2)  ## [B, R, C, D] -> [B, D, R, C]
+            masks_pred = masks_pred.flatten(2) ## [B, 4, R, C] -> [B, 4, R*C]
+            masks_enc = masks_enc.flatten(1).unsqueeze(1) ## [B, R, C] -> [B, 1, R*C]
         
-        imgs = imgs.permute(0, 3, 1, 2)  ## [B, R, C, D] -> [B, D, R, C]
-        masks_pred = masks_pred.flatten(2) ## [B, 4, R, C] -> [B, 4, R*C]
-        masks_enc = masks_enc.flatten(1).unsqueeze(1) ## [B, R, C] -> [B, 1, R*C]
-        
-        z, pe, attn_list = self.encoder(imgs, masks=masks_enc, pe=None)  ## VisionTransformer
-        z = self.predictor(x=z, masks_enc=masks_enc, masks_pred=masks_pred, pe=pe)   ## VisionTransformerPredictor
-        with torch.no_grad():
-            h = self.target_encoder(imgs, masks=None, pe=pe)
-            h = F.layer_norm(h, (h.size(-1),))
-            h = apply_masks_targets(h, masks_pred)
-        
+            z, pe, attn_list = self.encoder(imgs, masks=masks_enc, pe=None)  ## VisionTransformer
+            z = self.predictor(x=z, masks_enc=masks_enc, masks_pred=masks_pred, pe=pe)   ## VisionTransformerPredictor
+            with torch.no_grad():
+                h = self.target_encoder(imgs, masks=None, pe=pe)
+                h = F.layer_norm(h, (h.size(-1),))
+                h = apply_masks_targets(h, masks_pred)
+            z_list.append(z)
+            h_list.append(h)
+        z = torch.stack(z_list, dim=1)  # Stack along the time dimension
+        h = torch.stack(h_list, dim=1)
         
         
         import matplotlib.pyplot as plt
@@ -254,14 +265,29 @@ class STSSL(nn.Module):
         
         ## run a forward through the encoder once again, this time with no mask to get the full att_mx
         masks_enc = torch.ones(B, 1, R*C, dtype=torch.uint8)
-        _, _, attn_list = self.encoder(imgs, masks=masks_enc, pe=None)  ## VisionTransformer
-        attn_list = [attn.softmax(dim=-1) for attn in attn_list]
-        attn_list = torch.stack(attn_list)  # Stack the matrices along a new dimension
-        avg_attn = torch.mean(attn_list, dim=0)
-        avg_attn = torch.mean(avg_attn, dim=1)
-        avg_attn = self.threshold_top_values_ste(avg_attn)
-        learnable_graph = avg_attn   ## make 1st channel dimension for einsum to properly message pass
         
+        # Apply softmax to the weights
+        normalized_weights = torch.softmax(self.weights, dim=0)
+        avg_attn_accum = torch.zeros(B, N, N, device=self.args.device)
+        for t in range(T):
+            _view1 = view1[:, t, :, :].unsqueeze(1)
+            B, T, N, D = _view1.size()
+            _view1 = _view1.transpose(1, 2).reshape(B, N, -1)
+            B, N, D = _view1.size()
+            _view1 = _view1.view(B, self.args.row, self.args.col, D).to(self.args.device)
+            # B, R, C, D = _view1.size()  
+
+            _, _, attn_list = self.encoder(_view1, masks=masks_enc, pe=None)  ## VisionTransformer
+            attn_list = [attn.softmax(dim=-1) for attn in attn_list]
+            attn_list = torch.stack(attn_list)  # Stack the matrices along a new dimension
+            avg_attn = torch.mean(attn_list, dim=0)
+            avg_attn = torch.mean(avg_attn, dim=1)
+            avg_attn = self.threshold_top_values_ste(avg_attn)
+            avg_attn_accum += normalized_weights[t] * avg_attn  # Weighted (learnable) accumulation
+
+            
+        learnable_graph = avg_attn_accum   ## make 1st channel dimension for einsum to properly message pass
+            
         """ check einsum implementation for message passing, is running but probly wrong """
         repr1A = self.encoderA(view1A, learnable_graph) # view1: n,l,v,c; graph: v,v 
         repr1B = self.encoderB(view1B, learnable_graph) # view1: n,l,v,c; graph: v,v 

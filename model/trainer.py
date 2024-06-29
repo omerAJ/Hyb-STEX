@@ -65,9 +65,10 @@ class Trainer(object):
         ipe = args.ipe
         ipe_scale = 1.0
         num_epochs=args.num_epochs
-        self.momentum_scheduler = (ema[0] + i*(ema[1]-ema[0])/(ipe*num_epochs*ipe_scale)
-                                for i in range(int(ipe*num_epochs*ipe_scale)+1))
-        
+        num_graphs = 17
+        self.momentum_scheduler = (ema[0] + i*(ema[1]-ema[0])/(ipe*num_epochs*ipe_scale*num_graphs)
+                            for i in range(int(ipe*num_epochs*ipe_scale*num_graphs)+1))
+    
     def _get_dummy_input(self, dataloader, args):
         # Construct a suitable dummy input based on your dataloader and args
         # Example:
@@ -164,10 +165,15 @@ class Trainer(object):
         self.logger.info('*******Val Epoch {}: averaged Loss : {:.6f}'.format(epoch, val_loss))
         return val_loss
 
+    def save_weights(self, weights, epoch, directory="weight_data"):
+        save_path = os.path.join(self.args.log_dir, f'learnable_weights_epoch_{epoch}.png')
+        np.save(save_path, weights)
+    
     def train(self):
         train_epoch_losses = []
         val_epoch_losses = []
         sep_epoch_losses = []
+        weight_history = []
         best_loss = float('inf')
         best_epoch = 0
         not_improved_count = 0
@@ -188,6 +194,13 @@ class Trainer(object):
             if train_epoch_loss > 1e6:
                 self.logger.warning('Gradient explosion detected. Ending...')
                 break
+
+            current_weights = self.model.weights.detach().cpu().numpy()
+            weight_history.append(current_weights)
+
+            # Save weights every 5 epochs, for example
+            if (epoch + 1) % 5 == 0 or epoch == self.args.epochs:  # Also save on the last epoch
+                self.save_weights(np.array(weight_history), epoch + 1)
             
             val_dataloader = self.val_loader if self.val_loader != None else self.test_loader
             val_epoch_loss = self.val_epoch(epoch, val_dataloader, loss_weights)       
