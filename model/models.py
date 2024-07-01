@@ -121,7 +121,7 @@ class STSSL(nn.Module):
         self.predictor = self.predictor.to(self.args.device)
         self.target_encoder = self.target_encoder.to(self.args.device)
 
-        r_path = fr"D:\omer\ST-SSL\logs\{self.dataset}_lpe_shared\jepa-latest.pth.tar"
+        r_path = fr"D:\omer\ST-SSL\logs\{self.dataset}_individualT\jepa-latest.pth.tar"
         
         checkpoint = torch.load(r_path, map_location=torch.device('cpu'))
         pretrained_dict = checkpoint['encoder']
@@ -147,6 +147,8 @@ class STSSL(nn.Module):
         
         T = 17
         self.weights = nn.Parameter(torch.ones(T) / T)
+        # initialize the weights with a uniform distribution
+        # nn.init.normal_(self.weights, mean=1/T, std=0.02)
         
 
     def xavier_uniform_init(self, tensor):
@@ -219,7 +221,7 @@ class STSSL(nn.Module):
             view1 = view1[:, -17:35, :, :]
         view1A = view1A.to(self.args.device)
         view1B = view1B.to(self.args.device)
-        print(f"view1.shape: {view1.shape}, view1A.shape: {view1A.shape}, view1B.shape: {view1B.shape}")
+        # print(f"view1.shape: {view1.shape}, view1A.shape: {view1A.shape}, view1B.shape: {view1B.shape}")  ## view1.shape: torch.Size([32, 17, 200, 2]), view1A.shape: torch.Size([32, 8, 200, 2]), view1B.shape: torch.Size([32, 9, 200, 2])
         """get learnable_graph from jepa block here"""
         """lets try just putting the pretrained encoders here and passing the inputs through them to get attention map for every time step"""
         
@@ -228,7 +230,7 @@ class STSSL(nn.Module):
         h_list = []
         for t in range(T):
             _view1 = view1[:, t, :, :].unsqueeze(1)
-            B, T, N, D = _view1.size()
+            B, _, N, D = _view1.size()
             _view1 = _view1.transpose(1, 2).reshape(B, N, -1)
             B, N, D = _view1.size()
 
@@ -248,35 +250,35 @@ class STSSL(nn.Module):
                 h = self.target_encoder(imgs, masks=None, pe=pe)
                 h = F.layer_norm(h, (h.size(-1),))
                 h = apply_masks_targets(h, masks_pred)
+            # print(f"t: {t}, z.shape: {z.shape}, h.shape: {h.shape}")
             z_list.append(z)
             h_list.append(h)
-        z = torch.stack(z_list, dim=1)  # Stack along the time dimension
-        h = torch.stack(h_list, dim=1)
+        z = torch.cat(z_list, dim=1)  # Stack along the time dimension
+        h = torch.cat(h_list, dim=1)
         
         
         import matplotlib.pyplot as plt
         
-        if self.add_8_neighbours: 
-            avg_attn += self.neighbours
-        if self.add_eye:
-            avg_attn += self.eye
+        
         
         """ end here """
-        
+        B, T, N, D = view1.size()
         ## run a forward through the encoder once again, this time with no mask to get the full att_mx
         masks_enc = torch.ones(B, 1, R*C, dtype=torch.uint8)
         
         # Apply softmax to the weights
-        normalized_weights = torch.softmax(self.weights, dim=0)
+        # normalized_weights = torch.softmax(self.weights, dim=0)
+        normalized_weights = self.weights
         avg_attn_accum = torch.zeros(B, N, N, device=self.args.device)
-        for t in range(T):
+        # for t in range(T):
+        for t in range(1):
             _view1 = view1[:, t, :, :].unsqueeze(1)
-            B, T, N, D = _view1.size()
+            B, _, N, D = _view1.size()
             _view1 = _view1.transpose(1, 2).reshape(B, N, -1)
             B, N, D = _view1.size()
             _view1 = _view1.view(B, self.args.row, self.args.col, D).to(self.args.device)
             # B, R, C, D = _view1.size()  
-
+            _view1 = _view1.permute(0, 3, 1, 2)  ## [B, R, C, D] -> [B, D, R, C]
             _, _, attn_list = self.encoder(_view1, masks=masks_enc, pe=None)  ## VisionTransformer
             attn_list = [attn.softmax(dim=-1) for attn in attn_list]
             attn_list = torch.stack(attn_list)  # Stack the matrices along a new dimension
@@ -284,8 +286,12 @@ class STSSL(nn.Module):
             avg_attn = torch.mean(avg_attn, dim=1)
             avg_attn = self.threshold_top_values_ste(avg_attn)
             avg_attn_accum += normalized_weights[t] * avg_attn  # Weighted (learnable) accumulation
+            # print(f"t: {t}, avg_attn norm: {np.linalg.norm(avg_attn.cpu().detach().numpy())}")
 
-            
+        if self.add_8_neighbours: 
+            avg_attn_accum += self.neighbours
+        if self.add_eye:
+            avg_attn_accum += self.eye    
         learnable_graph = avg_attn_accum   ## make 1st channel dimension for einsum to properly message pass
             
         """ check einsum implementation for message passing, is running but probly wrong """

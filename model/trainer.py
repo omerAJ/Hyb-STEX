@@ -178,6 +178,8 @@ class Trainer(object):
         best_epoch = 0
         not_improved_count = 0
         start_time = time.time()
+        current_weights = self.model.weights.detach().cpu().numpy()
+        weight_history.append(current_weights)
 
         loss_tm1 = loss_t = np.ones(3) #(1.0, 1.0, 1.0)
         for epoch in range(1, self.args.epochs + 1):
@@ -199,7 +201,7 @@ class Trainer(object):
             weight_history.append(current_weights)
 
             # Save weights every 5 epochs, for example
-            if (epoch + 1) % 5 == 0 or epoch == self.args.epochs:  # Also save on the last epoch
+            if (epoch + 1) % 1 == 0 or epoch == self.args.epochs or epoch == 1:  # Also save on the first/last epoch
                 self.save_weights(np.array(weight_history), epoch + 1)
             
             val_dataloader = self.val_loader if self.val_loader != None else self.test_loader
