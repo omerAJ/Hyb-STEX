@@ -139,11 +139,17 @@ class Attention(nn.Module):
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
         q, k, v = qkv[0], qkv[1], qkv[2]
         qk = [q, k]
+        
+        # Normalize q and k for cosine similarity
+        # q = q / (q.norm(dim=-1, keepdim=True) + 1e-6)
+        # k = k / (k.norm(dim=-1, keepdim=True) + 1e-6)
+        
         attn1 = (q @ k.transpose(-2, -1)) * self.scale
         # import matplotlib.pyplot as plt
         # plt.imshow(indices[0, 0, :, :].cpu().numpy())
         # plt.colorbar(label='Attention Weight')
         # plt.show()
+        """
         if indices is not None:
             # print("NOT masking attention matrix")
             # print(f"indices.shape: {indices.shape}")  ## [1, 200, 1]
@@ -154,6 +160,7 @@ class Attention(nn.Module):
             # attn1[indices] = -torch.inf
             attn1[nodes & ~nodes.transpose(-1, -2)] = -torch.inf    ## bad rows and good cols
             attn1[~nodes & nodes.transpose(-1, -2)] = -torch.inf    ## good rows and bad cols
+        """
         # attn1 = [attn1, indices]
         attn = attn1.softmax(dim=-1)
         

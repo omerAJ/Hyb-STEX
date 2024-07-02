@@ -65,7 +65,7 @@ class Trainer(object):
         ipe = args.ipe
         ipe_scale = 1.0
         num_epochs=args.num_epochs
-        num_graphs = 17
+        num_graphs = 8
         self.momentum_scheduler = (ema[0] + i*(ema[1]-ema[0])/(ipe*num_epochs*ipe_scale*num_graphs)
                             for i in range(int(ipe*num_epochs*ipe_scale*num_graphs)+1))
     
@@ -103,10 +103,10 @@ class Trainer(object):
                     get_model_params([self.model]), 
                     self.args.max_grad_norm)
             self.optimizer.step()
-            with torch.no_grad():
-                m = next(self.momentum_scheduler)
-                for param_q, param_k in zip(self.model.encoder.parameters(), self.model.target_encoder.parameters()):
-                    param_k.data.mul_(m).add_((1.-m) * param_q.detach().data)
+            # with torch.no_grad():
+            #     m = next(self.momentum_scheduler)
+            #     for param_q, param_k in zip(self.model.encoder.parameters(), self.model.target_encoder.parameters()):
+            #         param_k.data.mul_(m).add_((1.-m) * param_q.detach().data)
 
             total_loss += loss.item()
             total_sep_loss += sep_loss
@@ -165,8 +165,12 @@ class Trainer(object):
         self.logger.info('*******Val Epoch {}: averaged Loss : {:.6f}'.format(epoch, val_loss))
         return val_loss
 
-    def save_weights(self, weights, epoch, directory="weight_data"):
-        save_path = os.path.join(self.args.log_dir, f'learnable_weights_epoch_{epoch}.png')
+    def save_weights(self, weights, epoch=None, directory="weight_data"):
+        if epoch is not None:
+            save_path = os.path.join(self.args.log_dir, f'learnable_weights_epoch_{epoch}.png')
+        else:
+            save_path = os.path.join(self.args.log_dir, f'learnable_weights.png')
+        
         np.save(save_path, weights)
     
     def train(self):
