@@ -303,12 +303,14 @@ class STSSL(nn.Module):
             # attn_list = [attn.softmax(dim=-1) for attn in attn_list]
             
             attn_list = torch.stack(attn_list)  # Stack the matrices along a new dimension
+            attn_list = attn_list.softmax(dim=-1) 
             ## take softmax here instead of above in the list comprehension
             # print(f"t: {t}, attn_list.shape: {attn_list.shape}")
             avg_attn = torch.mean(attn_list, dim=(0, 2))
             # avg_attn = torch.mean(avg_attn, dim=1)  ## included 1 in the above mean, over there it is dim=2
 
-            avg_attn = self.threshold_top_values_ste_PosNeg(avg_attn)
+            avg_attn = self.threshold_top_values_ste(avg_attn)
+            # avg_attn = self.threshold_top_values_ste_PosNeg(avg_attn)
 
             avg_attn_accum += normalized_weights[t] * avg_attn  # Weighted (learnable) accumulation
             # print(f"t: {t}, avg_attn norm: {np.linalg.norm(avg_attn.cpu().detach().numpy())}")

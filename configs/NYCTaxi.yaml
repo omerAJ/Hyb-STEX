@@ -1,8 +1,8 @@
 ## global
 seed: 1
 device: cuda
-mode: train
-best_path: None
+mode: test
+best_path: D:\omer\onlineJEPATrain\experiments\NYCTaxi\pred__seed=2\20240701-223622\fixed encoder, learning weights, only view1, with softmax, with 8_neighbours\best_model.pth
 debug: False 
 
 ## data
