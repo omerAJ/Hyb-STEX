@@ -173,7 +173,7 @@ sys.path.insert(0, 'D:\\omer\\v-jepa\\jepa\\src\\models\\utils')
 
 
 class STEncoder(nn.Module):
-    def __init__(self, Kt, Ks, blocks, input_length, num_nodes, graph_init, learnable_flag, row, col, droprate=0.1):
+    def __init__(self, Kt, Ks, blocks, input_length, num_nodes, graph_init, learnable_flag, row, col, droprate=0.1, threshold_adj_mx=False):
         super(STEncoder, self).__init__()        
         
         self.do_sconv = True
@@ -272,12 +272,16 @@ class STEncoder(nn.Module):
             self.receptive_field = input_length + Kt -1
         
         self.get_adj_mx = get_adj_mx(d_model=64)
-
+        self.threshold_adj_mx = threshold_adj_mx
 
         
 
     def forward(self, x0, learnable_graph):
         
+        threshold = False
+        if self.threshold_adj_mx:
+            threshold = True
+
         if self.graph_init == "8_neighbours":
             lap_mx = self._cal_laplacian(learnable_graph)      ## from adj to laplacian
             Lk = self._cheb_polynomial(lap_mx, self.Ks)
@@ -333,7 +337,7 @@ class STEncoder(nn.Module):
         """find affinity and penalty connections here"""
         # x.shape: [32, 1, 200, 64] # nlvc
         x = x.squeeze(1)  # nvc
-        affinity, penalty = self.get_adj_mx(x)
+        affinity, penalty = self.get_adj_mx(x, threshold=threshold)
         
         x = x.unsqueeze(1).permute(0, 3, 1, 2)  # nclv
         
@@ -469,15 +473,25 @@ class get_adj_mx(nn.Module):
             self.q_linear = nn.Linear(d_model, d_model)
             self.k_linear = nn.Linear(d_model, d_model)
             
-        def forward(self, x):
+        def forward(self, x, threshold=False):
             q = self.q_linear(x)   # nvc
             k = self.k_linear(x)
             
             scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.d_model)
             
             # print(f"scores.shape: {scores.shape}")  ## nvv
-            affinity, penalty = self.threshold_top_values_ste_PosNeg(scores)
+            if threshold:
+                # print("in threshold")
+                affinity, penalty = self.threshold_top_values_ste_PosNeg(scores)
+            else:
+                # print("in else")
+                affinity, penalty = self.separate_pos_neg_values(scores)
             return affinity, penalty
+
+        def separate_pos_neg_values(self, tensor):
+            pos_values = torch.where(tensor > 0, tensor, torch.zeros_like(tensor))
+            neg_values = torch.where(tensor < 0, tensor, torch.zeros_like(tensor))
+            return pos_values, neg_values
 
         def threshold_top_values_ste_PosNeg(self, tensor):
             affinity = torch.zeros_like(tensor).detach()
