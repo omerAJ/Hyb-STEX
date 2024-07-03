@@ -28,9 +28,10 @@ class Trainer(object):
 
         if isinstance(self.model, torch.nn.Module):  # Check if it's a PyTorch module
             with torch.no_grad():  # Temporarily disable gradient calculations
-                dummy_input = self._get_dummy_input(dataloader['val'], args)  
-                _ = self.model(dummy_input, self.graph)  # Trigger initialization
-
+                dummy_view = self._get_dummy_input(dataloader['val'], args)  
+                _, _ = self.model(dummy_view, self.graph)  # Trigger initialization
+                
+        print("dummy forward pass done.")
         self.num_params = count_parameters(self.model)
         
         self.optimizer = optimizer
@@ -76,8 +77,9 @@ class Trainer(object):
             # print("batch.shape: ", batch[0].shape, batch[1].shape)  # batch.shape:  torch.Size([32, 35, 200, 2]) torch.Size([32, 1, 200, 2])
             if args.device == 'cuda':
                 batch = batch[0].to('cuda')
-            return batch 
-   
+                
+            return batch
+        
     def train_epoch(self, epoch, loss_weights, epoch_losses, sep_epoch_losses):
         self.model.train()
         
@@ -88,10 +90,10 @@ class Trainer(object):
             self.optimizer.zero_grad()
             
             # input shape: n,l,v,c; graph shape: v,v;
-            repr1, learnable_graph, z, h = self.model(data, self.graph) # nvc
+            repr1, learnable_graph = self.model(data, self.graph) # nvc
             
 
-            loss, sep_loss = self.model.loss(repr1, learnable_graph, target, self.scaler, loss_weights, z, h)
+            loss, sep_loss = self.model.loss(repr1, learnable_graph, target, self.scaler, loss_weights)
             # print("sep_loss: ", sep_loss)
             assert not torch.isnan(loss)
             loss.backward()
@@ -103,11 +105,7 @@ class Trainer(object):
                     get_model_params([self.model]), 
                     self.args.max_grad_norm)
             self.optimizer.step()
-            # with torch.no_grad():
-            #     m = next(self.momentum_scheduler)
-            #     for param_q, param_k in zip(self.model.encoder.parameters(), self.model.target_encoder.parameters()):
-            #         param_k.data.mul_(m).add_((1.-m) * param_q.detach().data)
-
+            
             total_loss += loss.item()
             total_sep_loss += sep_loss
         if epoch % 10 == 0:
@@ -156,8 +154,8 @@ class Trainer(object):
         total_val_loss = 0
         with torch.no_grad():
             for batch_idx, (data, target) in enumerate(val_dataloader):
-                repr1, repr2, z, h = self.model(data, self.graph)
-                loss, sep_loss = self.model.loss(repr1, repr2, target, self.scaler, loss_weights, z, h)
+                repr1, repr2 = self.model(data, self.graph)
+                loss, sep_loss = self.model.loss(repr1, repr2, target, self.scaler, loss_weights)
 
                 if not torch.isnan(loss):
                     total_val_loss += loss.item()
@@ -290,7 +288,7 @@ class Trainer(object):
         y_true = []
         with torch.no_grad():
             for batch_idx, (data, target) in enumerate(dataloader):
-                repr1, repr2, _, _ = model(data, graph)                
+                repr1, repr2 = model(data, graph)                
                 pred_output = model.predict(repr1, repr2)
 
                 y_true.append(target)

@@ -171,92 +171,6 @@ import os
 import sys
 sys.path.insert(0, 'D:\\omer\\v-jepa\\jepa\\src\\models\\utils')
 
-from pos_embs import get_3d_sincos_pos_embed
-class fullyAttentiveEncoder(nn.Module):
-    def __init__(self, row, col, in_len, pos_emb_flag):
-        super(fullyAttentiveEncoder, self).__init__()
-
-        self.rows = row
-        self.cols = col
-        self.in_len = in_len
-        self.pos_emb_flag = pos_emb_flag
-        self.projection = nn.Linear(2, 32)
-        self.selfAttention1 = self_Attention(d_model=32, n_heads=4)
-        self.selfAttention2 = self_Attention(d_model=32, n_heads=4)
-        self.selfAttention3 = self_Attention(d_model=32, n_heads=4)
-        self.ff1 = PositionwiseFeedForward(d_model=32, d_ff=32*4, dropout=0.15)
-        self.ff2 = PositionwiseFeedForward(d_model=32, d_ff=32*4, dropout=0.15)
-        self.ff3 = PositionwiseFeedForward(d_model=32, d_ff=32*4, dropout=0.15)
-        self.out_conv1 = nn.Conv2d(self.in_len, 16, kernel_size=1)
-        self.out_conv2 = nn.Conv2d(16, 1, kernel_size=1)
-
-        emb_size=32
-        # self.pred_token = nn.Parameter(torch.randn(1,self.rows*self.cols, emb_size))
-        # self.pred_token = nn.Parameter(torch.randn(1, 1, emb_size))
-
-    def forward(self, x):
-        # print("x0.shape: ", x0.shape)      # x0.shape:  torch.Size([32, 8, 200, 2])
-        x = x.permute(0, 3, 1, 2)  # (batch_size, feature_dim, input_length, num_nodes), nclv
-        # x = x.view(x.size(0), x.size(1), x.size(2), self.rows, self.cols)  # (batch_size, feature_dim, input_length, row, col)
-
-        # print("x.shape: ", x.shape)  # x.shape:  torch.Size([32, 2, 8, 20, 10])
-        b, f, t, n = x.size()
-        x = x.view(x.size(0), x.size(1), -1).transpose(1, 2)  # (batch_size, row*col*time, feature_dim)
-        x = self.projection(x)   ## [b, nodes, features]
-        
-        # """ prepending cls token """
-        # pred_tokens = repeat(self.pred_token, '() n e -> b n e', b=b)
-        # x = torch.cat([pred_tokens, x], dim=1) #prepending the cls token
-        
-        # print("x.shape (after projection): ", x.shape)  
-        
-        d3SinCos = get_3d_sincos_pos_embed(32, grid_h=self.rows, grid_w=self.cols, grid_depth=self.in_len, cls_token=False)
-        pos_embed = nn.Parameter(torch.from_numpy(d3SinCos).float().unsqueeze(0), requires_grad=False).to(x.device)
-        # print("pos_embed.shape: ", pos_embed.shape, "x.shape: ", x.shape)
-        if self.pos_emb_flag:
-            x += pos_embed
-        x_copy = x
-        x = self.selfAttention1(x)
-        x += x_copy    # skip connection
-        x_copy = x
-        x = self.ff1(x)
-        x += x_copy    # skip connection
-
-        x_copy = x
-        x = self.selfAttention2(x)
-        x += x_copy    # skip connection
-        x_copy = x
-        x = self.ff2(x)
-        x += x_copy    # skip connection
-
-        x_copy = x
-        x = self.selfAttention3(x)
-        x += x_copy    # skip connection   
-        x_copy = x
-        x = self.ff3(x)
-        x += x_copy    # skip connection
-        
-        # print("x.shape (after self attention): ", x.shape)   ## [b, num_tokens+num_nodes, features]  first n are the token matrices, rearrange those to get the grid.
-
-        # x = x[:, 0:self.rows*self.cols, :]   ## [b, nodes, features]
-        # x = x.transpose(1, 2)    ## [b, features, nodes]
-        # x = x.unsqueeze(1)   ## [b, time, nodes, features]
-
-        """ reducing t dimension to 1 """
-        x = x.transpose(1, 2)    ## [b, features, nodes]
-        x = x.view(x.size(0), x.size(1), t, self.rows, self.cols)   ## [b, features, time, row, col]
-        x = x.view(x.size(0), x.size(1), t, -1)  ## [b, features, time, nodes] 
-        # print("x.shape (before conv): ", x.shape)
-        x = x.transpose(1, 2)  ## [b, time, features, nodes]
-        
-        x = self.out_conv1(x)
-        x = self.out_conv2(x)
-        
-        ## i need: n(l=1)vc
-        x = x.transpose(2, 3)
-        # print("x.shape (after conv): ", x.shape)
-        return x
-
 
 class STEncoder(nn.Module):
     def __init__(self, Kt, Ks, blocks, input_length, num_nodes, graph_init, learnable_flag, row, col, droprate=0.1):
@@ -286,6 +200,7 @@ class STEncoder(nn.Module):
         self.graph_init = graph_init
 
         if input_length - 2 * (Kt - 1) * len(blocks) <= 0:
+            print("NOT in else")
             self.Ks=Ks
             c = blocks[0]
             self.tconv11 = TemporalConvLayer(Kt, c[0], c[1], "GLU", paddin='valid', flag=False)
@@ -320,6 +235,7 @@ class STEncoder(nn.Module):
             self.receptive_field = input_length + Kt -1
 
         else:
+            print("in else")
             self.Ks=Ks
             c = blocks[0]
             self.tconv11 = TemporalConvLayer(Kt, c[0], c[1], "GLU")
@@ -339,10 +255,13 @@ class STEncoder(nn.Module):
             self.sconv22 = SpatioConvLayer(Ks, c[1], c[1])
             t = input_length + 2 - 2 - 2 - 2 - 2 
             self.lns2 = nn.LayerNorm([num_nodes, c[1]])
+            self.lns3 = nn.LayerNorm([num_nodes, c[2]])
+            self.lns4 = nn.LayerNorm([num_nodes, c[2]])
             self.tconv23 = TemporalConvLayer(Kt, c[1], c[2])
             self.ln2 = nn.LayerNorm([num_nodes, c[2]])
             self.dropout2 = nn.Dropout(droprate)
-            
+            self.sconvAffinity = SpatioConvLayer(Ks, c[2], c[2])
+            self.sconvPenalty = SpatioConvLayer(Ks, c[2], c[2])
             self.s_sim_mx = None
             self.t_sim_mx = None
 
@@ -351,6 +270,9 @@ class STEncoder(nn.Module):
             self.ln3 = nn.LayerNorm([num_nodes, c[2]])
             self.dropout3 = nn.Dropout(droprate)
             self.receptive_field = input_length + Kt -1
+        
+        self.get_adj_mx = get_adj_mx(d_model=64)
+
 
         
 
@@ -369,22 +291,7 @@ class STEncoder(nn.Module):
         elif self.batched_no_cheb == True:
             Lk=learnable_graph.unsqueeze(1)
 
-        elif self.both == True:
-            adj_8, adj_pt = learnable_graph[0], learnable_graph[1]
-            lap_mx_8 = self._cal_laplacian(adj_8)
-            Lk_8 = self._cheb_polynomial(lap_mx_8, self.Ks)
-            Lk = torch.cat((Lk_8, adj_pt.unsqueeze(0)), dim=0)
-            
         
-        elif self.learnable_flag == False and self.do_cheb == True:
-            lap_mx = self._cal_laplacian(learnable_graph)      ## from adj to laplacian
-            Lk = self._cheb_polynomial(lap_mx, self.Ks)
-            # print(f"\nLk overwritten \n")
-        elif self.learnable_flag == True or self.do_cheb == False:
-            # Lk = learnable_graph.unsqueeze(0)
-            Lk = learnable_graph
-            # print(f"Lk: {Lk.shape}")
-
         in_len = x0.size(1) # x0, nlvc
         if in_len < self.receptive_field:
             x = F.pad(x0, (0,0,0,0,self.receptive_field-in_len,0))
@@ -393,30 +300,82 @@ class STEncoder(nn.Module):
         x = x.permute(0, 3, 1, 2)  # (batch_size, feature_dim, input_length, num_nodes), nclv 
         
         x = self.tconv11(x)    # nclv          
+        # print(f"x.shape: {x.shape}, before pooler")
+        x, _, _ = self.pooler(x)
         
-        x, x_agg, self.t_sim_mx = self.pooler(x)
-        self.s_sim_mx = sim_global(x_agg, sim_type='cos')
+        # print(f"x.shape: {x.shape}, after pooler")
+        # self.s_sim_mx = sim_global(x_agg, sim_type='cos')
         if self.do_sconv:
             # print(f"x.shape: {x.shape}, before sconv12")
             # x.shape: torch.Size([32, 32, 33, 200]), before sconv12
             x = self.sconv12(x, Lk)   # nclv      
             x = self.lns1(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)     ## ln([b, t, n, c]) -> [b, c, t, n]
         x = self.tconv13(x)  
-        x = self.dropout1(self.ln1(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2))
+        x = self.dropout1(self.ln1(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2))   ## btnc -> bctn
         
         ## ST block 2
         x = self.tconv21(x)
         if self.do_sconv:
             # print(f"x.shape: {x.shape}, before sconv22")
             # x.shape: torch.Size([32, 32, 29, 200]), before sconv22
+            # print(f"x.shape: {x.shape} Lk.shape: {Lk.shape}") 
+
             x = self.sconv22(x, Lk)   # nclv
             x = self.lns2(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)
         x = self.tconv23(x)
         x = self.dropout2(self.ln2(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2))
 
+        
+        # print(f"x.shape: {x.shape}, before out_conv")  ## x.shape: torch.Size([32, 64, 27, 200]), before out_conv
         x = self.out_conv(x) # ncl(=1)v    ## filter_size = (l, 1), so dot product with time length and same kernel used for every node.
-        x = self.dropout3(self.ln3(x.permute(0, 2, 3, 1))) # nlvc
+        x = self.dropout3(self.ln3(x.permute(0, 2, 3, 1))) # nlvc  [32, 1, 200, 64]
+        # print(f"x.shape: {x.shape} after out_conv")
+        """find affinity and penalty connections here"""
+        # x.shape: [32, 1, 200, 64] # nlvc
+        x = x.squeeze(1)  # nvc
+        affinity, penalty = self.get_adj_mx(x)
+        
+        x = x.unsqueeze(1).permute(0, 3, 1, 2)  # nclv
+        
+        """instead of calculating batched_cheb for now we can just unsqueeze (0)"""
+        # lap_mx = self._cal_laplacian_batched(learnable_graph)      ## from adj to laplacian
+        # Lk = self._cheb_polynomial_batched(lap_mx, self.Ks)
+        # lap_mx = self._cal_laplacian_batched(learnable_graph)      ## from adj to laplacian
+        # Lk = self._cheb_polynomial_batched(lap_mx, self.Ks)
+        affinity = affinity.unsqueeze(1)
+        penalty = penalty.unsqueeze(1)
+        # print(f"x.shape: {x.shape} affinity.shape: {affinity.shape}, penalty.shape: {penalty.shape}") 
+        import matplotlib.pyplot as plt
+        # print(f"affinity.shape: {affinity.shape}, penalty.shape: {penalty.shape}")
+        import matplotlib.pyplot as plt
+
+        
+        # plt.subplot(1, 2, 1)
+        # plt.imshow(affinity[0, 0].detach().cpu().numpy())
+        # plt.colorbar()
+        # plt.title("Affinity Matrix")
+
+        # plt.subplot(1, 2, 2)
+        # plt.imshow(penalty[0, 0].detach().cpu().numpy())
+        # plt.colorbar()
+        # plt.title("Penalty Matrix")
+
+        # plt.show()
+        
+        x = self.sconvAffinity(x, affinity, batched=True)  # nclv  is needed as input to sconv
+        x = self.lns3(x.permute(0, 2, 3, 1))  ## nclv -> nlvc for ln
+        x = x.permute(0, 3, 1, 2)   ## nlvc -> nclv
+        x = self.sconvPenalty(x, penalty, batched=True)
+        x = self.lns4(x.permute(0, 2, 3, 1))   ## nclv -> nlvc
+        # print(f"x.shape: {x.shape} after sconvPenalty")
+        ## also add dropouts later
+
+        # need to return # nlvc  [32, 1, 200, 64]
         return x # nl(=1)vc
+    
+
+    
+
 
     def _cheb_polynomial(self, laplacian, K):
         """
@@ -503,6 +462,40 @@ class STEncoder(nn.Module):
         L = I - torch.bmm(torch.bmm(D_sqrt_inv, graph), D_sqrt_inv)
         return L
 
+class get_adj_mx(nn.Module):
+        def __init__(self, d_model):
+            super(get_adj_mx, self).__init__()
+            self.d_model = d_model
+            self.q_linear = nn.Linear(d_model, d_model)
+            self.k_linear = nn.Linear(d_model, d_model)
+            
+        def forward(self, x):
+            q = self.q_linear(x)   # nvc
+            k = self.k_linear(x)
+            
+            scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.d_model)
+            
+            # print(f"scores.shape: {scores.shape}")  ## nvv
+            affinity, penalty = self.threshold_top_values_ste_PosNeg(scores)
+            return affinity, penalty
+
+        def threshold_top_values_ste_PosNeg(self, tensor):
+            affinity = torch.zeros_like(tensor).detach()
+            penalty = torch.zeros_like(tensor).detach()
+            
+            for i in range(tensor.size(0)):
+                # Get the top 8 positive values
+                top_pos_values, top_pos_indices = tensor[i].topk(8, dim=1, largest=True, sorted=False)
+                affinity[i].scatter_(1, top_pos_indices, 1)
+
+                # Get the top 8 negative values
+                top_neg_values, top_neg_indices = tensor[i].topk(8, dim=1, largest=False, sorted=False)
+                penalty[i].scatter_(1, top_neg_indices, -1)
+
+            # Hook to modify the gradient during the backward pass: implement STE
+            affinity = (affinity - tensor).detach() + tensor
+            penalty = (penalty - tensor).detach() + tensor
+            return affinity, penalty 
 class Align(nn.Module):
     def __init__(self, c_in, c_out):
         '''Align the input and output.
@@ -660,8 +653,11 @@ class SpatioConvLayer(nn.Module):
         bound = 1 / math.sqrt(fan_in)
         init.uniform_(self.b, -bound, bound)
 
-    def forward(self, x, Lk):
-        x_c = torch.einsum("bknm,bitm->bitkn", Lk, x)              ## Ax      this is simply the multiplication of the adjacency matrix with the input for message passing. Each nodes updates as the sum of the nodes in its neighbourhood
+    def forward(self, x, Lk, batched=False):
+        if batched:
+            x_c = torch.einsum("bknm,bitm->bitkn", Lk, x)              ## Ax      this is simply the multiplication of the adjacency matrix with the input for message passing. Each nodes updates as the sum of the nodes in its neighbourhood
+        else:
+            x_c = torch.einsum("knm,bitm->bitkn", Lk, x)              ## Ax      this is simply the multiplication of the adjacency matrix with the input for message passing. Each nodes updates as the sum of the nodes in its neighbourhood
         # x_c = torch.einsum("knm,bitm->bitkn", Lk, x)              ## Ax      this is simply the multiplication of the adjacency matrix with the input for message passing. Each nodes updates as the sum of the nodes in its neighbourhood
         # print("x_c.shape: ", x_c.shape, "theta.shape: ", self.theta.shape, "x.shape: ", x.shape, "Lk.shape: ", Lk.shape)   
         
@@ -757,7 +753,6 @@ class actuallyMLP(nn.Module):
         x = x.view(x.size(0), -1, self.c_out)
         x = x.unsqueeze(1)
         return x
-
 
 
 class self_Attention(nn.Module):
