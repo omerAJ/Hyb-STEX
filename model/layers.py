@@ -260,8 +260,10 @@ class STEncoder(nn.Module):
             self.tconv23 = TemporalConvLayer(Kt, c[1], c[2])
             self.ln2 = nn.LayerNorm([num_nodes, c[2]])
             self.dropout2 = nn.Dropout(droprate)
-            self.sconvAffinity = SpatioConvLayer(Ks, c[2], c[2])
-            self.sconvPenalty = SpatioConvLayer(Ks, c[2], c[2])
+            self.sconvAffinity1 = SpatioConvLayer(Ks, c[2], c[2])
+            self.sconvAffinity2 = SpatioConvLayer(Ks, c[2], c[2])
+            self.sconvPenalty1 = SpatioConvLayer(Ks, c[2], c[2])
+            self.sconvPenalty2 = SpatioConvLayer(Ks, c[2], c[2])
             self.s_sim_mx = None
             self.t_sim_mx = None
 
@@ -336,10 +338,10 @@ class STEncoder(nn.Module):
         # print(f"x.shape: {x.shape} after out_conv")
         """find affinity and penalty connections here"""
         # x.shape: [32, 1, 200, 64] # nlvc
-        # x = x.squeeze(1)  # nvc
-        # affinity, penalty = self.get_adj_mx(x, threshold=threshold)
+        x = x.squeeze(1)  # nvc
+        affinity, penalty = self.get_adj_mx(x, threshold=threshold)
         
-        # x = x.unsqueeze(1).permute(0, 3, 1, 2)  # nclv
+        x = x.unsqueeze(1).permute(0, 3, 1, 2)  # nclv
         
         """instead of calculating batched_cheb for now we can just unsqueeze (0)"""
         # lap_mx = self._cal_laplacian_batched(learnable_graph)      ## from adj to laplacian
@@ -348,8 +350,8 @@ class STEncoder(nn.Module):
         # Lk = self._cheb_polynomial_batched(lap_mx, self.Ks)
         
         
-        # affinity = affinity.unsqueeze(1)
-        # penalty = penalty.unsqueeze(1)
+        affinity = affinity.unsqueeze(1)
+        penalty = penalty.unsqueeze(1)
         # # print(f"x.shape: {x.shape} affinity.shape: {affinity.shape}, penalty.shape: {penalty.shape}") 
         # import matplotlib.pyplot as plt
         # print(f"affinity.shape: {affinity.shape}, penalty.shape: {penalty.shape}")
@@ -367,9 +369,19 @@ class STEncoder(nn.Module):
 
         # plt.show()
         
-        # x = self.sconvAffinity(x, affinity, batched=True)  # nclv  is needed as input to sconv
+        x = self.sconvAffinity1(x, affinity, batched=True)  # nclv  is needed as input to sconv
+        x = self.lns3(x.permute(0, 2, 3, 1))  ## nclv -> nlvc for ln
+        x = x.permute(0, 3, 1, 2)   ## nlvc -> nclv
+        x = self.sconvAffinity2(x, affinity, batched=True)  # nclv  is needed as input to sconv
+        x = self.lns3(x.permute(0, 2, 3, 1))  ## nclv -> nlvc for ln
+        
+        # x = x.permute(0, 3, 1, 2)   ## nlvc -> nclv
+        # x = self.sconvPenalty1(x, penalty, batched=True)  # nclv  is needed as input to sconv
         # x = self.lns3(x.permute(0, 2, 3, 1))  ## nclv -> nlvc for ln
         # x = x.permute(0, 3, 1, 2)   ## nlvc -> nclv
+        # x = self.sconvPenalty2(x, penalty, batched=True)  # nclv  is needed as input to sconv
+        # x = self.lns3(x.permute(0, 2, 3, 1))  ## nclv -> nlvc for ln
+        
         # x = self.sconvPenalty(x, penalty, batched=True)
         # x = self.lns4(x.permute(0, 2, 3, 1))   ## nclv -> nlvc
         
@@ -481,6 +493,9 @@ class get_adj_mx(nn.Module):
             
             scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.d_model)
             
+            # scores = scores.softmax(dim=-1)
+            # apply element wise tanh to the scores
+            scores = torch.tanh(scores)
             # print(f"scores.shape: {scores.shape}")  ## nvv
             if threshold:
                 # print("in threshold")

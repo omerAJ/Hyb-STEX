@@ -254,7 +254,7 @@ class Trainer(object):
 
             labels = ["i-jepa"]
             # Plotting the separate losses
-            print("sep_epoch_losses: ", sep_epoch_losses)
+            # print("sep_epoch_losses: ", sep_epoch_losses)
             plt.plot(sep_epoch_losses, label=f'Loss {labels[0]}')
 
             plt.xlabel('Epochs')
