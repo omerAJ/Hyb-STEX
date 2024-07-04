@@ -336,23 +336,24 @@ class STEncoder(nn.Module):
         # print(f"x.shape: {x.shape} after out_conv")
         """find affinity and penalty connections here"""
         # x.shape: [32, 1, 200, 64] # nlvc
-        x = x.squeeze(1)  # nvc
-        affinity, penalty = self.get_adj_mx(x, threshold=threshold)
+        # x = x.squeeze(1)  # nvc
+        # affinity, penalty = self.get_adj_mx(x, threshold=threshold)
         
-        x = x.unsqueeze(1).permute(0, 3, 1, 2)  # nclv
+        # x = x.unsqueeze(1).permute(0, 3, 1, 2)  # nclv
         
         """instead of calculating batched_cheb for now we can just unsqueeze (0)"""
         # lap_mx = self._cal_laplacian_batched(learnable_graph)      ## from adj to laplacian
         # Lk = self._cheb_polynomial_batched(lap_mx, self.Ks)
         # lap_mx = self._cal_laplacian_batched(learnable_graph)      ## from adj to laplacian
         # Lk = self._cheb_polynomial_batched(lap_mx, self.Ks)
-        affinity = affinity.unsqueeze(1)
-        penalty = penalty.unsqueeze(1)
-        # print(f"x.shape: {x.shape} affinity.shape: {affinity.shape}, penalty.shape: {penalty.shape}") 
-        import matplotlib.pyplot as plt
+        
+        
+        # affinity = affinity.unsqueeze(1)
+        # penalty = penalty.unsqueeze(1)
+        # # print(f"x.shape: {x.shape} affinity.shape: {affinity.shape}, penalty.shape: {penalty.shape}") 
+        # import matplotlib.pyplot as plt
         # print(f"affinity.shape: {affinity.shape}, penalty.shape: {penalty.shape}")
-        import matplotlib.pyplot as plt
-
+        
         
         # plt.subplot(1, 2, 1)
         # plt.imshow(affinity[0, 0].detach().cpu().numpy())
@@ -366,11 +367,12 @@ class STEncoder(nn.Module):
 
         # plt.show()
         
-        x = self.sconvAffinity(x, affinity, batched=True)  # nclv  is needed as input to sconv
-        x = self.lns3(x.permute(0, 2, 3, 1))  ## nclv -> nlvc for ln
-        x = x.permute(0, 3, 1, 2)   ## nlvc -> nclv
-        x = self.sconvPenalty(x, penalty, batched=True)
-        x = self.lns4(x.permute(0, 2, 3, 1))   ## nclv -> nlvc
+        # x = self.sconvAffinity(x, affinity, batched=True)  # nclv  is needed as input to sconv
+        # x = self.lns3(x.permute(0, 2, 3, 1))  ## nclv -> nlvc for ln
+        # x = x.permute(0, 3, 1, 2)   ## nlvc -> nclv
+        # x = self.sconvPenalty(x, penalty, batched=True)
+        # x = self.lns4(x.permute(0, 2, 3, 1))   ## nclv -> nlvc
+        
         # print(f"x.shape: {x.shape} after sconvPenalty")
         ## also add dropouts later
 
