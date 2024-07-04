@@ -303,7 +303,7 @@ class STSSL(nn.Module):
             # attn_list = [attn.softmax(dim=-1) for attn in attn_list]
             
             attn_list = torch.stack(attn_list)  # Stack the matrices along a new dimension
-            attn_list = attn_list.softmax(dim=-1) 
+            attn_list = attn_list.softmax(dim=-1)  
             ## take softmax here instead of above in the list comprehension
             # print(f"t: {t}, attn_list.shape: {attn_list.shape}")
             avg_attn = torch.mean(attn_list, dim=(0, 2))
