@@ -21,12 +21,11 @@ class STSSL(nn.Module):
     def __init__(self, args):
         super(STSSL, self).__init__()
     
-        self.attention1 = self_Attention(128, 4)
-        self.attention2 = self_Attention(128, 4)
-
+        self.attention1 = self_Attention(int((2)*args.d_model), 4)
+        self.attention2 = self_Attention(int((2)*args.d_model), 4)
         
         self.ff = PositionwiseFeedForward(d_model=128, d_ff=64*4)
-        self.mlp = MLP(2*args.d_model, args.d_output)
+        self.mlp = MLP(int((2)*args.d_model), args.d_output)
         self.mae = masked_mae_loss(mask_value=5.0)
         self.args = args
         graph_init = args.graph_init
@@ -40,15 +39,17 @@ class STSSL(nn.Module):
         self.threshold_adj_mx = args.threshold_adj_mx
         self.dataset = args.dataset
         
+        ## A: 2->32->64->64->32->64 
+        ## B: 2->16->32->32->16->32 
         self.encoderA = STEncoder(Kt=3, Ks=args.cheb_order, blocks=[[2, int(args.d_model//2), args.d_model], [args.d_model, int(args.d_model//2), args.d_model]], 
-                        input_length=args.input_length, num_nodes=args.num_nodes, droprate=args.dropout, graph_init=graph_init, learnable_flag=args.learnable_flag, row=args.row, col=args.col, threshold_adj_mx=args.threshold_adj_mx)
+                        input_length=args.input_length, num_nodes=args.num_nodes, droprate=args.dropout, graph_init=graph_init, learnable_flag=args.learnable_flag, row=args.row, col=args.col, threshold_adj_mx=args.threshold_adj_mx, do_affinity=args.affinity_conv)
         self.encoderB = STEncoder(Kt=3, Ks=args.cheb_order, blocks=[[2, int(args.d_model//2), args.d_model], [args.d_model, int(args.d_model//2), args.d_model]], 
-                        input_length=args.input_length, num_nodes=args.num_nodes, droprate=args.dropout, graph_init=graph_init, learnable_flag=args.learnable_flag, row=args.row, col=args.col, threshold_adj_mx=args.threshold_adj_mx)         
+                        input_length=args.input_length, num_nodes=args.num_nodes, droprate=args.dropout, graph_init=graph_init, learnable_flag=args.learnable_flag, row=args.row, col=args.col, threshold_adj_mx=args.threshold_adj_mx, do_affinity=args.affinity_conv)         
         
         # ## norms
-        self.layernorm1 = nn.LayerNorm(128)
-        self.layernorm2 = nn.LayerNorm(128)
-        self.layernorm3 = nn.LayerNorm(128)
+        self.layernorm1 = nn.LayerNorm(int((2)*args.d_model))
+        self.layernorm2 = nn.LayerNorm(int((2)*args.d_model))
+        self.layernorm3 = nn.LayerNorm(int((2)*args.d_model))
         
 
         self.dataset = args.dataset
@@ -124,11 +125,11 @@ class STSSL(nn.Module):
         if self.dataset == "NYCBike1":
             view1A = view1[:, -4:19, :, :]
             view1B = view1[:, -9:-4, :, :]
-            view1 = view1[:, -4:19, :, :]
+            # view1 = view1[:, -4:19, :, :]
         elif self.dataset == "NYCBike2" or self.dataset == "NYCTaxi" or self.dataset == "BJTaxi": 
             view1A = view1[:, -8:35, :, :]
             view1B = view1[:, -17:-8, :, :]
-            view1 = view1[:, -8:35, :, :]
+            # view1 = view1[:, -8:35, :, :]
         view1A = view1A.to(self.args.device)
         view1B = view1B.to(self.args.device)
         # print(f"view1.shape: {view1.shape}, view1A.shape: {view1A.shape}, view1B.shape: {view1B.shape}")  ## view1.shape: torch.Size([32, 17, 200, 2]), view1A.shape: torch.Size([32, 8, 200, 2]), view1B.shape: torch.Size([32, 9, 200, 2])

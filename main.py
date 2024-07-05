@@ -103,6 +103,7 @@ if __name__=='__main__':
     parser.add_argument('--add_x_encoder', "-axe", default=False, type=bool, help='wether to add output of encoder')
     parser.add_argument('--freeze_encoder', "-fe", default=False, type=bool, help='wether to freeze encoder')
     parser.add_argument('--threshold_adj_mx', "-tadj", default=False, type=bool, help='wether to threshold the learnt adj_mx')
+    parser.add_argument('--affinity_conv', "-afc", default=False, type=bool, help='wether to affinity conv')
 
     # parser.add_argument('--input_length', default=0, type=int, help='# of samples to use for context')
     args = parser.parse_args()
@@ -132,6 +133,7 @@ if __name__=='__main__':
     configs['add_x_encoder'] = args.add_x_encoder
     configs['freeze_encoder'] = args.freeze_encoder
     configs['threshold_adj_mx'] = args.threshold_adj_mx
+    configs['affinity_conv'] = args.affinity_conv
     # configs['input_length'] = args.input_length
     # experimentName = "pred_" + str(args.input_length) + "_"
     experimentName = "pred_"

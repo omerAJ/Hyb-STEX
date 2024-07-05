@@ -173,7 +173,7 @@ sys.path.insert(0, 'D:\\omer\\v-jepa\\jepa\\src\\models\\utils')
 
 
 class STEncoder(nn.Module):
-    def __init__(self, Kt, Ks, blocks, input_length, num_nodes, graph_init, learnable_flag, row, col, droprate=0.1, threshold_adj_mx=False):
+    def __init__(self, Kt, Ks, blocks, input_length, num_nodes, graph_init, learnable_flag, row, col, droprate=0.1, threshold_adj_mx=False, do_affinity=False):
         super(STEncoder, self).__init__()        
         
         self.do_sconv = True
@@ -199,6 +199,7 @@ class STEncoder(nn.Module):
 
         self.graph_init = graph_init
 
+        self.do_affinity = do_affinity
         if input_length - 2 * (Kt - 1) * len(blocks) <= 0:
             print("NOT in else")
             self.Ks=Ks
@@ -273,7 +274,7 @@ class STEncoder(nn.Module):
             self.dropout3 = nn.Dropout(droprate)
             self.receptive_field = input_length + Kt -1
         
-        self.get_adj_mx = get_adj_mx(d_model=64)
+        self.get_adj_mx = get_adj_mx(d_model=c[2])
         self.threshold_adj_mx = threshold_adj_mx
 
         
@@ -338,11 +339,19 @@ class STEncoder(nn.Module):
         # print(f"x.shape: {x.shape} after out_conv")
         """find affinity and penalty connections here"""
         # x.shape: [32, 1, 200, 64] # nlvc
-        x = x.squeeze(1)  # nvc
-        affinity, penalty = self.get_adj_mx(x, threshold=threshold)
-        
-        x = x.unsqueeze(1).permute(0, 3, 1, 2)  # nclv
-        
+        if self.do_affinity:
+            print("in do_affinity")
+            x = x.squeeze(1)  # nvc
+            affinity, _ = self.get_adj_mx(x, threshold=threshold)
+            
+            x = x.unsqueeze(1).permute(0, 3, 1, 2)  # nclv
+            affinity = affinity.unsqueeze(1)
+            x = self.sconvAffinity1(x, affinity, batched=True)  # nclv  is needed as input to sconv
+            x = self.lns3(x.permute(0, 2, 3, 1))  ## nclv -> nlvc for ln
+            x = x.permute(0, 3, 1, 2)   ## nlvc -> nclv
+            x = self.sconvAffinity2(x, affinity, batched=True)  # nclv  is needed as input to sconv
+            x = self.lns3(x.permute(0, 2, 3, 1))  ## nclv -> nlvc for ln
+            
         """instead of calculating batched_cheb for now we can just unsqueeze (0)"""
         # lap_mx = self._cal_laplacian_batched(learnable_graph)      ## from adj to laplacian
         # Lk = self._cheb_polynomial_batched(lap_mx, self.Ks)
@@ -350,8 +359,7 @@ class STEncoder(nn.Module):
         # Lk = self._cheb_polynomial_batched(lap_mx, self.Ks)
         
         
-        affinity = affinity.unsqueeze(1)
-        penalty = penalty.unsqueeze(1)
+        # penalty = penalty.unsqueeze(1)
         # # print(f"x.shape: {x.shape} affinity.shape: {affinity.shape}, penalty.shape: {penalty.shape}") 
         # import matplotlib.pyplot as plt
         # print(f"affinity.shape: {affinity.shape}, penalty.shape: {penalty.shape}")
@@ -369,11 +377,6 @@ class STEncoder(nn.Module):
 
         # plt.show()
         
-        x = self.sconvAffinity1(x, affinity, batched=True)  # nclv  is needed as input to sconv
-        x = self.lns3(x.permute(0, 2, 3, 1))  ## nclv -> nlvc for ln
-        x = x.permute(0, 3, 1, 2)   ## nlvc -> nclv
-        x = self.sconvAffinity2(x, affinity, batched=True)  # nclv  is needed as input to sconv
-        x = self.lns3(x.permute(0, 2, 3, 1))  ## nclv -> nlvc for ln
         
         # x = x.permute(0, 3, 1, 2)   ## nlvc -> nclv
         # x = self.sconvPenalty1(x, penalty, batched=True)  # nclv  is needed as input to sconv
