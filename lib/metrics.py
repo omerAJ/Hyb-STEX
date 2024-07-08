@@ -44,6 +44,12 @@ def mae_torch(pred, true, mask_value=None):
         true = torch.masked_select(true, mask)
     return torch.mean(torch.abs(true-pred))
 
+def mse_torch(pred, true, mask_value=None):
+    if mask_value is not None:
+        mask = torch.gt(true, mask_value)
+        pred = torch.masked_select(pred, mask)
+        true = torch.masked_select(true, mask)
+    return torch.mean((true - pred) ** 2)
 
 def mape_torch(pred, true, mask_value=None):
     if mask_value != None:

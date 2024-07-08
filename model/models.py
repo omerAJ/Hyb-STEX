@@ -1,7 +1,7 @@
 import torch.nn as nn
 import torch
 # import 
-from lib.utils import masked_mae_loss
+from lib.utils import masked_mae_loss, masked_mse_loss
 from model.aug import (
     aug_topology, 
     aug_traffic, 
@@ -26,7 +26,10 @@ class STSSL(nn.Module):
         
         self.ff = PositionwiseFeedForward(d_model=128, d_ff=64*4)
         self.mlp = MLP(int((2)*args.d_model), args.d_output)
-        self.mae = masked_mae_loss(mask_value=5.0)
+        if args.loss == 'mae':
+            self.loss_fun = masked_mae_loss(mask_value=5.0)
+        elif args.loss == 'mse':
+            self.loss_fun = masked_mse_loss(mask_value=5.0)
         self.args = args
         graph_init = args.graph_init
         ## attention flags
@@ -224,8 +227,8 @@ class STSSL(nn.Module):
         y_pred = scaler.inverse_transform(self.predict(z1, z2))
         y_true = scaler.inverse_transform(y_true)
  
-        loss = self.args.yita * self.mae(y_pred[..., 0], y_true[..., 0]) + \
-                (1 - self.args.yita) * self.mae(y_pred[..., 1], y_true[..., 1])
+        loss = self.args.yita * self.loss_fun(y_pred[..., 0], y_true[..., 0]) + \
+                (1 - self.args.yita) * self.loss_fun(y_pred[..., 1], y_true[..., 1])
         return loss
     
     def temporal_loss(self, z1, z2):

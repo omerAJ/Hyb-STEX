@@ -340,7 +340,7 @@ class STEncoder(nn.Module):
         """find affinity and penalty connections here"""
         # x.shape: [32, 1, 200, 64] # nlvc
         if self.do_affinity:
-            print("in do_affinity")
+            # print("in do_affinity")
             x = x.squeeze(1)  # nvc
             affinity, _ = self.get_adj_mx(x, threshold=threshold)
             

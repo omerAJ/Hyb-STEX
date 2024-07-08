@@ -4,12 +4,18 @@ import torch
 import numpy as np
 from datetime import datetime
 
-from lib.metrics import mae_torch
+from lib.metrics import mae_torch, mse_torch
 
 def masked_mae_loss(mask_value):
     def loss(preds, labels):
         mae = mae_torch(pred=preds, true=labels, mask_value=mask_value)
         return mae
+    return loss
+
+def masked_mse_loss(mask_value):
+    def loss(preds, labels):
+        mse = mse_torch(pred=preds, true=labels, mask_value=mask_value)
+        return mse
     return loss
 
 def init_seed(seed):
