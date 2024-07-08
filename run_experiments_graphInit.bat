@@ -1,7 +1,7 @@
 @echo off
 setlocal enabledelayedexpansion
 
-call activate i-jepaVENV
+call activate ST-SSL
 TIMEOUT 3
 
 
