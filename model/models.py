@@ -20,14 +20,15 @@ import numpy as np
 class STSSL(nn.Module):
     def __init__(self, args):
         super(STSSL, self).__init__()
-    
+        self.args = args
+
         self.attention1 = self_Attention(int((2)*args.d_model), 4)
         self.attention2 = self_Attention(int((2)*args.d_model), 4)
         
         self.ff = PositionwiseFeedForward(d_model=128, d_ff=64*4)
         self.mlp = MLP(int((2)*args.d_model), args.d_output)
         if args.loss == 'mae':
-            self.loss_fun = masked_mae_loss(mask_value=5.0)
+            self.loss_fun = masked_mae_loss(mask_value=0.0)
         elif args.loss == 'mse':
             self.loss_fun = masked_mse_loss(mask_value=5.0)
         self.args = args
@@ -69,7 +70,8 @@ class STSSL(nn.Module):
         self.add_x_encoder = args.add_x_encoder
 
         T = 8
-        self.weights = nn.Parameter(torch.ones(T) / T)
+        N = 200
+        self.weights = nn.Parameter(torch.ones(N) / N)
         
         
 
@@ -160,13 +162,17 @@ class STSSL(nn.Module):
         learnable_graph = self.neighbours   ## make 1st channel dimension for einsum to properly message pass
             
         """ check einsum implementation for message passing, is running but probly wrong """
-        repr1A = self.encoderA(view1A, learnable_graph) # view1: n,l,v,c; graph: v,v 
-        repr1B = self.encoderB(view1B, learnable_graph) # view1: n,l,v,c; graph: v,v 
+        repr1A, self.nodes_statusA = self.encoderA(view1A, learnable_graph) # view1: n,l,v,c; graph: v,v 
+        repr1B, self.nodes_statusB = self.encoderB(view1B, learnable_graph) # view1: n,l,v,c; graph: v,v 
         # print(f"repr1A.shape: {repr1A.shape}, repr1B.shape: {repr1B.shape}")
         
         combined_repr = torch.cat((repr1A, repr1B), dim=3)            ## combine along the channel dimension d_model
         
-        
+        combined_nodes_status = torch.mean(torch.stack([self.nodes_statusA, self.nodes_statusB]), dim=0)
+        # print(f"combined_repr.shape: {combined_repr.shape}, combined_nodes_status.shape: {combined_nodes_status.shape}")
+        combined_nodes_status = combined_nodes_status.transpose(2, 3)
+        combined_repr = combined_repr*combined_nodes_status
+
         if self.self_attention_flag:
             combined_repr = combined_repr.squeeze(1)
             if self.feedforward_flag:
@@ -188,8 +194,8 @@ class STSSL(nn.Module):
             combined_repr = combined_repr.unsqueeze(1)
 
         repr2 = None
-        learnable_graph = None
-        return combined_repr, learnable_graph
+        # learnable_graph = None
+        return combined_repr, combined_nodes_status
 
     def fetch_spatial_sim(self):
         """
@@ -212,6 +218,8 @@ class STSSL(nn.Module):
 
     def loss(self, z1, z2, y_true, scaler, loss_weights):
         l1 = self.pred_loss(z1, z2, y_true, scaler)
+        
+        l1 = l1
         # sep_loss = [l1.item()]
         loss = l1 
 
@@ -223,12 +231,49 @@ class STSSL(nn.Module):
         sep_loss=loss.item()
         return loss, sep_loss
 
+    def mae_torch(self, pred, true, mask_value=None):
+        if mask_value != None:
+            # print(f"true.device: {true.device}, pred.device: {pred.device}")
+            
+            mask = torch.gt(true, mask_value)
+            # nodesMasked=mask[mask==True].shape[0]
+            # print("total nodes masked", nodesMasked, "/4096",  "nodes on average masked in each sample: ", nodesMasked/true.shape[0])
+            # print(f"pred.shape: {pred.shape}")
+            diff = torch.abs(true-pred)
+            # weights = torch.sigmoid(self.weights)
+            weights = None
+            if self.args.loss == 'mae':
+                w = torch.abs(true-pred)
+                diff = diff * w
+            diff = torch.masked_select(diff, mask)
+            
+            # pred = torch.masked_select(pred, mask)
+            # print(f"pred.shape: {pred.shape}")
+            
+            # true = torch.masked_select(true, mask)
+
+        # l = torch.abs(true-pred)
+        
+        # print(f"l.shape: {l.shape}, self.weights.shape: {self.weights.shape}")
+        return torch.mean(diff)
+    
+
+    def masked_mae_loss(self, mask_value):
+        def loss(preds, labels):
+            mae = self.mae_torch(pred=preds, true=labels, mask_value=mask_value)
+            return mae
+        return loss
+    
+    
     def pred_loss(self, z1, z2, y_true, scaler):
         y_pred = scaler.inverse_transform(self.predict(z1, z2))
         y_true = scaler.inverse_transform(y_true)
- 
+
         loss = self.args.yita * self.loss_fun(y_pred[..., 0], y_true[..., 0]) + \
                 (1 - self.args.yita) * self.loss_fun(y_pred[..., 1], y_true[..., 1])
+         
+        # loss = self.args.yita * self.loss_fun(y_pred[..., 0], y_true[..., 0]) + \
+        #         (1 - self.args.yita) * self.loss_fun(y_pred[..., 1], y_true[..., 1])
         return loss
     
     def temporal_loss(self, z1, z2):

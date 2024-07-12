@@ -108,8 +108,8 @@ class Trainer(object):
             
             total_loss += loss.item()
             total_sep_loss += sep_loss
-        if epoch % 10 == 0:
-            plot = "no"
+        if epoch % 1 == 0:
+            plot = "node_status"
             if plot == "image":
                 import networkx as nx
                 import matplotlib.pyplot as plt
@@ -139,6 +139,18 @@ class Trainer(object):
                 # print("==>", learnable_graph.detach().cpu().numpy().shape)
                 np.save(os.path.join(self.args.log_dir, f'learnable_graph_epoch_{epoch}.npy'), learnable_graph.detach().cpu().numpy())
 
+            elif plot == "node_status":
+                import matplotlib.pyplot as plt
+                import seaborn as sns
+                learnable_graph = np.reshape(learnable_graph.detach().cpu().numpy().squeeze(0).squeeze(0), (20, 10))
+                plt.figure(figsize=(40, 40))
+                sns.heatmap(learnable_graph, cmap='viridis', annot=True)  # annot=True shows values
+                plt.title('Adjacency Matrix Visualization')
+                save_path = os.path.join(self.args.log_dir, f'learnable_graph_epoch.png')
+                plt.savefig(save_path)
+                # print("learnable_graph.shape: ", learnable_graph.shape)
+
+                
         train_epoch_loss = total_loss/self.train_per_epoch
         total_sep_loss = total_sep_loss/self.train_per_epoch
         # Save losses for plotting
@@ -204,7 +216,7 @@ class Trainer(object):
 
             # Save weights every 5 epochs, for example
             if (epoch + 1) % 1 == 0 or epoch == self.args.epochs or epoch == 1:  # Also save on the first/last epoch
-                self.save_weights(np.array(weight_history), epoch + 1)
+                self.save_weights(np.array(weight_history))
             
             val_dataloader = self.val_loader if self.val_loader != None else self.test_loader
             val_epoch_loss = self.val_epoch(epoch, val_dataloader, loss_weights)       
