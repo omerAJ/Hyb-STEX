@@ -108,8 +108,8 @@ class Trainer(object):
             
             total_loss += loss.item()
             total_sep_loss += sep_loss
-        if epoch % 1 == 0:
-            plot = "node_status"
+        if epoch % 10 == 0:
+            plot = "NO"
             if plot == "image":
                 import networkx as nx
                 import matplotlib.pyplot as plt
