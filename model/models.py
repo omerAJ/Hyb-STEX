@@ -158,23 +158,23 @@ class STSSL(nn.Module):
         #     avg_attn_accum += self.neighbours
         # if self.add_eye:
         #     avg_attn_accum += self.eye 
-           
+
         learnable_graph = self.neighbours   ## make 1st channel dimension for einsum to properly message pass
-            
-        """ check einsum implementation for message passing, is running but probly wrong """
-        repr1A = self.encoderA(view1A, learnable_graph) # view1: n,l,v,c; graph: v,v 
-        repr1B = self.encoderB(view1B, learnable_graph) # view1: n,l,v,c; graph: v,v 
         
-        # repr1A, self.nodes_statusA = self.encoderA(view1A, learnable_graph) # view1: n,l,v,c; graph: v,v 
-        # repr1B, self.nodes_statusB = self.encoderB(view1B, learnable_graph) # view1: n,l,v,c; graph: v,v 
+        """ check einsum implementation for message passing, is running but probly wrong """
+        # repr1A = self.encoderA(view1A, learnable_graph) # view1: n,l,v,c; graph: v,v 
+        # repr1B = self.encoderB(view1B, learnable_graph) # view1: n,l,v,c; graph: v,v 
+        
+        repr1A, self.nodes_statusA = self.encoderA(view1A, learnable_graph) # view1: n,l,v,c; graph: v,v 
+        repr1B, self.nodes_statusB = self.encoderB(view1B, learnable_graph) # view1: n,l,v,c; graph: v,v 
         # print(f"repr1A.shape: {repr1A.shape}, repr1B.shape: {repr1B.shape}")
         
         combined_repr = torch.cat((repr1A, repr1B), dim=3)            ## combine along the channel dimension d_model
         
-        # combined_nodes_status = torch.mean(torch.stack([self.nodes_statusA, self.nodes_statusB]), dim=0)
-        # # print(f"combined_repr.shape: {combined_repr.shape}, combined_nodes_status.shape: {combined_nodes_status.shape}")
-        # combined_nodes_status = combined_nodes_status.transpose(2, 3)
-        # combined_repr = combined_repr*combined_nodes_status
+        combined_nodes_status = torch.mean(torch.stack([self.nodes_statusA, self.nodes_statusB]), dim=0)
+        # print(f"combined_repr.shape: {combined_repr.shape}, combined_nodes_status.shape: {combined_nodes_status.shape}")
+        combined_nodes_status = combined_nodes_status.transpose(2, 3)
+        combined_repr = combined_repr*combined_nodes_status
 
         if self.self_attention_flag:
             combined_repr = combined_repr.squeeze(1)
@@ -274,7 +274,7 @@ class STSSL(nn.Module):
 
         loss = self.args.yita * self.loss_fun(y_pred[..., 0], y_true[..., 0]) + \
                 (1 - self.args.yita) * self.loss_fun(y_pred[..., 1], y_true[..., 1])
-         
+
         # loss = self.args.yita * self.loss_fun(y_pred[..., 0], y_true[..., 0]) + \
         #         (1 - self.args.yita) * self.loss_fun(y_pred[..., 1], y_true[..., 1])
         return loss
