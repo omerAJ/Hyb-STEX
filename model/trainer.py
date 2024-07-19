@@ -84,7 +84,7 @@ class Trainer(object):
         self.model.train()
         
         total_loss = 0
-        total_sep_loss = np.zeros(1) 
+        total_sep_loss = np.zeros(2) 
         for batch_idx, (data, target, evs) in enumerate(self.train_loader):
             # print("data.shape: ", data.shape, target.shape)
             self.optimizer.zero_grad()
@@ -93,7 +93,7 @@ class Trainer(object):
             repr1 = self.model(data, self.graph) # nvc
             
 
-            loss, sep_loss = self.model.loss(repr1, evs, target, self.scaler, loss_weights)
+            loss, loss_pred, loss_class = self.model.loss(repr1, evs, target, self.scaler, loss_weights)
             # print("sep_loss: ", sep_loss)
             assert not torch.isnan(loss)
             loss.backward()
@@ -107,7 +107,7 @@ class Trainer(object):
             self.optimizer.step()
             
             total_loss += loss.item()
-            total_sep_loss += sep_loss
+            total_sep_loss += [loss_pred, loss_class]
         if epoch % 1 == 0:
             plot = "NO"
             if plot == "image":
@@ -156,7 +156,7 @@ class Trainer(object):
         # Save losses for plotting
         epoch_losses.append(train_epoch_loss)
         sep_epoch_losses.append(total_sep_loss)
-        self.logger.info('*******Train Epoch {}: averaged Loss : {:.6f}'.format(epoch, train_epoch_loss))
+        self.logger.info(f'*******Train Epoch {epoch}: averaged Loss : {train_epoch_loss}, loss_pred: {total_sep_loss[0]}, loss_class: {total_sep_loss[1]}')
 
         return train_epoch_loss, total_sep_loss, epoch_losses, sep_epoch_losses
     
@@ -167,12 +167,13 @@ class Trainer(object):
         with torch.no_grad():
             for batch_idx, (data, target, evs) in enumerate(val_dataloader):
                 repr1 = self.model(data, self.graph)
-                loss, sep_loss = self.model.loss(repr1, evs, target, self.scaler, loss_weights)
+                loss, loss_pred, loss_class = self.model.loss(repr1, evs, target, self.scaler, loss_weights)
 
                 if not torch.isnan(loss):
                     total_val_loss += loss.item()
         val_loss = total_val_loss / len(val_dataloader)
-        self.logger.info('*******Val Epoch {}: averaged Loss : {:.6f}'.format(epoch, val_loss))
+        self.logger.info(f'*******Val Epoch {epoch}: averaged Loss : {val_loss}, loss_pred: {loss_pred}, loss_class: {loss_class}')
+
         return val_loss
 
     def save_weights(self, weights, epoch=None, directory="weight_data"):
@@ -206,7 +207,7 @@ class Trainer(object):
                 else:
                     loss_weights  = dwa(loss_tm1, loss_tm2, self.args.temp)
             self.logger.info('loss weights: {}'.format(loss_weights))
-            train_epoch_loss, loss_t, train_epoch_losses, sep_epoch_losses = self.train_epoch(epoch, loss_weights, train_epoch_losses, sep_epoch_losses)
+            train_epoch_loss, loss_t, train_epoch_losses, sep_epoch_losses_train = self.train_epoch(epoch, loss_weights, train_epoch_losses, sep_epoch_losses)
             if train_epoch_loss > 1e6:
                 self.logger.warning('Gradient explosion detected. Ending...')
                 break
@@ -264,10 +265,11 @@ class Trainer(object):
             plt.plot(train_epoch_losses, label='Train Loss')
             plt.plot(val_epoch_losses, label='Val Loss')
 
-            labels = ["i-jepa"]
+            labels = ["pred", "class"]
             # Plotting the separate losses
             # print("sep_epoch_losses: ", sep_epoch_losses)
-            plt.plot(sep_epoch_losses, label=f'Loss {labels[0]}')
+            plt.plot(sep_epoch_losses[0], label=f'Loss {labels[0]}')
+            plt.plot(sep_epoch_losses[1], label=f'Loss {labels[1]}')
 
             plt.xlabel('Epochs')
             plt.ylabel('Loss')
@@ -290,7 +292,7 @@ class Trainer(object):
             'test_results': test_results,
         }
 
-        plot_losses(train_epoch_losses, val_epoch_losses, sep_epoch_losses)
+        plot_losses(train_epoch_losses, val_epoch_losses, sep_epoch_losses_train)
         return results
 
     @staticmethod
@@ -300,8 +302,8 @@ class Trainer(object):
         y_true = []
         with torch.no_grad():
             for batch_idx, (data, target, evs) in enumerate(dataloader):
-                repr1, repr2 = model(data, graph)                
-                pred_output = model.predict(repr1, evs)
+                repr1 = model(data, graph)                
+                pred_output = model.predict(repr1)
 
                 y_true.append(target)
                 y_pred.append(pred_output)

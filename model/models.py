@@ -208,23 +208,20 @@ class STSSL(nn.Module):
         '''
         # print("z1.shape: ", z1.shape)
         o_tilde = self.mlp(z1)
-        o = o_tilde + self.get_bias(z1) * self.get_evs(z1)
+        evs = self.get_evs(z1)
+        o = o_tilde + self.get_bias(z1) * evs
         return o
 
     def loss(self, z1, evs, y_true, scaler, loss_weights):
-        l1 = self.pred_loss(z1, evs, y_true, scaler)
+        l_pred = self.pred_loss(z1, evs, y_true, scaler)
         
-        l1 = l1
+        l_class = self.classification_loss(z1, evs)
         # sep_loss = [l1.item()]
-        loss = l1 
+        loss = l_pred + l_class 
 
-        # loss_jepa = F.smooth_l1_loss(z, h)
-        # loss_l2 = F.mse_loss(z, h)
-        # loss_jepa += loss_l2
-        # sep_loss = loss_jepa.item()
-        # loss += loss_jepa
-        sep_loss=loss.item()
-        return loss, sep_loss
+        l_pred=l_pred.item()
+        l_class=l_class.item()
+        return loss, l_pred, l_class
 
     def mae_torch(self, pred, true, mask_value=None):
         if mask_value != None:
@@ -259,16 +256,20 @@ class STSSL(nn.Module):
             return mae
         return loss
     
-    
-    def pred_loss(self, z1, z2, y_true, scaler):
-        y_pred = scaler.inverse_transform(self.predict(z1, z2))
+    def classification_loss(self, z1, evs_gt):
+        evs = self.get_evs(z1)
+        return F.binary_cross_entropy(evs, evs_gt)
+
+    def pred_loss(self, z1, evs_gt, y_true, scaler):
+        preds = self.predict(z1)
+        y_pred = scaler.inverse_transform(preds)
         y_true = scaler.inverse_transform(y_true)
 
-        loss = self.args.yita * self.loss_fun(y_pred[..., 0], y_true[..., 0]) + \
+        pred_loss = self.args.yita * self.loss_fun(y_pred[..., 0], y_true[..., 0]) + \
                 (1 - self.args.yita) * self.loss_fun(y_pred[..., 1], y_true[..., 1])
 
-        # loss = self.args.yita * self.loss_fun(y_pred[..., 0], y_true[..., 0]) + \
-        #         (1 - self.args.yita) * self.loss_fun(y_pred[..., 1], y_true[..., 1])
+        
+        loss = pred_loss
         return loss
     
     def temporal_loss(self, z1, z2):
