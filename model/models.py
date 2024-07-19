@@ -72,7 +72,8 @@ class STSSL(nn.Module):
         T = 8
         N = 200
         self.weights = nn.Parameter(torch.ones(N) / N)
-        
+        self.key_projection = nn.Linear(int((2)*args.d_model), int((2)*args.d_model))
+        self.learnable_vectors = nn.Parameter(torch.zeros(1, 1, 128, 2), requires_grad=True)
         
 
     def xavier_uniform_init(self, tensor):
@@ -158,20 +159,20 @@ class STSSL(nn.Module):
         #     avg_attn_accum += self.neighbours
         # if self.add_eye:
         #     avg_attn_accum += self.eye 
-           
+
         learnable_graph = self.neighbours   ## make 1st channel dimension for einsum to properly message pass
             
         """ check einsum implementation for message passing, is running but probly wrong """
-        repr1A, self.nodes_statusA = self.encoderA(view1A, learnable_graph) # view1: n,l,v,c; graph: v,v 
-        repr1B, self.nodes_statusB = self.encoderB(view1B, learnable_graph) # view1: n,l,v,c; graph: v,v 
+        repr1A = self.encoderA(view1A, learnable_graph) # view1: n,l,v,c; graph: v,v 
+        repr1B = self.encoderB(view1B, learnable_graph) # view1: n,l,v,c; graph: v,v 
         # print(f"repr1A.shape: {repr1A.shape}, repr1B.shape: {repr1B.shape}")
         
         combined_repr = torch.cat((repr1A, repr1B), dim=3)            ## combine along the channel dimension d_model
         
-        combined_nodes_status = torch.mean(torch.stack([self.nodes_statusA, self.nodes_statusB]), dim=0)
-        # print(f"combined_repr.shape: {combined_repr.shape}, combined_nodes_status.shape: {combined_nodes_status.shape}")
-        combined_nodes_status = combined_nodes_status.transpose(2, 3)
-        combined_repr = combined_repr*combined_nodes_status
+        # combined_nodes_status = torch.mean(torch.stack([self.nodes_statusA, self.nodes_statusB]), dim=0)
+        # # print(f"combined_repr.shape: {combined_repr.shape}, combined_nodes_status.shape: {combined_nodes_status.shape}")
+        # combined_nodes_status = combined_nodes_status.transpose(2, 3)
+        # combined_repr = combined_repr*combined_nodes_status
 
         if self.self_attention_flag:
             combined_repr = combined_repr.squeeze(1)
@@ -195,7 +196,7 @@ class STSSL(nn.Module):
 
         repr2 = None
         # learnable_graph = None
-        return combined_repr, combined_nodes_status
+        return combined_repr
 
     def fetch_spatial_sim(self):
         """
@@ -208,16 +209,23 @@ class STSSL(nn.Module):
     def fetch_temporal_sim(self):
         return self.encoder.t_sim_mx.cpu()
 
-    def predict(self, z1, z2):
+    def get_bias(self, z1):
+        k = self.key_projection(z1)
+        bias = torch.matmul(k, self.learnable_vectors)
+        return bias
+
+    def predict(self, z1, evs):
         '''Predicting future traffic flow.
         :param z1, z2 (tensor): shape nvc
         :return: nlvc, l=1, c=2
         '''
         # print("z1.shape: ", z1.shape)
-        return self.mlp(z1)
+        o_tilde = self.mlp(z1)
+        o = o_tilde + self.get_bias(z1) * evs
+        return o
 
-    def loss(self, z1, z2, y_true, scaler, loss_weights):
-        l1 = self.pred_loss(z1, z2, y_true, scaler)
+    def loss(self, z1, evs, y_true, scaler, loss_weights):
+        l1 = self.pred_loss(z1, evs, y_true, scaler)
         
         l1 = l1
         # sep_loss = [l1.item()]
@@ -271,7 +279,7 @@ class STSSL(nn.Module):
 
         loss = self.args.yita * self.loss_fun(y_pred[..., 0], y_true[..., 0]) + \
                 (1 - self.args.yita) * self.loss_fun(y_pred[..., 1], y_true[..., 1])
-         
+
         # loss = self.args.yita * self.loss_fun(y_pred[..., 0], y_true[..., 0]) + \
         #         (1 - self.args.yita) * self.loss_fun(y_pred[..., 1], y_true[..., 1])
         return loss

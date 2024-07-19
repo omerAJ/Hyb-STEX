@@ -29,7 +29,7 @@ class Trainer(object):
         if isinstance(self.model, torch.nn.Module):  # Check if it's a PyTorch module
             with torch.no_grad():  # Temporarily disable gradient calculations
                 dummy_view = self._get_dummy_input(dataloader['val'], args)  
-                _, _ = self.model(dummy_view, self.graph)  # Trigger initialization
+                _ = self.model(dummy_view, self.graph)  # Trigger initialization
                 
         print("dummy forward pass done.")
         self.num_params = count_parameters(self.model)
@@ -85,15 +85,15 @@ class Trainer(object):
         
         total_loss = 0
         total_sep_loss = np.zeros(1) 
-        for batch_idx, (data, target) in enumerate(self.train_loader):
+        for batch_idx, (data, target, evs) in enumerate(self.train_loader):
             # print("data.shape: ", data.shape, target.shape)
             self.optimizer.zero_grad()
             
             # input shape: n,l,v,c; graph shape: v,v;
-            repr1, learnable_graph = self.model(data, self.graph) # nvc
+            repr1 = self.model(data, self.graph) # nvc
             
 
-            loss, sep_loss = self.model.loss(repr1, learnable_graph, target, self.scaler, loss_weights)
+            loss, sep_loss = self.model.loss(repr1, evs, target, self.scaler, loss_weights)
             # print("sep_loss: ", sep_loss)
             assert not torch.isnan(loss)
             loss.backward()
@@ -109,7 +109,7 @@ class Trainer(object):
             total_loss += loss.item()
             total_sep_loss += sep_loss
         if epoch % 1 == 0:
-            plot = "node_status"
+            plot = "NO"
             if plot == "image":
                 import networkx as nx
                 import matplotlib.pyplot as plt
@@ -165,9 +165,9 @@ class Trainer(object):
         
         total_val_loss = 0
         with torch.no_grad():
-            for batch_idx, (data, target) in enumerate(val_dataloader):
-                repr1, repr2 = self.model(data, self.graph)
-                loss, sep_loss = self.model.loss(repr1, repr2, target, self.scaler, loss_weights)
+            for batch_idx, (data, target, evs) in enumerate(val_dataloader):
+                repr1 = self.model(data, self.graph)
+                loss, sep_loss = self.model.loss(repr1, evs, target, self.scaler, loss_weights)
 
                 if not torch.isnan(loss):
                     total_val_loss += loss.item()
@@ -299,9 +299,9 @@ class Trainer(object):
         y_pred = []
         y_true = []
         with torch.no_grad():
-            for batch_idx, (data, target) in enumerate(dataloader):
+            for batch_idx, (data, target, evs) in enumerate(dataloader):
                 repr1, repr2 = model(data, graph)                
-                pred_output = model.predict(repr1, repr2)
+                pred_output = model.predict(repr1, evs)
 
                 y_true.append(target)
                 y_pred.append(pred_output)

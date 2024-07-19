@@ -57,12 +57,12 @@ class MinMax11Scaler:
             self.max = torch.from_numpy(self.max).to(data.device).type(data.dtype)
         return ((data + 1.) / 2.) * (self.max - self.min) + self.min
 
-def STDataloader(X, Y, batch_size, shuffle=True, drop_last=True):
+def STDataloader(X, Y, evs, batch_size, shuffle=True, drop_last=True):
     cuda = True if torch.cuda.is_available() else False
     # cuda = False
     TensorFloat = torch.cuda.FloatTensor if cuda else torch.FloatTensor
-    X, Y = TensorFloat(X), TensorFloat(Y)
-    data = torch.utils.data.TensorDataset(X, Y)
+    X, Y, evs = TensorFloat(X), TensorFloat(Y), TensorFloat(evs)
+    data = torch.utils.data.TensorDataset(X, Y, evs)
     dataloader = torch.utils.data.DataLoader(
         data, 
         batch_size=batch_size,
@@ -102,6 +102,7 @@ def get_dataloader(data_dir, dataset, batch_size, test_batch_size, scalar_type='
         # skip = cat_data['x'].shape[1] - input_length
         data['x_' + category] = cat_data['x']
         data['y_' + category] = cat_data['y']
+        data['evs_' + category] = cat_data['evs']
     scaler = normalize_data(np.concatenate([data['x_train'], data['x_val']], axis=0), scalar_type)
     # print("skip: ", skip)
     # Data format
@@ -115,18 +116,21 @@ def get_dataloader(data_dir, dataset, batch_size, test_batch_size, scalar_type='
     dataloader['train'] = STDataloader(
         data['x_train'], 
         data['y_train'], 
+        data['evs_train'], 
         batch_size, 
         shuffle=True
     )
     dataloader['val'] = STDataloader(
         data['x_val'], 
         data['y_val'], 
+        data['evs_val'], 
         test_batch_size, 
         shuffle=False
     )
     dataloader['test'] = STDataloader(
         data['x_test'], 
         data['y_test'], 
+        data['evs_test'], 
         test_batch_size, 
         shuffle=False, 
         drop_last=False

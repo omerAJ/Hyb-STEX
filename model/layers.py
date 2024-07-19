@@ -276,8 +276,7 @@ class STEncoder(nn.Module):
         
         self.get_adj_mx = get_adj_mx(d_model=c[2])
         self.threshold_adj_mx = threshold_adj_mx
-        self.nodes_status = nn.Parameter(torch.zeros(1, 1, 1, num_nodes), requires_grad=True)  ## shape for sconv
-
+        
         
 
     def forward(self, x0, learnable_graph):
@@ -290,16 +289,7 @@ class STEncoder(nn.Module):
             lap_mx = self._cal_laplacian(learnable_graph)      ## from adj to laplacian
             Lk = self._cheb_polynomial(lap_mx, self.Ks)
 
-        elif self.batched_cheb == True:
-            lap_mx = self._cal_laplacian_batched(learnable_graph)      ## from adj to laplacian
-            Lk = self._cheb_polynomial_batched(lap_mx, self.Ks)
-            # Lk=learnable_graph.unsqueeze(1)
-            # Lk = Lk.unsqueeze(1)
-            # print(f"bathced cheb done \n\n")
-        elif self.batched_no_cheb == True:
-            Lk=learnable_graph.unsqueeze(1)
-
-        
+                
         in_len = x0.size(1) # x0, nlvc
         if in_len < self.receptive_field:
             x = F.pad(x0, (0,0,0,0,self.receptive_field-in_len,0))
@@ -319,7 +309,7 @@ class STEncoder(nn.Module):
             x = self.sconv12(x, Lk)   # nclv      
             x = self.lns1(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)     ## ln([b, t, n, c]) -> [b, c, t, n]
             # print(f"x.shape: {x.shape} self.nodes_status.shape: {self.nodes_status.shape}")
-            x = x*torch.sigmoid(self.nodes_status)
+            
         x = self.tconv13(x)  
         x = self.dropout1(self.ln1(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2))   ## btnc -> bctn
         
@@ -332,7 +322,7 @@ class STEncoder(nn.Module):
 
             x = self.sconv22(x, Lk)   # nclv
             x = self.lns2(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)
-            x = x*torch.sigmoid(self.nodes_status)
+            
         x = self.tconv23(x)
         x = self.dropout2(self.ln2(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2))
 
@@ -341,62 +331,9 @@ class STEncoder(nn.Module):
         x = self.out_conv(x) # ncl(=1)v    ## filter_size = (l, 1), so dot product with time length and same kernel used for every node.
         x = self.dropout3(self.ln3(x.permute(0, 2, 3, 1))) # nlvc  [32, 1, 200, 64]
         # print(f"x.shape: {x.shape} after out_conv")
-        """find affinity and penalty connections here"""
-        # x.shape: [32, 1, 200, 64] # nlvc
-        if self.do_affinity:
-            # print("in do_affinity")
-            x = x.squeeze(1)  # nvc
-            affinity, _ = self.get_adj_mx(x, threshold=threshold)
-            
-            x = x.unsqueeze(1).permute(0, 3, 1, 2)  # nclv
-            affinity = affinity.unsqueeze(1)
-            x = self.sconvAffinity1(x, affinity, batched=True)  # nclv  is needed as input to sconv
-            x = self.lns3(x.permute(0, 2, 3, 1))  ## nclv -> nlvc for ln
-            x = x.permute(0, 3, 1, 2)   ## nlvc -> nclv
-            x = self.sconvAffinity2(x, affinity, batched=True)  # nclv  is needed as input to sconv
-            x = self.lns3(x.permute(0, 2, 3, 1))  ## nclv -> nlvc for ln
-            
-        """instead of calculating batched_cheb for now we can just unsqueeze (0)"""
-        # lap_mx = self._cal_laplacian_batched(learnable_graph)      ## from adj to laplacian
-        # Lk = self._cheb_polynomial_batched(lap_mx, self.Ks)
-        # lap_mx = self._cal_laplacian_batched(learnable_graph)      ## from adj to laplacian
-        # Lk = self._cheb_polynomial_batched(lap_mx, self.Ks)
         
-        
-        # penalty = penalty.unsqueeze(1)
-        # # print(f"x.shape: {x.shape} affinity.shape: {affinity.shape}, penalty.shape: {penalty.shape}") 
-        # import matplotlib.pyplot as plt
-        # print(f"affinity.shape: {affinity.shape}, penalty.shape: {penalty.shape}")
-        
-        
-        # plt.subplot(1, 2, 1)
-        # plt.imshow(affinity[0, 0].detach().cpu().numpy())
-        # plt.colorbar()
-        # plt.title("Affinity Matrix")
-
-        # plt.subplot(1, 2, 2)
-        # plt.imshow(penalty[0, 0].detach().cpu().numpy())
-        # plt.colorbar()
-        # plt.title("Penalty Matrix")
-
-        # plt.show()
-        
-        
-        # x = x.permute(0, 3, 1, 2)   ## nlvc -> nclv
-        # x = self.sconvPenalty1(x, penalty, batched=True)  # nclv  is needed as input to sconv
-        # x = self.lns3(x.permute(0, 2, 3, 1))  ## nclv -> nlvc for ln
-        # x = x.permute(0, 3, 1, 2)   ## nlvc -> nclv
-        # x = self.sconvPenalty2(x, penalty, batched=True)  # nclv  is needed as input to sconv
-        # x = self.lns3(x.permute(0, 2, 3, 1))  ## nclv -> nlvc for ln
-        
-        # x = self.sconvPenalty(x, penalty, batched=True)
-        # x = self.lns4(x.permute(0, 2, 3, 1))   ## nclv -> nlvc
-        
-        # print(f"x.shape: {x.shape} after sconvPenalty")
-        ## also add dropouts later
-
         # need to return # nlvc  [32, 1, 200, 64]
-        return x, self.nodes_status # nl(=1)vc
+        return x # nl(=1)vc
     
 
     

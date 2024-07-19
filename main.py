@@ -86,12 +86,12 @@ if __name__=='__main__':
     parser.add_argument('--seed', "-s", default=1, type=int, help='random seed to use')
     parser.add_argument('--comment', "-c", default="noComment", type=str, help='comment about the experiment')
     parser.add_argument('--cheb_order', "-K", default=3, type=int, help='calculate the chebyshev polynomials up to this order')
-    parser.add_argument('--graph_init', "-g", default="neighbours", type=str, help='how to initialize the learnable graph')
+    parser.add_argument('--graph_init', "-g", default="8_neighbours", type=str, help='how to initialize the learnable graph')
     
     """
     if you pass bool flags in cli it will automatically make it true, irrespective if you pass True or False. If you dont pass it then it uses the default value.
     """
-    parser.add_argument('--self_attention_flag', "-sa", default=False, type=bool, help='wether to self attention before pred')
+    parser.add_argument('--self_attention_flag', "-sa", default=True, type=bool, help='wether to self attention before pred')
     parser.add_argument('--cross_attention_flag', "-ca", default=False, type=bool, help='wether to cross attention before pred')
     parser.add_argument('--feedforward_flag', "-ff", default=False, type=bool, help='wether to feedforward')
     parser.add_argument('--layer_norm_flag', "-ln", default=False, type=bool, help='wether to layernorm')
