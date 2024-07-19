@@ -300,7 +300,7 @@ class Trainer(object):
         y_true = []
         with torch.no_grad():
             for batch_idx, (data, target, evs) in enumerate(dataloader):
-                repr1, repr2 = model(data, graph)                
+                repr1 = model(data, graph)                
                 pred_output = model.predict(repr1, evs)
 
                 y_true.append(target)
