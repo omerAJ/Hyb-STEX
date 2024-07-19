@@ -27,6 +27,7 @@ class STSSL(nn.Module):
         
         self.ff = PositionwiseFeedForward(d_model=128, d_ff=64*4)
         self.mlp = MLP(int((2)*args.d_model), args.d_output)
+        self.mlp_classifier = MLP(int((2)*args.d_model), args.d_output)
         if args.loss == 'mae':
             self.loss_fun = masked_mae_loss(mask_value=5.0)
         elif args.loss == 'mse':
@@ -141,24 +142,6 @@ class STSSL(nn.Module):
         # print(f"view1.shape: {view1.shape}, view1A.shape: {view1A.shape}, view1B.shape: {view1B.shape}")  ## view1.shape: torch.Size([32, 17, 200, 2]), view1A.shape: torch.Size([32, 8, 200, 2]), view1B.shape: torch.Size([32, 9, 200, 2])
         
         B, T, N, D = view1.size()
-        
-        # avg_attn_accum = torch.zeros(B, N, N, device=self.args.device)
-        
-        # avg_attn = torch.zeros(B, N, N, device=self.args.device)
-        
-        # normalized_weights = torch.softmax(self.weights, dim=0)
-        # for t in range(T):
-        #     _view1 = view1[:, t, :, :].unsqueeze(1)
-        #     B, _, N, D = _view1.size()
-        #     avg_attn = self.threshold_top_values_ste_PosNeg(avg_attn)
-
-        #     avg_attn_accum += normalized_weights[t] * avg_attn  # Weighted (learnable) accumulation
-        #     # print(f"t: {t}, avg_attn norm: {np.linalg.norm(avg_attn.cpu().detach().numpy())}")
-
-        # if self.add_8_neighbours: 
-        #     avg_attn_accum += self.neighbours
-        # if self.add_eye:
-        #     avg_attn_accum += self.eye 
 
         learnable_graph = self.neighbours   ## make 1st channel dimension for einsum to properly message pass
             
@@ -169,11 +152,6 @@ class STSSL(nn.Module):
         
         combined_repr = torch.cat((repr1A, repr1B), dim=3)            ## combine along the channel dimension d_model
         
-        # combined_nodes_status = torch.mean(torch.stack([self.nodes_statusA, self.nodes_statusB]), dim=0)
-        # # print(f"combined_repr.shape: {combined_repr.shape}, combined_nodes_status.shape: {combined_nodes_status.shape}")
-        # combined_nodes_status = combined_nodes_status.transpose(2, 3)
-        # combined_repr = combined_repr*combined_nodes_status
-
         if self.self_attention_flag:
             combined_repr = combined_repr.squeeze(1)
             if self.feedforward_flag:
@@ -210,18 +188,27 @@ class STSSL(nn.Module):
         return self.encoder.t_sim_mx.cpu()
 
     def get_bias(self, z1):
+        """
+        get the bias for each node and timestep 
+        """
         k = self.key_projection(z1)
         bias = torch.matmul(k, self.learnable_vectors)
         return bias
 
-    def predict(self, z1, evs):
+    def get_evs(self, z1):
+        """
+        classify each next prediction as EV or not
+        """
+        return torch.sigmoid(self.mlp_classifier(z1))
+
+    def predict(self, z1):
         '''Predicting future traffic flow.
         :param z1, z2 (tensor): shape nvc
         :return: nlvc, l=1, c=2
         '''
         # print("z1.shape: ", z1.shape)
         o_tilde = self.mlp(z1)
-        o = o_tilde + self.get_bias(z1) * evs
+        o = o_tilde + self.get_bias(z1) * self.get_evs(z1)
         return o
 
     def loss(self, z1, evs, y_true, scaler, loss_weights):
