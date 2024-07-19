@@ -80,11 +80,12 @@ class Trainer(object):
                 
             return batch
         
-    def train_epoch(self, epoch, loss_weights, epoch_losses, sep_epoch_losses):
+    def train_epoch(self, epoch, loss_weights, epoch_losses, epoch_losses_pred, epoch_losses_class):
         self.model.train()
         
         total_loss = 0
-        total_sep_loss = np.zeros(2) 
+        total_loss_pred = 0 
+        total_loss_class = 0 
         for batch_idx, (data, target, evs) in enumerate(self.train_loader):
             # print("data.shape: ", data.shape, target.shape)
             self.optimizer.zero_grad()
@@ -107,7 +108,8 @@ class Trainer(object):
             self.optimizer.step()
             
             total_loss += loss.item()
-            total_sep_loss += [loss_pred, loss_class]
+            total_loss_pred += loss_pred
+            total_loss_class += loss_class
         if epoch % 1 == 0:
             plot = "NO"
             if plot == "image":
@@ -152,18 +154,22 @@ class Trainer(object):
 
                 
         train_epoch_loss = total_loss/self.train_per_epoch
-        total_sep_loss = total_sep_loss/self.train_per_epoch
+        total_loss_pred = total_loss_pred/self.train_per_epoch
+        total_loss_class = total_loss_class/self.train_per_epoch
         # Save losses for plotting
         epoch_losses.append(train_epoch_loss)
-        sep_epoch_losses.append(total_sep_loss)
-        self.logger.info(f'*******Train Epoch {epoch}: averaged Loss : {train_epoch_loss}, loss_pred: {total_sep_loss[0]}, loss_class: {total_sep_loss[1]}')
+        epoch_losses_pred.append(total_loss_pred)
+        epoch_losses_class.append(total_loss_class)
+        self.logger.info(f'*******Train Epoch {epoch}: averaged Loss : {train_epoch_loss}, loss_pred: {epoch_losses_pred}, loss_class: {epoch_losses_class}')
 
-        return train_epoch_loss, total_sep_loss, epoch_losses, sep_epoch_losses
+        return train_epoch_loss, epoch_losses, epoch_losses_pred, epoch_losses_class
     
     def val_epoch(self, epoch, val_dataloader, loss_weights):
         self.model.eval()
         
         total_val_loss = 0
+        total_val_loss_pred = 0
+        total_val_loss_class = 0
         with torch.no_grad():
             for batch_idx, (data, target, evs) in enumerate(val_dataloader):
                 repr1 = self.model(data, self.graph)
@@ -171,8 +177,12 @@ class Trainer(object):
 
                 if not torch.isnan(loss):
                     total_val_loss += loss.item()
+                    total_val_loss_pred += loss_pred
+                    total_val_loss_class += loss_class
         val_loss = total_val_loss / len(val_dataloader)
-        self.logger.info(f'*******Val Epoch {epoch}: averaged Loss : {val_loss}, loss_pred: {loss_pred}, loss_class: {loss_class}')
+        val_loss_pred = total_val_loss_pred / len(val_dataloader)
+        val_loss_class = total_val_loss_class / len(val_dataloader)
+        self.logger.info(f'*******Val Epoch {epoch}: averaged Loss : {val_loss}, loss_pred: {val_loss_pred}, loss_class: {val_loss_class}')
 
         return val_loss
 
@@ -187,7 +197,8 @@ class Trainer(object):
     def train(self):
         train_epoch_losses = []
         val_epoch_losses = []
-        sep_epoch_losses = []
+        train_epoch_losses_pred = []
+        train_epoch_losses_class = []
         weight_history = []
         best_loss = float('inf')
         best_epoch = 0
@@ -207,7 +218,7 @@ class Trainer(object):
                 else:
                     loss_weights  = dwa(loss_tm1, loss_tm2, self.args.temp)
             self.logger.info('loss weights: {}'.format(loss_weights))
-            train_epoch_loss, loss_t, train_epoch_losses, sep_epoch_losses_train = self.train_epoch(epoch, loss_weights, train_epoch_losses, sep_epoch_losses)
+            train_epoch_loss, train_epoch_losses, train_epoch_losses_pred, train_epoch_losses_class = self.train_epoch(epoch, loss_weights, train_epoch_losses, train_epoch_losses_pred, train_epoch_losses_class)
             if train_epoch_loss > 1e6:
                 self.logger.warning('Gradient explosion detected. Ending...')
                 break
@@ -258,7 +269,7 @@ class Trainer(object):
         
         
 
-        def plot_losses(train_epoch_losses, val_epoch_losses, sep_epoch_losses):
+        def plot_losses(train_epoch_losses, val_epoch_losses, train_epoch_losses_pred, train_epoch_losses_class):
             plt.figure(figsize=(12, 8))
 
             # Plotting the total loss
@@ -268,8 +279,8 @@ class Trainer(object):
             labels = ["pred", "class"]
             # Plotting the separate losses
             # print("sep_epoch_losses: ", sep_epoch_losses)
-            plt.plot(sep_epoch_losses[0], label=f'Loss {labels[0]}')
-            plt.plot(sep_epoch_losses[1], label=f'Loss {labels[1]}')
+            plt.plot(train_epoch_losses_pred, label=f'Loss {labels[0]}')
+            plt.plot(train_epoch_losses_class, label=f'Loss {labels[1]}')
 
             plt.xlabel('Epochs')
             plt.ylabel('Loss')
@@ -292,7 +303,7 @@ class Trainer(object):
             'test_results': test_results,
         }
 
-        plot_losses(train_epoch_losses, val_epoch_losses, sep_epoch_losses_train)
+        plot_losses(train_epoch_losses, val_epoch_losses, train_epoch_losses_pred, train_epoch_losses_class)
         return results
 
     @staticmethod
