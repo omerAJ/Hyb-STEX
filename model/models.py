@@ -215,7 +215,7 @@ class STSSL(nn.Module):
     def loss(self, z1, evs, y_true, scaler, loss_weights):
         l_pred = self.pred_loss(z1, evs, y_true, scaler)
         
-        l_class = self.classification_loss(z1, evs)
+        l_class = 10*self.classification_loss(z1, evs)
         # sep_loss = [l1.item()]
         loss = l_pred + l_class 
 

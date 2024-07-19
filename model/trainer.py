@@ -154,13 +154,13 @@ class Trainer(object):
 
                 
         train_epoch_loss = total_loss/self.train_per_epoch
-        total_loss_pred = total_loss_pred/self.train_per_epoch
-        total_loss_class = total_loss_class/self.train_per_epoch
+        train_epoch_loss_pred = total_loss_pred/self.train_per_epoch
+        train_epoch_loss_class = total_loss_class/self.train_per_epoch
         # Save losses for plotting
         epoch_losses.append(train_epoch_loss)
-        epoch_losses_pred.append(total_loss_pred)
-        epoch_losses_class.append(total_loss_class)
-        self.logger.info(f'*******Train Epoch {epoch}: averaged Loss : {train_epoch_loss}, loss_pred: {epoch_losses_pred}, loss_class: {epoch_losses_class}')
+        epoch_losses_pred.append(train_epoch_loss_pred)
+        epoch_losses_class.append(train_epoch_loss_class)
+        self.logger.info(f'*******Train Epoch {epoch}: averaged Loss : {train_epoch_loss}, loss_pred: {train_epoch_loss_pred}, loss_class: {train_epoch_loss_class}')
 
         return train_epoch_loss, epoch_losses, epoch_losses_pred, epoch_losses_class
     
@@ -174,7 +174,6 @@ class Trainer(object):
             for batch_idx, (data, target, evs) in enumerate(val_dataloader):
                 repr1 = self.model(data, self.graph)
                 loss, loss_pred, loss_class = self.model.loss(repr1, evs, target, self.scaler, loss_weights)
-
                 if not torch.isnan(loss):
                     total_val_loss += loss.item()
                     total_val_loss_pred += loss_pred
@@ -184,7 +183,7 @@ class Trainer(object):
         val_loss_class = total_val_loss_class / len(val_dataloader)
         self.logger.info(f'*******Val Epoch {epoch}: averaged Loss : {val_loss}, loss_pred: {val_loss_pred}, loss_class: {val_loss_class}')
 
-        return val_loss
+        return val_loss_pred
 
     def save_weights(self, weights, epoch=None, directory="weight_data"):
         if epoch is not None:
@@ -274,7 +273,7 @@ class Trainer(object):
 
             # Plotting the total loss
             plt.plot(train_epoch_losses, label='Train Loss')
-            plt.plot(val_epoch_losses, label='Val Loss')
+            plt.plot(val_epoch_losses, label='Val Loss (pred only)')
 
             labels = ["pred", "class"]
             # Plotting the separate losses
