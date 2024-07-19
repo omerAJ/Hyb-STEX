@@ -28,7 +28,7 @@ class STSSL(nn.Module):
         self.ff = PositionwiseFeedForward(d_model=128, d_ff=64*4)
         self.mlp = MLP(int((2)*args.d_model), args.d_output)
         if args.loss == 'mae':
-            self.loss_fun = masked_mae_loss(mask_value=0.0)
+            self.loss_fun = masked_mae_loss(mask_value=5.0)
         elif args.loss == 'mse':
             self.loss_fun = masked_mse_loss(mask_value=5.0)
         self.args = args
