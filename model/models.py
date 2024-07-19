@@ -74,6 +74,7 @@ class STSSL(nn.Module):
         N = 200
         self.weights = nn.Parameter(torch.ones(N) / N)
         self.key_projection = nn.Linear(int((2)*args.d_model), int((2)*args.d_model))
+        self.project_to_classify = nn.Linear(int((2)*args.d_model), int((2)*args.d_model))
         self.learnable_vectors = nn.Parameter(torch.zeros(1, 1, 128, 2), requires_grad=True)
         
 
@@ -199,7 +200,7 @@ class STSSL(nn.Module):
         """
         classify each next prediction as EV or not
         """
-        return torch.sigmoid(self.mlp_classifier(z1))
+        return torch.sigmoid(self.mlp_classifier(self.project_to_classify(z1)))
 
     def predict(self, z1):
         '''Predicting future traffic flow.
@@ -215,7 +216,7 @@ class STSSL(nn.Module):
     def loss(self, z1, evs, y_true, scaler, loss_weights):
         l_pred = self.pred_loss(z1, evs, y_true, scaler)
         
-        l_class = 10*self.classification_loss(z1, evs)
+        l_class = self.classification_loss(z1, evs)
         # sep_loss = [l1.item()]
         loss = l_pred + l_class 
 
