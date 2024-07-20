@@ -183,7 +183,7 @@ class Trainer(object):
         val_loss_class = total_val_loss_class / len(val_dataloader)
         self.logger.info(f'*******Val Epoch {epoch}: averaged Loss : {val_loss}, loss_pred: {val_loss_pred}, loss_class: {val_loss_class}')
 
-        return val_loss_pred
+        return val_loss_class
 
     def save_weights(self, weights, epoch=None, directory="weight_data"):
         if epoch is not None:
@@ -310,15 +310,21 @@ class Trainer(object):
         model.eval()
         y_pred = []
         y_true = []
+        evs_true = []
+        evs_pred = []
         with torch.no_grad():
             for batch_idx, (data, target, evs) in enumerate(dataloader):
                 repr1 = model(data, graph)                
                 pred_output = model.predict(repr1)
-
+                pred_evs = model.get_evs(repr1)
                 y_true.append(target)
                 y_pred.append(pred_output)
+                evs_true.append(evs)
+                evs_pred.append(pred_evs)
         y_true = scaler.inverse_transform(torch.cat(y_true, dim=0))
         y_pred = scaler.inverse_transform(torch.cat(y_pred, dim=0))
+        evs_true = torch.cat(evs_true, dim=0).cpu().numpy()
+        evs_pred = torch.cat(evs_pred, dim=0).cpu().numpy()
 
         test_results = []
         # inflow
@@ -330,10 +336,21 @@ class Trainer(object):
         mae, mape = test_metrics(y_pred[..., 1], y_true[..., 1])
         logger.info("OUTFLOW, MAE: {:.2f}, MAPE: {:.4f}%".format(mae, mape*100))
         test_results.append([mae, mape]) 
-
+        plot_cm(evs_pred, evs_true)
         return np.stack(test_results, axis=0)
 
+def plot_cm(pred, true):
+    from sklearn.metrics import confusion_matrix
+    # Example data, replace these with your actual data
+    evs_pred_binary = (pred >= 0.2).astype(int)       # Threshold predictions at 0.2
 
+    # Flatten the arrays
+    evs_true_flat = true.flatten()
+    evs_pred_flat = evs_pred_binary.flatten()
+
+    # Calculate confusion matrix
+    conf_matrix = confusion_matrix(evs_true_flat, evs_pred_flat)
+    print("Confusion Matrix: \n", conf_matrix)
 
         
 

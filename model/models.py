@@ -74,9 +74,9 @@ class STSSL(nn.Module):
         N = 200
         self.weights = nn.Parameter(torch.ones(N) / N)
         self.key_projection = nn.Linear(int((2)*args.d_model), int((2)*args.d_model))
-        self.project_to_classify = nn.Linear(int((2)*args.d_model), int((2)*args.d_model))
+        # self.project_to_classify = nn.Linear(int((2)*args.d_model), int((2)*args.d_model))
         self.learnable_vectors = nn.Parameter(torch.zeros(1, 1, 128, 2), requires_grad=True)
-        
+        self.ff_to_classify = PositionwiseFeedForward(d_model=int((2)*args.d_model), d_ff=int((2)*args.d_model)*4)
 
     def xavier_uniform_init(self, tensor):
         fan_in, fan_out = nn.init._calculate_fan_in_and_fan_out(tensor)
@@ -200,7 +200,7 @@ class STSSL(nn.Module):
         """
         classify each next prediction as EV or not
         """
-        return torch.sigmoid(self.mlp_classifier(self.project_to_classify(z1)))
+        return torch.sigmoid(self.mlp_classifier(self.ff_to_classify(z1)))
 
     def predict(self, z1):
         '''Predicting future traffic flow.
@@ -218,7 +218,7 @@ class STSSL(nn.Module):
         
         l_class = self.classification_loss(z1, evs)
         # sep_loss = [l1.item()]
-        loss = l_pred + l_class 
+        loss = l_class 
 
         l_pred=l_pred.item()
         l_class=l_class.item()
@@ -257,10 +257,58 @@ class STSSL(nn.Module):
             return mae
         return loss
     
+    # def classification_loss(self, z1, evs_gt):
+    #     evs = self.get_evs(z1)
+    #     return F.binary_cross_entropy(evs, evs_gt)
+    
+    # def classification_loss(self, z1, evs_gt):
+    #     evs = self.get_evs(z1)
+        
+    #     # Calculate the total number of elements and number of positives (extremes)
+    #     total_elements = evs_gt.numel()
+    #     num_extremes = evs_gt.sum()
+    #     num_non_extremes = total_elements - num_extremes
+
+    #     # Compute weights for each class
+    #     weight_for_1 = total_elements / (num_extremes + 1e-6)  # Adding a small constant to avoid division by zero
+    #     weight_for_0 = total_elements / (num_non_extremes + 1e-6)
+
+    #     # Create a tensor of weights that matches the shape of evs_gt
+    #     weights = evs_gt.float() * weight_for_1 + (1 - evs_gt.float()) * weight_for_0
+
+    #     # Calculate the weighted binary cross entropy loss
+    #     return F.binary_cross_entropy(evs, evs_gt, weight=weights)
+
+    def focal_loss(self, inputs, targets):
+        """ Compute the focal loss given inputs and targets:
+        
+        inputs: tensor of predictions (probability of being the positive class)
+        targets: tensor of target labels {0, 1}
+        """
+        # First, compute the binary cross-entropy loss without reduction
+        alpha, gamma = 0.25, 2.0
+        bce_loss = F.binary_cross_entropy(inputs, targets, reduction='none')
+
+        # Here we calculate p_t
+        p_t = targets * inputs + (1 - targets) * (1 - inputs)
+
+        # Calculate the factor (1 - p_t)^gamma
+        loss_factor = (1 - p_t) ** gamma
+
+        # Calculate final focal loss
+        focal_loss = alpha * loss_factor * bce_loss
+
+        return focal_loss.mean()
+
     def classification_loss(self, z1, evs_gt):
         evs = self.get_evs(z1)
-        return F.binary_cross_entropy(evs, evs_gt)
-
+        return self.focal_loss(evs, evs_gt)
+    
+    # def classification_loss(self, z1, evs_gt):
+    #     z1_detached = z1.detach()
+    #     evs = self.get_evs(z1_detached)
+    #     return self.focal_loss(evs, evs_gt)
+    
     def pred_loss(self, z1, evs_gt, y_true, scaler):
         preds = self.predict(z1)
         y_pred = scaler.inverse_transform(preds)
