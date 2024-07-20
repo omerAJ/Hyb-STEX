@@ -218,7 +218,7 @@ class STSSL(nn.Module):
         
         l_class = self.classification_loss(z1, evs)
         # sep_loss = [l1.item()]
-        loss = l_pred + l_class 
+        loss = l_class 
 
         l_pred=l_pred.item()
         l_class=l_class.item()
@@ -257,10 +257,58 @@ class STSSL(nn.Module):
             return mae
         return loss
     
+    # def classification_loss(self, z1, evs_gt):
+    #     evs = self.get_evs(z1)
+    #     return F.binary_cross_entropy(evs, evs_gt)
+    
+    # def classification_loss(self, z1, evs_gt):
+    #     evs = self.get_evs(z1)
+        
+    #     # Calculate the total number of elements and number of positives (extremes)
+    #     total_elements = evs_gt.numel()
+    #     num_extremes = evs_gt.sum()
+    #     num_non_extremes = total_elements - num_extremes
+
+    #     # Compute weights for each class
+    #     weight_for_1 = total_elements / (num_extremes + 1e-6)  # Adding a small constant to avoid division by zero
+    #     weight_for_0 = total_elements / (num_non_extremes + 1e-6)
+
+    #     # Create a tensor of weights that matches the shape of evs_gt
+    #     weights = evs_gt.float() * weight_for_1 + (1 - evs_gt.float()) * weight_for_0
+
+    #     # Calculate the weighted binary cross entropy loss
+    #     return F.binary_cross_entropy(evs, evs_gt, weight=weights)
+
+    def focal_loss(self, inputs, targets):
+        """ Compute the focal loss given inputs and targets:
+        
+        inputs: tensor of predictions (probability of being the positive class)
+        targets: tensor of target labels {0, 1}
+        """
+        # First, compute the binary cross-entropy loss without reduction
+        alpha, gamma = 0.25, 2.0
+        bce_loss = F.binary_cross_entropy(inputs, targets, reduction='none')
+
+        # Here we calculate p_t
+        p_t = targets * inputs + (1 - targets) * (1 - inputs)
+
+        # Calculate the factor (1 - p_t)^gamma
+        loss_factor = (1 - p_t) ** gamma
+
+        # Calculate final focal loss
+        focal_loss = alpha * loss_factor * bce_loss
+
+        return focal_loss.mean()
+
+    # def classification_loss(self, z1, evs_gt):
+    #     z1_detached = z1.detach()
+    #     evs = self.get_evs(z1_detached)
+    #     return self.focal_loss(evs, evs_gt)
+    
     def classification_loss(self, z1, evs_gt):
         evs = self.get_evs(z1)
-        return F.binary_cross_entropy(evs, evs_gt)
-
+        return self.focal_loss(evs, evs_gt)
+    
     def pred_loss(self, z1, evs_gt, y_true, scaler):
         preds = self.predict(z1)
         y_pred = scaler.inverse_transform(preds)
