@@ -334,10 +334,6 @@ class STEncoder(nn.Module):
         
         # need to return # nlvc  [32, 1, 200, 64]
         return x # nl(=1)vc
-    
-
-    
-
 
     def _cheb_polynomial(self, laplacian, K):
         """
@@ -423,6 +419,25 @@ class STEncoder(nn.Module):
         # print("D.shape: ", D.shape, "graph.shape: ", graph.shape)
         L = I - torch.bmm(torch.bmm(D_sqrt_inv, graph), D_sqrt_inv)
         return L
+
+class attentive_fusion(nn.Module):
+    def __init__(self, d_model):
+        super(attentive_fusion, self).__init__()
+        self.d_model = d_model
+        self.attention1 = self_Attention(int((2)*self.d_model), 4)
+        self.attention2 = self_Attention(int((2)*self.d_model), 4)
+        
+    def forward(self, combined_repr):
+        combined_repr = combined_repr.squeeze(1)
+        çombined_repr_copy = combined_repr
+        combined_repr = self.attention1(combined_repr)
+        combined_repr = combined_repr + çombined_repr_copy  # skip connection
+        combined_repr_copy = combined_repr
+        combined_repr = self.attention2(combined_repr)
+        combined_repr = combined_repr + combined_repr_copy  # skip connection
+        combined_repr = combined_repr.unsqueeze(1)
+        return combined_repr
+    
 
 class get_adj_mx(nn.Module):
         def __init__(self, d_model):

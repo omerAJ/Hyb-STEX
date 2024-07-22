@@ -1,26 +1,21 @@
 @echo off
 setlocal enabledelayedexpansion
 
-call activate i-jepaVENV
+call activate ST-SSL
 TIMEOUT 3
 
 
-FOR %%s IN (1 2 3 4 5) DO (
 
-python main.py -g "8_neighbours" -c "8_neighbours baseline" -cf configs/NYCBike1.yaml -sa True -s %%s
-echo Experiment completed: Ks = 1
-TIMEOUT 3
-
-python main.py -g "8_neighbours" -c "8_neighbours baseline" -cf configs/NYCBike2.yaml -sa True -s %%s
-echo Experiment completed: Ks = 1
-TIMEOUT 3
-
-python main.py -g "8_neighbours" -c "8_neighbours baseline" -cf configs/NYCTaxi.yaml -sa True -s %%s
-echo Experiment completed: Ks = 1
-TIMEOUT 3
-
+REM Loop through values 1 to 3 for the -s parameter
+FOR /L %%G IN (1,1,3) DO (
+    python main.py -c "evl classifier independent" -s %%G -cf configs/NYCTaxi.yaml
+    echo Experiment completed: Ks = %%G
+    TIMEOUT /T 3 /NOBREAK
 )
 
 
+
 echo All experiments completed.
-TIMEOUT 30000
+TIMEOUT 99999
+
+cmd /k
