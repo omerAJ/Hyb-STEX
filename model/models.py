@@ -218,7 +218,7 @@ class STSSL(nn.Module):
         
         l_class = self.classification_loss(z1, evs)
         # sep_loss = [l1.item()]
-        loss = l_class 
+        loss = l_class + l_pred
 
         l_pred=l_pred.item()
         l_class=l_class.item()

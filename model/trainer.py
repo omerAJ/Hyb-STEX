@@ -22,7 +22,7 @@ def count_parameters(model):
 class Trainer(object):
     def __init__(self, model, optimizer, dataloader, graph, args):
         super(Trainer, self).__init__()
-        self.model = model 
+        self.model = model
         self.graph = graph
         self.args = args
 
@@ -31,7 +31,16 @@ class Trainer(object):
                 dummy_view = self._get_dummy_input(dataloader['val'], args)  
                 _ = self.model(dummy_view, self.graph)  # Trigger initialization
                 
+        
         print("dummy forward pass done.")
+        path_to_load = args.load_path
+        if path_to_load is not None:
+            state_dict = torch.load(
+                path_to_load, map_location=torch.device(args.device))
+            msg = self.model.load_state_dict(state_dict['model']) 
+            print("loading pretrained model from: ", path_to_load)
+            print("\nmsg: ", msg)
+        
         self.num_params = count_parameters(self.model)
         
         self.optimizer = optimizer
@@ -170,19 +179,26 @@ class Trainer(object):
         total_val_loss = 0
         total_val_loss_pred = 0
         total_val_loss_class = 0
+        evs_true = []
+        evs_pred = []
         with torch.no_grad():
             for batch_idx, (data, target, evs) in enumerate(val_dataloader):
                 repr1 = self.model(data, self.graph)
                 loss, loss_pred, loss_class = self.model.loss(repr1, evs, target, self.scaler, loss_weights)
+                evs_true.append(evs)
+                evs_pred.append(self.model.get_evs(repr1))
                 if not torch.isnan(loss):
                     total_val_loss += loss.item()
                     total_val_loss_pred += loss_pred
                     total_val_loss_class += loss_class
+        evs_true = torch.cat(evs_true, dim=0).cpu().numpy()
+        evs_pred = torch.cat(evs_pred, dim=0).cpu().numpy()
         val_loss = total_val_loss / len(val_dataloader)
         val_loss_pred = total_val_loss_pred / len(val_dataloader)
         val_loss_class = total_val_loss_class / len(val_dataloader)
         self.logger.info(f'*******Val Epoch {epoch}: averaged Loss : {val_loss}, loss_pred: {val_loss_pred}, loss_class: {val_loss_class}')
-
+        cm = plot_cm(evs_pred, evs_true)
+        self.logger.info(f"Confusion Matrix: \n{cm}")
         return val_loss_class
 
     def save_weights(self, weights, epoch=None, directory="weight_data"):
@@ -217,6 +233,12 @@ class Trainer(object):
                 else:
                     loss_weights  = dwa(loss_tm1, loss_tm2, self.args.temp)
             self.logger.info('loss weights: {}'.format(loss_weights))
+            if epoch == 1 and self.args.load_path is not None:
+                self.logger.info('validating pretrained model')
+                val_dataloader = self.val_loader if self.val_loader != None else self.test_loader
+                val_epoch_loss = self.val_epoch(epoch, val_dataloader, loss_weights)       
+                val_epoch_losses.append(val_epoch_loss)
+            
             train_epoch_loss, train_epoch_losses, train_epoch_losses_pred, train_epoch_losses_class = self.train_epoch(epoch, loss_weights, train_epoch_losses, train_epoch_losses_pred, train_epoch_losses_class)
             if train_epoch_loss > 1e6:
                 self.logger.warning('Gradient explosion detected. Ending...')
@@ -310,6 +332,8 @@ class Trainer(object):
         model.eval()
         y_pred = []
         y_true = []
+        evs_true = []
+        evs_pred = []
         with torch.no_grad():
             for batch_idx, (data, target, evs) in enumerate(dataloader):
                 repr1 = model(data, graph)                
@@ -334,8 +358,8 @@ class Trainer(object):
         mae, mape = test_metrics(y_pred[..., 1], y_true[..., 1])
         logger.info("OUTFLOW, MAE: {:.2f}, MAPE: {:.4f}%".format(mae, mape*100))
         test_results.append([mae, mape]) 
-        plot_cm(evs_pred, evs_true)
-
+        cm = plot_cm(evs_pred, evs_true)
+        logger.info(f"Confusion Matrix: \n{cm}")
         return np.stack(test_results, axis=0)
 
 
@@ -350,5 +374,5 @@ def plot_cm(pred, true):
 
     # Calculate confusion matrix
     conf_matrix = confusion_matrix(evs_true_flat, evs_pred_flat)
-    print("Confusion Matrix: \n", conf_matrix)     
+    return conf_matrix     
 
