@@ -6,13 +6,11 @@ TIMEOUT 3
 
 
 
-REM Loop through values 1 to 3 for the -s parameter
-FOR /L %%G IN (1,1,3) DO (
-    python main.py -c "training only the classifier with ff proj and focal loss" -s %%G
-    echo Experiment completed: Ks = %%G
-    TIMEOUT /T 3 /NOBREAK
-)
+python main.py -c "using the pretrained classifier as initialization" -s 1 -lp "D:\omer\ST-SSL_simple2\experiments\NYCTaxi\pred__seed=1\20240720-123420\training only the classifier with ff proj and focal loss\best_model.pth"
 
+python main.py -c "using the pretrained classifier as initialization" -s 2 -lp "D:\omer\ST-SSL_simple2\experiments\NYCTaxi\pred__seed=2\20240720-124547\training only the classifier with ff proj and focal loss\best_model.pth"
+
+python main.py -c "using the pretrained classifier as initialization" -s 3 -lp "D:\omer\ST-SSL_simple2\experiments\NYCTaxi\pred__seed=3\20240720-125626\training only the classifier with ff proj and focal loss\best_model.pth"
 
 
 echo All experiments completed.

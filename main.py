@@ -39,6 +39,13 @@ def model_supervisor(args):
     args.ipe = len(dataloader['train'])
     ## init model and set optimizer
     model = STSSL(args).to(args.device)
+    if args.load_path is not None:
+        state_dict = torch.load(
+            args.load_path,
+            map_location=torch.device(args.device)
+        )
+        msg = model.load_state_dict(state_dict['model'])
+        print("Load saved model: ", msg)
     model_parameters = get_model_params([model])
     optimizer = torch.optim.Adam(
         params=model_parameters, 
@@ -106,6 +113,7 @@ if __name__=='__main__':
     parser.add_argument('--threshold_adj_mx', "-tadj", default=False, type=bool, help='wether to threshold the learnt adj_mx')
     parser.add_argument('--affinity_conv', "-afc", default=False, type=bool, help='wether to affinity conv')
     parser.add_argument('--loss', "-l", default="mae", type=str, help='mae/mse')
+    parser.add_argument('--load_path', "-lp", default=None, type=str, help='path to load pretrained model from')
 
     # parser.add_argument('--input_length', default=0, type=int, help='# of samples to use for context')
     args = parser.parse_args()
@@ -138,6 +146,7 @@ if __name__=='__main__':
     configs['threshold_adj_mx'] = args.threshold_adj_mx
     configs['affinity_conv'] = args.affinity_conv
     configs['loss'] = args.loss
+    configs['load_path'] = args.load_path
     
     # configs['input_length'] = args.input_length
     # experimentName = "pred_" + str(args.input_length) + "_"
