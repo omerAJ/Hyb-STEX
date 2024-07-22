@@ -32,7 +32,7 @@ num_epochs: 1000
 epochs: 1000
 lr_init: 0.0005
 early_stop: True
-early_stop_patience: 50
+early_stop_patience: 45
 grad_norm: True
 max_grad_norm: 5
 use_dwa: True         # whether to use dwa for loss balance
