@@ -74,9 +74,9 @@ class STSSL(nn.Module):
         N = 200
         self.weights = nn.Parameter(torch.ones(N) / N)
         self.key_projection = nn.Linear(int((2)*args.d_model), int((2)*args.d_model))
-        # self.project_to_classify = nn.Linear(int((2)*args.d_model), int((2)*args.d_model))
+        self.project_to_classify = nn.Linear(int((2)*args.d_model), int((2)*args.d_model))
         self.learnable_vectors = nn.Parameter(torch.zeros(1, 1, 128, 2), requires_grad=True)
-        self.ff_to_classify = PositionwiseFeedForward(d_model=int((2)*args.d_model), d_ff=int((2)*args.d_model)*4)
+        
 
     def xavier_uniform_init(self, tensor):
         fan_in, fan_out = nn.init._calculate_fan_in_and_fan_out(tensor)
@@ -200,7 +200,7 @@ class STSSL(nn.Module):
         """
         classify each next prediction as EV or not
         """
-        return torch.sigmoid(self.mlp_classifier(self.ff_to_classify(z1)))
+        return torch.sigmoid(self.mlp_classifier(self.project_to_classify(z1)))
 
     def predict(self, z1):
         '''Predicting future traffic flow.
@@ -300,14 +300,14 @@ class STSSL(nn.Module):
 
         return focal_loss.mean()
 
-    def classification_loss(self, z1, evs_gt):
-        evs = self.get_evs(z1)
-        return self.focal_loss(evs, evs_gt)
-    
     # def classification_loss(self, z1, evs_gt):
     #     z1_detached = z1.detach()
     #     evs = self.get_evs(z1_detached)
     #     return self.focal_loss(evs, evs_gt)
+    
+    def classification_loss(self, z1, evs_gt):
+        evs = self.get_evs(z1)
+        return self.focal_loss(evs, evs_gt)
     
     def pred_loss(self, z1, evs_gt, y_true, scaler):
         preds = self.predict(z1)
