@@ -103,7 +103,7 @@ class Trainer(object):
             repr1, repr1_cls = self.model(data, self.graph) # nvc
             
 
-            loss, loss_pred, loss_class = self.model.loss(repr1, repr1_cls, evs, target, self.scaler, loss_weights)
+            loss, loss_pred, loss_class = self.model.loss(repr1, evs, target, self.scaler, loss_weights)
             # print("sep_loss: ", sep_loss)
             assert not torch.isnan(loss)
             loss.backward()
@@ -184,7 +184,7 @@ class Trainer(object):
         with torch.no_grad():
             for batch_idx, (data, target, evs) in enumerate(val_dataloader):
                 repr1, repr1_cls = self.model(data, self.graph)
-                loss, loss_pred, loss_class = self.model.loss(repr1, repr1_cls, evs, target, self.scaler, loss_weights)
+                loss, loss_pred, loss_class = self.model.loss(repr1, evs, target, self.scaler, loss_weights)
                 evs_true.append(evs)
                 evs_pred.append(self.model.get_evs(repr1))
                 if not torch.isnan(loss):
@@ -210,6 +210,7 @@ class Trainer(object):
         np.save(save_path, weights)
     
     def train(self):
+        import keyboard
         train_epoch_losses = []
         val_epoch_losses = []
         train_epoch_losses_pred = []
@@ -221,9 +222,19 @@ class Trainer(object):
         start_time = time.time()
         current_weights = self.model.weights.detach().cpu().numpy()
         weight_history.append(current_weights)
+        key_pressed = False
+        # Setup the key listener
+        def on_key_press(event):
+            nonlocal key_pressed  # Use nonlocal to modify the outer scope variable
+            if event.name == 'k':  # You can change 'esc' to another key if needed
+                key_pressed = True
 
-        loss_tm1 = loss_t = np.ones(3) #(1.0, 1.0, 1.0)
+        keyboard.on_press(on_key_press)
+        loss_tm1 = loss_t = np.ones(2) #(1.0, 1.0)
         for epoch in range(1, self.args.epochs + 1):
+            if key_pressed:
+                self.logger.info('Key press detected. Exiting training loop...')
+                break
             # dwa mechanism to balance optimization speed for different tasks
             if self.args.use_dwa:
                 loss_tm2 = loss_tm1
@@ -337,8 +348,8 @@ class Trainer(object):
         with torch.no_grad():
             for batch_idx, (data, target, evs) in enumerate(dataloader):
                 repr1, repr1_cls = model(data, graph)                
-                pred_output = model.predict(repr1, repr1_cls)
-                pred_evs = model.get_evs(repr1_cls)
+                pred_output = model.predict(repr1)
+                pred_evs = model.get_evs(repr1)
                 y_true.append(target)
                 y_pred.append(pred_output)
                 evs_true.append(evs)
