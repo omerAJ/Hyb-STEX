@@ -223,13 +223,12 @@ class Trainer(object):
         current_weights = self.model.weights.detach().cpu().numpy()
         weight_history.append(current_weights)
         key_pressed = False
-        # Setup the key listener
-        def on_key_press(event):
-            nonlocal key_pressed  # Use nonlocal to modify the outer scope variable
-            if event.name == 'k':  # You can change 'esc' to another key if needed
-                key_pressed = True
+        def end_training():
+            nonlocal key_pressed
+            key_pressed = True
+            print("Ctrl+Shift+K pressed. Ending training...")
 
-        keyboard.on_press(on_key_press)
+        keyboard.add_hotkey('ctrl+shift+k', end_training)
         loss_tm1 = loss_t = np.ones(2) #(1.0, 1.0)
         for epoch in range(1, self.args.epochs + 1):
             if key_pressed:

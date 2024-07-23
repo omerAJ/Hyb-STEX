@@ -84,8 +84,8 @@ class STSSL(nn.Module):
         self.weights = nn.Parameter(torch.ones(N) / N)
         self.key_projection = nn.Linear(int((2)*args.d_model), int((2)*args.d_model))
         self.project_to_classify = nn.Linear(int((2)*args.d_model), int((2)*args.d_model))
-        self.learnable_vectors = nn.Parameter(torch.zeros(1, 1, 128, 2), requires_grad=True)
-        
+        self.learnable_vectors = nn.Parameter(torch.empty(1, 1, 128, 2), requires_grad=True)
+        self.xavier_uniform_init(self.learnable_vectors) 
 
     def xavier_uniform_init(self, tensor):
         fan_in, fan_out = nn.init._calculate_fan_in_and_fan_out(tensor)
