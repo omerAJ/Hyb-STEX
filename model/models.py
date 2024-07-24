@@ -84,15 +84,14 @@ class STSSL(nn.Module):
         self.weights = nn.Parameter(torch.ones(N) / N)
         self.key_projection = nn.Linear(int((2)*args.d_model), int((2)*args.d_model))
         self.project_to_classify = nn.Linear(int((2)*args.d_model), int((2)*args.d_model))
-        self.learnable_vectors = nn.Parameter(torch.empty(1, 1, 128, 2), requires_grad=True)
-        self.xavier_uniform_init(self.learnable_vectors) 
+        self.learnable_vectors = nn.Parameter(torch.zeros(1, 1, 128, 2), requires_grad=True)
+        # self.xavier_uniform_init(self.learnable_vectors) 
 
     def xavier_uniform_init(self, tensor):
         fan_in, fan_out = nn.init._calculate_fan_in_and_fan_out(tensor)
         std = np.sqrt(2.0 / (fan_in + fan_out))
         nn.init.uniform_(tensor, -std, std) 
 
-    
     def threshold_top_values(self, tensor):
         mask = torch.zeros_like(tensor).detach()
         
@@ -211,7 +210,7 @@ class STSSL(nn.Module):
         
         ## which repr to use to calculate the bias, maybe both
         
-        o = o_tilde + self.get_bias(z1) * evs
+        o = o_tilde * (1-evs) + self.get_bias(z1) * evs
         return o
 
     def loss(self, z1, evs, y_true, scaler, loss_weights):

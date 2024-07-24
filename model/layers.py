@@ -437,7 +437,6 @@ class attentive_fusion(nn.Module):
         combined_repr = combined_repr + combined_repr_copy  # skip connection
         combined_repr = combined_repr.unsqueeze(1)
         return combined_repr
-    
 
 class get_adj_mx(nn.Module):
         def __init__(self, d_model):
