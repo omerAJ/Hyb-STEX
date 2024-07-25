@@ -102,7 +102,7 @@ def get_dataloader(data_dir, dataset, batch_size, test_batch_size, scalar_type='
         # skip = cat_data['x'].shape[1] - input_length
         data['x_' + category] = cat_data['x']
         data['y_' + category] = cat_data['y']
-        data['evs_noisy' + category] = cat_data['evs_noisy']
+        data['evs_' + category] = cat_data['evs_noisy']
         print("!!using noisy evs!!")
     scaler = normalize_data(np.concatenate([data['x_train'], data['x_val']], axis=0), scalar_type)
     # print("skip: ", skip)
