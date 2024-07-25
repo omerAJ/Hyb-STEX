@@ -1,0 +1,21 @@
+From 61a26954b54841d47a9cfa0d2e24ad7baba82f44 Mon Sep 17 00:00:00 2001
+From: omerAJ <23100050@lums.edu.pk>
+Date: Thu, 25 Jul 2024 16:34:29 +0500
+Subject: [PATCH 1/2] .
+
+---
+ .gitignore | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/.gitignore b/.gitignore
+index 430abae..114a89c 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -2,3 +2,4 @@
+ !/experiments/*.csv
+ /data
+ /logs
++/pretrain_experiments
+-- 
+2.42.0.windows.2
+

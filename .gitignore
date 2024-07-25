@@ -2,3 +2,4 @@
 !/experiments/*.csv
 /data
 /logs
+/pretrain_experiments/*

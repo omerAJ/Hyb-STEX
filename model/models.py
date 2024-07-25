@@ -13,6 +13,7 @@ from model.layers import (
     self_Attention,
     PositionwiseFeedForward,
     attentive_fusion,
+    classify_evs,
 )
 
 from model.vision_transformer_utils import apply_masks_targets
@@ -27,11 +28,12 @@ class STSSL(nn.Module):
         # self.attention2 = self_Attention(int((2)*args.d_model), 4)
         
         self.attentive_fuse = attentive_fusion(args.d_model)
-        # self.attentive_fuse_cls = attentive_fusion(args.d_model)
+        self.attentive_fuse_cls = attentive_fusion(args.d_model)
 
         self.ff = PositionwiseFeedForward(d_model=128, d_ff=64*4)
         self.mlp = MLP(int((2)*args.d_model), args.d_output)
         self.mlp_classifier = MLP(int((2)*args.d_model), args.d_output)
+        self.mlp_bias = MLP(int((2)*args.d_model), args.d_output)
         if args.loss == 'mae':
             self.loss_fun = masked_mae_loss(mask_value=5.0)
         elif args.loss == 'mse':
@@ -50,15 +52,17 @@ class STSSL(nn.Module):
         
         ## A: 2->32->64->64->32->64 
         ## B: 2->16->32->32->16->32 
-        self.encoderA = STEncoder(Kt=3, Ks=args.cheb_order, blocks=[[2, int(args.d_model//2), args.d_model], [args.d_model, int(args.d_model//2), args.d_model]], 
-                        input_length=args.input_length, num_nodes=args.num_nodes, droprate=args.dropout, graph_init=graph_init, learnable_flag=args.learnable_flag, row=args.row, col=args.col, threshold_adj_mx=args.threshold_adj_mx, do_affinity=args.affinity_conv)
-        self.encoderB = STEncoder(Kt=3, Ks=args.cheb_order, blocks=[[2, int(args.d_model//2), args.d_model], [args.d_model, int(args.d_model//2), args.d_model]], 
-                        input_length=args.input_length, num_nodes=args.num_nodes, droprate=args.dropout, graph_init=graph_init, learnable_flag=args.learnable_flag, row=args.row, col=args.col, threshold_adj_mx=args.threshold_adj_mx, do_affinity=args.affinity_conv)         
         
-        # self.encoderA_cls = STEncoder(Kt=3, Ks=args.cheb_order, blocks=[[2, int(args.d_model//2), args.d_model], [args.d_model, int(args.d_model//2), args.d_model]], 
-        #                 input_length=args.input_length, num_nodes=args.num_nodes, droprate=args.dropout, graph_init=graph_init, learnable_flag=args.learnable_flag, row=args.row, col=args.col, threshold_adj_mx=args.threshold_adj_mx, do_affinity=args.affinity_conv)
-        # self.encoderB_cls = STEncoder(Kt=3, Ks=args.cheb_order, blocks=[[2, int(args.d_model//2), args.d_model], [args.d_model, int(args.d_model//2), args.d_model]], 
-                        # input_length=args.input_length, num_nodes=args.num_nodes, droprate=args.dropout, graph_init=graph_init, learnable_flag=args.learnable_flag, row=args.row, col=args.col, threshold_adj_mx=args.threshold_adj_mx, do_affinity=args.affinity_conv)         
+        if args.mode != "pretrain":
+            self.encoderA = STEncoder(Kt=3, Ks=args.cheb_order, blocks=[[2, int(args.d_model//2), args.d_model], [args.d_model, int(args.d_model//2), args.d_model]], 
+                            input_length=args.input_length, num_nodes=args.num_nodes, droprate=args.dropout, graph_init=graph_init, learnable_flag=args.learnable_flag, row=args.row, col=args.col, threshold_adj_mx=args.threshold_adj_mx, do_affinity=args.affinity_conv)
+            self.encoderB = STEncoder(Kt=3, Ks=args.cheb_order, blocks=[[2, int(args.d_model//2), args.d_model], [args.d_model, int(args.d_model//2), args.d_model]], 
+                            input_length=args.input_length, num_nodes=args.num_nodes, droprate=args.dropout, graph_init=graph_init, learnable_flag=args.learnable_flag, row=args.row, col=args.col, threshold_adj_mx=args.threshold_adj_mx, do_affinity=args.affinity_conv)         
+        
+        self.encoderA_cls = classify_evs(Kt=3, Ks=args.cheb_order, blocks=[[2, int(args.d_model//2), args.d_model], [args.d_model, int(args.d_model//2), args.d_model]], 
+                        input_length=args.input_length, num_nodes=args.num_nodes, droprate=args.dropout, graph_init=graph_init)
+        self.encoderB_cls = classify_evs(Kt=3, Ks=args.cheb_order, blocks=[[2, int(args.d_model//2), args.d_model], [args.d_model, int(args.d_model//2), args.d_model]], 
+                        input_length=args.input_length, num_nodes=args.num_nodes, droprate=args.dropout, graph_init=graph_init)         
         
         # ## norms
         self.layernorm1 = nn.LayerNorm(int((2)*args.d_model))
@@ -137,7 +141,6 @@ class STSSL(nn.Module):
     
     
     def forward(self, view1, graph):
-        
         if self.dataset == "NYCBike1":
             view1A = view1[:, -4:19, :, :]
             view1B = view1[:, -9:-4, :, :]
@@ -148,30 +151,36 @@ class STSSL(nn.Module):
             # view1 = view1[:, -8:35, :, :]
         view1A = view1A.to(self.args.device)
         view1B = view1B.to(self.args.device)
-        # print(f"view1.shape: {view1.shape}, view1A.shape: {view1A.shape}, view1B.shape: {view1B.shape}")  ## view1.shape: torch.Size([32, 17, 200, 2]), view1A.shape: torch.Size([32, 8, 200, 2]), view1B.shape: torch.Size([32, 9, 200, 2])
-        
-        B, T, N, D = view1.size()
-
-        learnable_graph = self.neighbours   ## make 1st channel dimension for einsum to properly message pass
+        if self.args.mode == "pretrain":
+            repr1A_cls = self.encoderA_cls(view1A, graph) # view1: n,l,v,c; graph: v,v 
+            repr1B_cls = self.encoderB_cls(view1B, graph) # view1: n,l,v,c; graph: v,v 
+            combined_repr_cls = torch.cat((repr1A_cls, repr1B_cls), dim=3)            ## combine along the channel dimension d_model
             
-        """ check einsum implementation for message passing, is running but probly wrong """
-        repr1A = self.encoderA(view1A, learnable_graph) # view1: n,l,v,c; graph: v,v 
-        repr1B = self.encoderB(view1B, learnable_graph) # view1: n,l,v,c; graph: v,v 
+            if self.self_attention_flag:
+                combined_repr_cls = self.attentive_fuse_cls(combined_repr_cls)
+            return combined_repr_cls, combined_repr_cls
         
-        # repr1A_cls = self.encoderA(view1A, learnable_graph) # view1: n,l,v,c; graph: v,v 
-        # repr1B_cls = self.encoderB(view1B, learnable_graph) # view1: n,l,v,c; graph: v,v 
-        # print(f"repr1A.shape: {repr1A.shape}, repr1B.shape: {repr1B.shape}")
-        
-        combined_repr = torch.cat((repr1A, repr1B), dim=3)            ## combine along the channel dimension d_model
-        
-        # combined_repr_cls = torch.cat((repr1A_cls, repr1B_cls), dim=3)            ## combine along the channel dimension d_model
-        
-        if self.self_attention_flag:
-            combined_repr = self.attentive_fuse(combined_repr)
-            # combined_repr_cls = self.attentive_fuse_cls(combined_repr_cls)
-        repr2 = None
-        combined_repr_cls = None
-        return combined_repr, combined_repr_cls
+        else:
+            learnable_graph = self.neighbours   ## make 1st channel dimension for einsum to properly message pass
+                
+            """ check einsum implementation for message passing, is running but probly wrong """
+            repr1A = self.encoderA(view1A, graph) # view1: n,l,v,c; graph: v,v 
+            repr1B = self.encoderB(view1B, graph) # view1: n,l,v,c; graph: v,v 
+            
+            repr1A_cls = self.encoderA_cls(view1A, graph) # view1: n,l,v,c; graph: v,v 
+            repr1B_cls = self.encoderB_cls(view1B, graph) # view1: n,l,v,c; graph: v,v 
+            # print(f"repr1A.shape: {repr1A.shape}, repr1B.shape: {repr1B.shape}")
+            
+            combined_repr = torch.cat((repr1A, repr1B), dim=3)            ## combine along the channel dimension d_model
+            
+            combined_repr_cls = torch.cat((repr1A_cls, repr1B_cls), dim=3)            ## combine along the channel dimension d_model
+            
+            if self.self_attention_flag:
+                combined_repr = self.attentive_fuse(combined_repr)
+                combined_repr_cls = self.attentive_fuse_cls(combined_repr_cls)
+            repr2 = None
+            # combined_repr_cls = None
+            return combined_repr, combined_repr_cls
 
 
     def fetch_spatial_sim(self):
@@ -189,40 +198,51 @@ class STSSL(nn.Module):
         """
         get the bias for each node and timestep 
         """
-        k = self.key_projection(z1)
-        bias = torch.matmul(k, self.learnable_vectors)
+        # k = self.key_projection(z1)
+        # bias = torch.matmul(k, self.learnable_vectors)
+        bias = self.mlp_bias(z1)
         return bias
 
     def get_evs(self, z1):
         """
         classify each next prediction as EV or not
         """
-        return torch.sigmoid(self.mlp_classifier(self.project_to_classify(z1)))
+        evs = torch.sigmoid(self.mlp_classifier(self.project_to_classify(z1)))
+        
+        if self.args.mode != "pretrain":
+            # threshold evs at 0.25
+            evs = torch.where(evs > 0.35, torch.tensor(1.0).to(self.args.device), torch.tensor(0.0).to(self.args.device))
+        return evs
 
-    def predict(self, z1):
+    def predict(self, z1, z1_cls):
         '''Predicting future traffic flow.
         :param z1, z2 (tensor): shape nvc
         :return: nlvc, l=1, c=2
         '''
         # print("z1.shape: ", z1.shape)
         o_tilde = self.mlp(z1)
-        evs = self.get_evs(z1)
+        evs = self.get_evs(z1_cls)
         
         ## which repr to use to calculate the bias, maybe both
-        
-        o = o_tilde * (1-evs) + self.get_bias(z1) * evs
+
+        o = o_tilde + self.get_bias(z1) * evs
         return o
 
-    def loss(self, z1, evs, y_true, scaler, loss_weights):
-        l_pred = self.pred_loss(z1, evs, y_true, scaler)
-        
-        l_class = self.classification_loss(z1, evs)
-        # sep_loss = [l1.item()]
-        loss = loss_weights[0]*l_pred + loss_weights[1]*l_class
+    def loss(self, z1, z1_cls, evs, y_true, scaler, loss_weights):
+        if self.args.mode == "pretrain":
+            l_class = self.classification_loss(z1, evs)
+            return l_class, 0, l_class.item()
+        else:
+            l_pred = self.pred_loss(z1, z1_cls, evs, y_true, scaler)
+            
+            # l_class = self.classification_loss(z1, evs)
+            # sep_loss = [l1.item()]
+            # loss = loss_weights[0]*l_pred + loss_weights[1]*l_class
+            loss = loss_weights[0]*l_pred
 
-        l_pred=l_pred.item()
-        l_class=l_class.item()
-        return loss, l_pred, l_class
+            l_pred=l_pred.item()
+            l_class=0
+            return loss, l_pred, l_class
     
     """
     # def classification_loss(self, z1, evs_gt):
@@ -278,8 +298,8 @@ class STSSL(nn.Module):
         evs = self.get_evs(z1)
         return self.focal_loss(evs, evs_gt)
     
-    def pred_loss(self, z1, evs_gt, y_true, scaler):
-        preds = self.predict(z1)
+    def pred_loss(self, z1, z1_cls, evs_gt, y_true, scaler):
+        preds = self.predict(z1, z1_cls)
         y_pred = scaler.inverse_transform(preds)
         y_true = scaler.inverse_transform(y_true)
 

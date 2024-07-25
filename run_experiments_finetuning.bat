@@ -6,11 +6,13 @@ TIMEOUT 3
 
 
 
-python main.py -c "using the pretrained classifier as initialization" -s 1 -lp "D:\omer\ST-SSL\experiments\NYCTaxi\pred__seed=1\20240720-123431\training only the classifier with linear proj and focal loss\best_model.pth"
+REM Loop through values 1 to 3 for the -s parameter
+FOR /L %%G IN (1,1,3) DO (
+    python main.py -c "pretrained classifier @0.35, mlp_bias" -s %%G -cf configs/NYCBike1.yaml -lp "D:\omer\ST-SSL_simple2\pretrain_experiments\NYCBike1\pred__seed=1\20240724-155028\noComment\best_model.pth"
+    echo Experiment completed: Ks = %%G
+    TIMEOUT /T 3 /NOBREAK
+)
 
-python main.py -c "using the pretrained classifier as initialization" -s 2 -lp "D:\omer\ST-SSL\experiments\NYCTaxi\pred__seed=2\20240720-124507\training only the classifier with linear proj and focal loss\best_model.pth"
-
-python main.py -c "using the pretrained classifier as initialization" -s 3 -lp "D:\omer\ST-SSL\experiments\NYCTaxi\pred__seed=3\20240720-125741\training only the classifier with linear proj and focal loss\best_model.pth"
 
 
 echo All experiments completed.

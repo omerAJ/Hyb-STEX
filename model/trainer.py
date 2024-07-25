@@ -37,7 +37,7 @@ class Trainer(object):
         if path_to_load is not None:
             state_dict = torch.load(
                 path_to_load, map_location=torch.device(args.device))
-            msg = self.model.load_state_dict(state_dict['model']) 
+            msg = self.model.load_state_dict(state_dict['model'], strict=False) 
             print("loading pretrained model from: ", path_to_load)
             print("\nmsg: ", msg)
         
@@ -102,8 +102,10 @@ class Trainer(object):
             # input shape: n,l,v,c; graph shape: v,v;
             repr1, repr1_cls = self.model(data, self.graph) # nvc
             
-
-            loss, loss_pred, loss_class = self.model.loss(repr1, evs, target, self.scaler, loss_weights)
+            if self.args.mode == "pretrain":
+                loss, loss_pred, loss_class = self.model.loss(repr1, repr1_cls, evs, target, self.scaler, loss_weights)
+            else:
+                loss, loss_pred, loss_class = self.model.loss(repr1, repr1_cls, evs, target, self.scaler, loss_weights)
             # print("sep_loss: ", sep_loss)
             assert not torch.isnan(loss)
             loss.backward()
@@ -184,9 +186,14 @@ class Trainer(object):
         with torch.no_grad():
             for batch_idx, (data, target, evs) in enumerate(val_dataloader):
                 repr1, repr1_cls = self.model(data, self.graph)
-                loss, loss_pred, loss_class = self.model.loss(repr1, evs, target, self.scaler, loss_weights)
+                if self.args.mode == "pretrain":
+                    loss, loss_pred, loss_class = self.model.loss(repr1, repr1_cls, evs, target, self.scaler, loss_weights)
+                    predicted_evs = self.model.get_evs(repr1_cls)
+                else:
+                    loss, loss_pred, loss_class = self.model.loss(repr1, repr1_cls, evs, target, self.scaler, loss_weights)
+                    predicted_evs = self.model.get_evs(repr1_cls)
                 evs_true.append(evs)
-                evs_pred.append(self.model.get_evs(repr1))
+                evs_pred.append(predicted_evs)
                 if not torch.isnan(loss):
                     total_val_loss += loss.item()
                     total_val_loss_pred += loss_pred
@@ -199,7 +206,7 @@ class Trainer(object):
         self.logger.info(f'*******Val Epoch {epoch}: averaged Loss : {val_loss}, loss_pred: {val_loss_pred}, loss_class: {val_loss_class}')
         cm = plot_cm(evs_pred, evs_true)
         self.logger.info(f"Confusion Matrix: \n{cm}")
-        return val_loss_pred
+        return val_loss
 
     def save_weights(self, weights, epoch=None, directory="weight_data"):
         if epoch is not None:
@@ -347,8 +354,12 @@ class Trainer(object):
         with torch.no_grad():
             for batch_idx, (data, target, evs) in enumerate(dataloader):
                 repr1, repr1_cls = model(data, graph)                
-                pred_output = model.predict(repr1)
-                pred_evs = model.get_evs(repr1)
+                if args.mode == "pretrain":
+                    pred_output = model.predict(repr1, repr1_cls)
+                    pred_evs = model.get_evs(repr1_cls)
+                else:
+                    pred_output = model.predict(repr1, repr1_cls)
+                    pred_evs = model.get_evs(repr1_cls)
                 y_true.append(target)
                 y_pred.append(pred_output)
                 evs_true.append(evs)

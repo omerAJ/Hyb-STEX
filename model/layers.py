@@ -281,13 +281,8 @@ class STEncoder(nn.Module):
 
     def forward(self, x0, learnable_graph):
         
-        threshold = False
-        if self.threshold_adj_mx:
-            threshold = True
-
-        if self.graph_init == "8_neighbours":
-            lap_mx = self._cal_laplacian(learnable_graph)      ## from adj to laplacian
-            Lk = self._cheb_polynomial(lap_mx, self.Ks)
+        lap_mx = self._cal_laplacian(learnable_graph)      ## from adj to laplacian
+        Lk = self._cheb_polynomial(lap_mx, self.Ks)
 
                 
         in_len = x0.size(1) # x0, nlvc
@@ -418,6 +413,133 @@ class STEncoder(nn.Module):
         # D = torch.diag(torch.sum(graph, dim=-1) ** (-0.5))
         # print("D.shape: ", D.shape, "graph.shape: ", graph.shape)
         L = I - torch.bmm(torch.bmm(D_sqrt_inv, graph), D_sqrt_inv)
+        return L
+
+
+
+class classify_evs(nn.Module):
+    def __init__(self, Kt, Ks, blocks, input_length, num_nodes, graph_init, droprate=0.2):
+        super(classify_evs, self).__init__()        
+        
+        self.graph_init = graph_init
+
+        self.Ks=Ks
+        c = blocks[0]
+        self.tconv11 = TemporalConvLayer(Kt, c[0], c[1], "GLU")
+        # self.represent = representationLayerOnGrid(Kt, c[0], c[1], self.row, self.col, "GLU", paddin='valid', flag=False)
+        self.pooler = Pooler(input_length - (Kt - 1), c[1])
+        
+        self.sconv12 = SpatioConvLayer(Ks, c[1], c[1])
+        t = input_length + 2 - 2 - 2 
+        self.lns1 = nn.LayerNorm([num_nodes, c[1]])
+        self.tconv13 = TemporalConvLayer(Kt, c[1], c[2])
+        self.ln1 = nn.LayerNorm([num_nodes, c[2]])
+        self.dropout1 = nn.Dropout(droprate)
+
+        c = blocks[1]
+        self.tconv21 = TemporalConvLayer(Kt, c[0], c[1], "GLU")
+        
+        self.sconv22 = SpatioConvLayer(Ks, c[1], c[1])
+        t = input_length + 2 - 2 - 2 - 2 - 2 
+        self.lns2 = nn.LayerNorm([num_nodes, c[1]])
+        self.lns3 = nn.LayerNorm([num_nodes, c[2]])
+        self.lns4 = nn.LayerNorm([num_nodes, c[2]])
+        self.tconv23 = TemporalConvLayer(Kt, c[1], c[2])
+        self.ln2 = nn.LayerNorm([num_nodes, c[2]])
+        self.dropout2 = nn.Dropout(droprate)
+        self.sconvAffinity1 = SpatioConvLayer(Ks, c[2], c[2])
+        self.sconvAffinity2 = SpatioConvLayer(Ks, c[2], c[2])
+        self.sconvPenalty1 = SpatioConvLayer(Ks, c[2], c[2])
+        self.sconvPenalty2 = SpatioConvLayer(Ks, c[2], c[2])
+        self.s_sim_mx = None
+        self.t_sim_mx = None
+
+        out_len = input_length - 2 * (Kt - 1) * len(blocks)   # input_length - 8
+        self.out_conv = TemporalConvLayer(out_len, c[2], c[2], "GLU")
+        self.ln3 = nn.LayerNorm([num_nodes, c[2]])
+        self.dropout3 = nn.Dropout(droprate)
+        self.receptive_field = input_length + Kt -1
+        
+        
+    def forward(self, x0, learnable_graph):
+        
+        lap_mx = self._cal_laplacian(learnable_graph)      ## from adj to laplacian
+        Lk = self._cheb_polynomial(lap_mx, self.Ks)
+            
+        in_len = x0.size(1) # x0, nlvc
+        if in_len < self.receptive_field:
+            x = F.pad(x0, (0,0,0,0,self.receptive_field-in_len,0))
+        else:
+            x = x0
+        x = x.permute(0, 3, 1, 2)  # (batch_size, feature_dim, input_length, num_nodes), nclv 
+        
+        x = self.tconv11(x)    # nclv          
+        # print(f"x.shape: {x.shape}, before pooler")
+        x, _, _ = self.pooler(x)
+        
+        # print(f"x.shape: {x.shape}, after pooler")
+        # self.s_sim_mx = sim_global(x_agg, sim_type='cos')
+        x = self.sconv12(x, Lk)   # nclv      
+        x = self.lns1(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)     ## ln([b, t, n, c]) -> [b, c, t, n]
+        # print(f"x.shape: {x.shape} self.nodes_status.shape: {self.nodes_status.shape}")
+            
+        x = self.tconv13(x)  
+        x = self.dropout1(self.ln1(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2))   ## btnc -> bctn
+        
+        ## ST block 2
+        x = self.tconv21(x)
+        
+        x = self.sconv22(x, Lk)   # nclv
+        x = self.lns2(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)
+            
+        x = self.tconv23(x)
+        x = self.dropout2(self.ln2(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2))
+
+        
+        # print(f"x.shape: {x.shape}, before out_conv")  ## x.shape: torch.Size([32, 64, 27, 200]), before out_conv
+        x = self.out_conv(x) # ncl(=1)v    ## filter_size = (l, 1), so dot product with time length and same kernel used for every node.
+        x = self.dropout3(self.ln3(x.permute(0, 2, 3, 1))) # nlvc  [32, 1, 200, 64]
+        # print(f"x.shape: {x.shape} after out_conv")
+        
+        # need to return # nlvc  [32, 1, 200, 64]
+        return x # nl(=1)vc
+    
+    def _cheb_polynomial(self, laplacian, K):
+        """
+        Compute the Chebyshev Polynomial, according to the graph laplacian.
+
+        :param laplacian: the graph laplacian, [v, v].
+        :return: the multi order Chebyshev laplacian, [K, v, v].
+        """
+        # print("approximating cheb_polynomial of order {}".format(K))
+        N = laplacian.size(0)  
+        multi_order_laplacian = torch.zeros([K, N, N], device=laplacian.device, dtype=torch.float) 
+        multi_order_laplacian[0] = torch.eye(N, device=laplacian.device, dtype=torch.float)
+
+        if K == 1:
+            return multi_order_laplacian
+        else:
+            multi_order_laplacian[1] = laplacian
+            if K == 2:
+                return multi_order_laplacian
+            else:
+                for k in range(2, K):
+                    multi_order_laplacian[k] = 2 * torch.mm(laplacian, multi_order_laplacian[k-1]) - multi_order_laplacian[k-2]
+
+        return multi_order_laplacian
+
+    def _cal_laplacian(self, graph):
+        """
+        return the laplacian of the graph.
+
+        :param graph: the graph structure **without** self loop, [v, v].
+        :param normalize: whether to used the normalized laplacian.
+        :return: graph laplacian.
+        """
+        I = torch.eye(graph.size(0), device=graph.device, dtype=graph.dtype)
+        graph = graph + I # add self-loop to prevent zero in D
+        D = torch.diag(torch.sum(graph, dim=-1) ** (-0.5))
+        L = I - torch.mm(torch.mm(D, graph), D)
         return L
 
 class attentive_fusion(nn.Module):
