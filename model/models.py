@@ -53,12 +53,11 @@ class STSSL(nn.Module):
         ## A: 2->32->64->64->32->64 
         ## B: 2->16->32->32->16->32 
         
-        if args.mode != "pretrain":
-            self.encoderA = STEncoder(Kt=3, Ks=args.cheb_order, blocks=[[2, int(args.d_model//2), args.d_model], [args.d_model, int(args.d_model//2), args.d_model]], 
-                            input_length=args.input_length, num_nodes=args.num_nodes, droprate=args.dropout, graph_init=graph_init, learnable_flag=args.learnable_flag, row=args.row, col=args.col, threshold_adj_mx=args.threshold_adj_mx, do_affinity=args.affinity_conv)
-            self.encoderB = STEncoder(Kt=3, Ks=args.cheb_order, blocks=[[2, int(args.d_model//2), args.d_model], [args.d_model, int(args.d_model//2), args.d_model]], 
-                            input_length=args.input_length, num_nodes=args.num_nodes, droprate=args.dropout, graph_init=graph_init, learnable_flag=args.learnable_flag, row=args.row, col=args.col, threshold_adj_mx=args.threshold_adj_mx, do_affinity=args.affinity_conv)         
-        
+        self.encoderA = STEncoder(Kt=3, Ks=args.cheb_order, blocks=[[2, int(args.d_model//2), args.d_model], [args.d_model, int(args.d_model//2), args.d_model]], 
+                        input_length=args.input_length, num_nodes=args.num_nodes, droprate=args.dropout, graph_init=graph_init, learnable_flag=args.learnable_flag, row=args.row, col=args.col, threshold_adj_mx=args.threshold_adj_mx, do_affinity=args.affinity_conv)
+        self.encoderB = STEncoder(Kt=3, Ks=args.cheb_order, blocks=[[2, int(args.d_model//2), args.d_model], [args.d_model, int(args.d_model//2), args.d_model]], 
+                        input_length=args.input_length, num_nodes=args.num_nodes, droprate=args.dropout, graph_init=graph_init, learnable_flag=args.learnable_flag, row=args.row, col=args.col, threshold_adj_mx=args.threshold_adj_mx, do_affinity=args.affinity_conv)         
+    
         self.encoderA_cls = classify_evs(Kt=3, Ks=args.cheb_order, blocks=[[2, int(args.d_model//2), args.d_model], [args.d_model, int(args.d_model//2), args.d_model]], 
                         input_length=args.input_length, num_nodes=args.num_nodes, droprate=args.dropout, graph_init=graph_init)
         self.encoderB_cls = classify_evs(Kt=3, Ks=args.cheb_order, blocks=[[2, int(args.d_model//2), args.d_model], [args.d_model, int(args.d_model//2), args.d_model]], 
@@ -151,36 +150,23 @@ class STSSL(nn.Module):
             # view1 = view1[:, -8:35, :, :]
         view1A = view1A.to(self.args.device)
         view1B = view1B.to(self.args.device)
-        if self.args.mode == "pretrain":
-            repr1A_cls = self.encoderA_cls(view1A, graph) # view1: n,l,v,c; graph: v,v 
-            repr1B_cls = self.encoderB_cls(view1B, graph) # view1: n,l,v,c; graph: v,v 
-            combined_repr_cls = torch.cat((repr1A_cls, repr1B_cls), dim=3)            ## combine along the channel dimension d_model
-            
-            if self.self_attention_flag:
-                combined_repr_cls = self.attentive_fuse_cls(combined_repr_cls)
-            return combined_repr_cls, combined_repr_cls
         
-        else:
-            learnable_graph = self.neighbours   ## make 1st channel dimension for einsum to properly message pass
-                
-            """ check einsum implementation for message passing, is running but probly wrong """
-            repr1A = self.encoderA(view1A, graph) # view1: n,l,v,c; graph: v,v 
-            repr1B = self.encoderB(view1B, graph) # view1: n,l,v,c; graph: v,v 
-            
-            repr1A_cls = self.encoderA_cls(view1A, graph) # view1: n,l,v,c; graph: v,v 
-            repr1B_cls = self.encoderB_cls(view1B, graph) # view1: n,l,v,c; graph: v,v 
-            # print(f"repr1A.shape: {repr1A.shape}, repr1B.shape: {repr1B.shape}")
-            
-            combined_repr = torch.cat((repr1A, repr1B), dim=3)            ## combine along the channel dimension d_model
-            
-            combined_repr_cls = torch.cat((repr1A_cls, repr1B_cls), dim=3)            ## combine along the channel dimension d_model
-            
-            if self.self_attention_flag:
-                combined_repr = self.attentive_fuse(combined_repr)
-                combined_repr_cls = self.attentive_fuse_cls(combined_repr_cls)
-            repr2 = None
-            # combined_repr_cls = None
-            return combined_repr, combined_repr_cls
+        repr1A = self.encoderA(view1A, graph) # view1: n,l,v,c; graph: v,v 
+        repr1B = self.encoderB(view1B, graph) # view1: n,l,v,c; graph: v,v 
+        
+        repr1A_cls = self.encoderA_cls(view1A, graph) # view1: n,l,v,c; graph: v,v 
+        repr1B_cls = self.encoderB_cls(view1B, graph) # view1: n,l,v,c; graph: v,v 
+        # print(f"repr1A.shape: {repr1A.shape}, repr1B.shape: {repr1B.shape}")
+        
+        combined_repr = torch.cat((repr1A, repr1B), dim=3)            ## combine along the channel dimension d_model
+        combined_repr_cls = torch.cat((repr1A_cls, repr1B_cls), dim=3)            ## combine along the channel dimension d_model
+        
+        if self.self_attention_flag:
+            combined_repr = self.attentive_fuse(combined_repr)
+            combined_repr_cls = self.attentive_fuse_cls(combined_repr_cls)
+        repr2 = None
+        # combined_repr_cls = None
+        return combined_repr, combined_repr_cls
 
 
     def fetch_spatial_sim(self):
@@ -203,17 +189,7 @@ class STSSL(nn.Module):
         bias = self.mlp_bias(z1)
         return bias
 
-    def get_evs(self, z1):
-        """
-        classify each next prediction as EV or not
-        """
-        evs = torch.sigmoid(self.mlp_classifier(self.project_to_classify(z1)))
-        
-        if self.args.mode != "pretrain":
-            # threshold evs at 0.25
-            evs = torch.where(evs > 0.35, torch.tensor(1.0).to(self.args.device), torch.tensor(0.0).to(self.args.device))
-        return evs
-
+    
     def predict(self, z1, z1_cls):
         '''Predicting future traffic flow.
         :param z1, z2 (tensor): shape nvc
@@ -221,94 +197,82 @@ class STSSL(nn.Module):
         '''
         # print("z1.shape: ", z1.shape)
         o_tilde = self.mlp(z1)
-        evs = self.get_evs(z1_cls)
+        bias = self.get_bias(z1_cls)
         
-        ## which repr to use to calculate the bias, maybe both
+        return o_tilde, bias
 
-        o = o_tilde + self.get_bias(z1) * evs
-        return o
+    
+    def predict_final(self, z1, z1_cls):
+        '''Predicting future traffic flow.
+        :param z1, z2 (tensor): shape nvc
+        :return: nlvc, l=1, c=2
+        '''
+        # print("z1.shape: ", z1.shape)
+        o_tilde, bias = self.predict(z1, z1_cls)
+        return o_tilde+bias
 
     def loss(self, z1, z1_cls, evs, y_true, scaler, loss_weights):
-        if self.args.mode == "pretrain":
-            l_class = self.classification_loss(z1, evs)
-            return l_class, 0, l_class.item()
-        else:
-            l_pred = self.pred_loss(z1, z1_cls, evs, y_true, scaler)
-            
-            # l_class = self.classification_loss(z1, evs)
-            # sep_loss = [l1.item()]
-            # loss = loss_weights[0]*l_pred + loss_weights[1]*l_class
-            loss = loss_weights[0]*l_pred
-
-            l_pred=l_pred.item()
-            l_class=0
-            return loss, l_pred, l_class
-    
-    """
-    # def classification_loss(self, z1, evs_gt):
-    #     evs = self.get_evs(z1)
-    #     return F.binary_cross_entropy(evs, evs_gt)
-    
-    # def classification_loss(self, z1, evs_gt):
-    #     evs = self.get_evs(z1)
+        l_pred, l_bias = self.pred_loss(z1, z1_cls, evs, y_true, scaler)
         
-    #     # Calculate the total number of elements and number of positives (extremes)
-    #     total_elements = evs_gt.numel()
-    #     num_extremes = evs_gt.sum()
-    #     num_non_extremes = total_elements - num_extremes
+        loss = loss_weights[0]*l_pred + loss_weights[1]*l_bias
 
-    #     # Compute weights for each class
-    #     weight_for_1 = total_elements / (num_extremes + 1e-6)  # Adding a small constant to avoid division by zero
-    #     weight_for_0 = total_elements / (num_non_extremes + 1e-6)
-
-    #     # Create a tensor of weights that matches the shape of evs_gt
-    #     weights = evs_gt.float() * weight_for_1 + (1 - evs_gt.float()) * weight_for_0
-
-    #     # Calculate the weighted binary cross entropy loss
-    #     return F.binary_cross_entropy(evs, evs_gt, weight=weights)
-    """
-    
-    def focal_loss(self, inputs, targets):
-        """ Compute the focal loss given inputs and targets:
+        l_pred=l_pred.item()
+        l_bias=l_bias.item()
         
-        inputs: tensor of predictions (probability of being the positive class)
-        targets: tensor of target labels {0, 1}
-        """
-        # First, compute the binary cross-entropy loss without reduction
-        alpha, gamma = 0.25, 2.0
-        bce_loss = F.binary_cross_entropy(inputs, targets, reduction='none')
-
-        # Here we calculate p_t
-        p_t = targets * inputs + (1 - targets) * (1 - inputs)
-
-        # Calculate the factor (1 - p_t)^gamma
-        loss_factor = (1 - p_t) ** gamma
-
-        # Calculate final focal loss
-        focal_loss = alpha * loss_factor * bce_loss
-
-        return focal_loss.mean()
-
-    # def classification_loss(self, z1, evs_gt):
-    #     z1_detached = z1.detach()
-    #     evs = self.get_evs(z1_detached)
-    #     return self.focal_loss(evs, evs_gt)
+        return loss, l_pred, l_bias
     
-    def classification_loss(self, z1, evs_gt):
-        evs = self.get_evs(z1)
-        return self.focal_loss(evs, evs_gt)
+    def loss_val(self, z1, z1_cls, evs, y_true, scaler, loss_weights):
+        l_pred, l_bias, l_total = self.pred_loss_val(z1, z1_cls, evs, y_true, scaler)
+        
+        l_total = l_total
+        l_pred=l_pred.item()
+        l_bias=l_bias.item()
+        
+        return l_total, l_pred, l_bias
+    
+    
+    def pred_loss_val(self, z1, z1_cls, evs_gt, y_true, scaler):
+        o_tilde, bias = self.predict(z1, z1_cls)
+        
+        residual = y_true - o_tilde
+        ## y_true = o_tilde + bias, -> bias must track y_true-o_tilde
+        o_tilde = scaler.inverse_transform(o_tilde)
+        y_true = scaler.inverse_transform(y_true)
+        residual = scaler.inverse_transform(residual)
+
+        ## loss for the main head
+        pred_loss = self.args.yita * self.loss_fun(o_tilde[..., 0], y_true[..., 0]) + \
+                (1 - self.args.yita) * self.loss_fun(o_tilde[..., 1], y_true[..., 1])
+
+        ## loss for the bias head
+        bias_loss = self.args.yita * self.loss_fun(bias[..., 0], residual[..., 0]) + \
+                (1 - self.args.yita) * self.loss_fun(bias[..., 1], residual[..., 1])
+        
+        ## loss for the total
+        prediction = o_tilde + bias
+        total_loss = self.args.yita * self.loss_fun(prediction[..., 0], y_true[..., 0]) + \
+                (1 - self.args.yita) * self.loss_fun(prediction[..., 1], y_true[..., 1])
+        
+        return pred_loss, bias_loss, total_loss
     
     def pred_loss(self, z1, z1_cls, evs_gt, y_true, scaler):
-        preds = self.predict(z1, z1_cls)
-        y_pred = scaler.inverse_transform(preds)
-        y_true = scaler.inverse_transform(y_true)
-
-        pred_loss = self.args.yita * self.loss_fun(y_pred[..., 0], y_true[..., 0]) + \
-                (1 - self.args.yita) * self.loss_fun(y_pred[..., 1], y_true[..., 1])
-
+        o_tilde, bias = self.predict(z1, z1_cls)
         
-        loss = pred_loss
-        return loss
+        residual = y_true - o_tilde
+        ## y_true = o_tilde + bias, -> bias must track y_true-o_tilde
+        o_tilde = scaler.inverse_transform(o_tilde)
+        y_true = scaler.inverse_transform(y_true)
+        residual = scaler.inverse_transform(residual)
+
+        ## loss for the main head
+        pred_loss = self.args.yita * self.loss_fun(o_tilde[..., 0], y_true[..., 0]) + \
+                (1 - self.args.yita) * self.loss_fun(o_tilde[..., 1], y_true[..., 1])
+
+        ## loss for the bias head
+        bias_loss = self.args.yita * self.loss_fun(bias[..., 0], residual[..., 0]) + \
+                (1 - self.args.yita) * self.loss_fun(bias[..., 1], residual[..., 1])
+        
+        return pred_loss, bias_loss
     
     def temporal_loss(self, z1, z2):
         return self.thm(z1, z2)

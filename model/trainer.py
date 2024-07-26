@@ -94,7 +94,7 @@ class Trainer(object):
         
         total_loss = 0
         total_loss_pred = 0 
-        total_loss_class = 0 
+        total_loss_bias = 0 
         for batch_idx, (data, target, evs) in enumerate(self.train_loader):
             # print("data.shape: ", data.shape, target.shape)
             self.optimizer.zero_grad()
@@ -102,10 +102,7 @@ class Trainer(object):
             # input shape: n,l,v,c; graph shape: v,v;
             repr1, repr1_cls = self.model(data, self.graph) # nvc
             
-            if self.args.mode == "pretrain":
-                loss, loss_pred, loss_class = self.model.loss(repr1, repr1_cls, evs, target, self.scaler, loss_weights)
-            else:
-                loss, loss_pred, loss_class = self.model.loss(repr1, repr1_cls, evs, target, self.scaler, loss_weights)
+            loss, loss_pred, loss_bias = self.model.loss(repr1, repr1_cls, evs, target, self.scaler, loss_weights)
             # print("sep_loss: ", sep_loss)
             assert not torch.isnan(loss)
             loss.backward()
@@ -120,7 +117,7 @@ class Trainer(object):
             
             total_loss += loss.item()
             total_loss_pred += loss_pred
-            total_loss_class += loss_class
+            total_loss_bias += loss_bias
         if epoch % 1 == 0:
             plot = "NO"
             if plot == "image":
@@ -166,12 +163,12 @@ class Trainer(object):
                 
         train_epoch_loss = total_loss/self.train_per_epoch
         train_epoch_loss_pred = total_loss_pred/self.train_per_epoch
-        train_epoch_loss_class = total_loss_class/self.train_per_epoch
+        train_epoch_loss_bias = total_loss_bias/self.train_per_epoch
         # Save losses for plotting
         epoch_losses.append(train_epoch_loss)
         epoch_losses_pred.append(train_epoch_loss_pred)
-        epoch_losses_class.append(train_epoch_loss_class)
-        self.logger.info(f'*******Train Epoch {epoch}: averaged Loss : {train_epoch_loss}, loss_pred: {train_epoch_loss_pred}, loss_class: {train_epoch_loss_class}')
+        epoch_losses_class.append(train_epoch_loss_bias)
+        self.logger.info(f'*******Train Epoch {epoch}: averaged Loss : {train_epoch_loss}, loss_pred: {train_epoch_loss_pred}, loss_bias: {train_epoch_loss_bias}')
 
         return train_epoch_loss, epoch_losses, epoch_losses_pred, epoch_losses_class
     
@@ -181,31 +178,19 @@ class Trainer(object):
         total_val_loss = 0
         total_val_loss_pred = 0
         total_val_loss_class = 0
-        evs_true = []
-        evs_pred = []
         with torch.no_grad():
             for batch_idx, (data, target, evs) in enumerate(val_dataloader):
                 repr1, repr1_cls = self.model(data, self.graph)
-                if self.args.mode == "pretrain":
-                    loss, loss_pred, loss_class = self.model.loss(repr1, repr1_cls, evs, target, self.scaler, loss_weights)
-                    predicted_evs = self.model.get_evs(repr1_cls)
-                else:
-                    loss, loss_pred, loss_class = self.model.loss(repr1, repr1_cls, evs, target, self.scaler, loss_weights)
-                    predicted_evs = self.model.get_evs(repr1_cls)
-                evs_true.append(evs)
-                evs_pred.append(predicted_evs)
-                if not torch.isnan(loss):
-                    total_val_loss += loss.item()
+                
+                loss_total, loss_pred, loss_bias = self.model.loss_val(repr1, repr1_cls, evs, target, self.scaler, loss_weights)
+                if not torch.isnan(loss_total):
+                    total_val_loss += loss_total.item()
                     total_val_loss_pred += loss_pred
-                    total_val_loss_class += loss_class
-        evs_true = torch.cat(evs_true, dim=0).cpu().numpy()
-        evs_pred = torch.cat(evs_pred, dim=0).cpu().numpy()
+                    total_val_loss_class += loss_bias
         val_loss = total_val_loss / len(val_dataloader)
         val_loss_pred = total_val_loss_pred / len(val_dataloader)
         val_loss_class = total_val_loss_class / len(val_dataloader)
-        self.logger.info(f'*******Val Epoch {epoch}: averaged Loss : {val_loss}, loss_pred: {val_loss_pred}, loss_class: {val_loss_class}')
-        cm = plot_cm(evs_pred, evs_true)
-        self.logger.info(f"Confusion Matrix: \n{cm}")
+        self.logger.info(f'*******Val Epoch {epoch}: averaged Loss : {val_loss}, loss_pred: {val_loss_pred}, loss_bias: {val_loss_class}')
         return val_loss
 
     def save_weights(self, weights, epoch=None, directory="weight_data"):
@@ -349,26 +334,15 @@ class Trainer(object):
         model.eval()
         y_pred = []
         y_true = []
-        evs_true = []
-        evs_pred = []
         with torch.no_grad():
             for batch_idx, (data, target, evs) in enumerate(dataloader):
                 repr1, repr1_cls = model(data, graph)                
-                if args.mode == "pretrain":
-                    pred_output = model.predict(repr1, repr1_cls)
-                    pred_evs = model.get_evs(repr1_cls)
-                else:
-                    pred_output = model.predict(repr1, repr1_cls)
-                    pred_evs = model.get_evs(repr1_cls)
+                pred_output = model.predict_final(repr1, repr1_cls)
                 y_true.append(target)
                 y_pred.append(pred_output)
-                evs_true.append(evs)
-                evs_pred.append(pred_evs)
         y_true = scaler.inverse_transform(torch.cat(y_true, dim=0))
         y_pred = scaler.inverse_transform(torch.cat(y_pred, dim=0))
-        evs_true = torch.cat(evs_true, dim=0).cpu().numpy()
-        evs_pred = torch.cat(evs_pred, dim=0).cpu().numpy()
-
+        
         test_results = []
         # inflow
         # print("y_pred.shape: ", y_pred.shape, "y_true.shape: ", y_true.shape)
@@ -379,8 +353,6 @@ class Trainer(object):
         mae, mape = test_metrics(y_pred[..., 1], y_true[..., 1])
         logger.info("OUTFLOW, MAE: {:.2f}, MAPE: {:.4f}%".format(mae, mape*100))
         test_results.append([mae, mape]) 
-        cm = plot_cm(evs_pred, evs_true)
-        logger.info(f"Confusion Matrix: \n{cm}")
         return np.stack(test_results, axis=0)
 
 
