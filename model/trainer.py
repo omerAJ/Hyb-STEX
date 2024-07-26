@@ -177,7 +177,7 @@ class Trainer(object):
         
         total_val_loss = 0
         total_val_loss_pred = 0
-        total_val_loss_class = 0
+        total_val_loss_bias = 0
         with torch.no_grad():
             for batch_idx, (data, target, evs) in enumerate(val_dataloader):
                 repr1, repr1_cls = self.model(data, self.graph)
@@ -186,12 +186,12 @@ class Trainer(object):
                 if not torch.isnan(loss_total):
                     total_val_loss += loss_total.item()
                     total_val_loss_pred += loss_pred
-                    total_val_loss_class += loss_bias
+                    total_val_loss_bias += loss_bias
         val_loss = total_val_loss / len(val_dataloader)
         val_loss_pred = total_val_loss_pred / len(val_dataloader)
-        val_loss_class = total_val_loss_class / len(val_dataloader)
-        self.logger.info(f'*******Val Epoch {epoch}: averaged Loss : {val_loss}, loss_pred: {val_loss_pred}, loss_bias: {val_loss_class}')
-        return val_loss
+        val_loss_bias = total_val_loss_bias / len(val_dataloader)
+        self.logger.info(f'*******Val Epoch {epoch}: averaged Loss : {val_loss}, loss_pred: {val_loss_pred}, loss_bias: {val_loss_bias}')
+        return val_loss_pred, val_loss_bias
 
     def save_weights(self, weights, epoch=None, directory="weight_data"):
         if epoch is not None:
@@ -208,13 +208,16 @@ class Trainer(object):
         train_epoch_losses_pred = []
         train_epoch_losses_class = []
         weight_history = []
-        best_loss = float('inf')
+        best_loss_pred = float('inf')
+        best_loss_bias = float('inf')
         best_epoch = 0
-        not_improved_count = 0
+        not_improved_pred = 0
+        not_improved_bias = 0
         start_time = time.time()
         current_weights = self.model.weights.detach().cpu().numpy()
         weight_history.append(current_weights)
         key_pressed = False
+        early_stop_pred_achieved = False
         def end_training():
             nonlocal key_pressed
             key_pressed = True
@@ -222,18 +225,13 @@ class Trainer(object):
 
         keyboard.add_hotkey('ctrl+shift+k', end_training)
         loss_tm1 = loss_t = np.ones(2) #(1.0, 1.0)
+        loss_weights = np.array([1, 0])
         for epoch in range(1, self.args.epochs + 1):
             if key_pressed:
                 self.logger.info('Key press detected. Exiting training loop...')
                 break
             # dwa mechanism to balance optimization speed for different tasks
-            if self.args.use_dwa:
-                loss_tm2 = loss_tm1
-                loss_tm1 = loss_t
-                if (epoch == 1) or (epoch == 2):
-                    loss_weights = dwa(loss_tm1, loss_tm1, self.args.temp)
-                else:
-                    loss_weights  = dwa(loss_tm1, loss_tm2, self.args.temp)
+            
             self.logger.info('loss weights: {}'.format(loss_weights))
             if epoch == 1 and self.args.load_path is not None:
                 self.logger.info('validating pretrained model')
@@ -254,40 +252,63 @@ class Trainer(object):
                 self.save_weights(np.array(weight_history))
             
             val_dataloader = self.val_loader if self.val_loader != None else self.test_loader
-            val_epoch_loss = self.val_epoch(epoch, val_dataloader, loss_weights)       
-            val_epoch_losses.append(val_epoch_loss)
+            val_loss_pred, val_loss_bias = self.val_epoch(epoch, val_dataloader, loss_weights)       
+            val_epoch_losses.append(val_loss_pred)
             if not self.args.debug:
-                self.training_stats.update((epoch, train_epoch_loss, val_epoch_loss))
+                self.training_stats.update((epoch, train_epoch_loss, val_loss_pred))
 
-            if val_epoch_loss < best_loss:
-                best_loss = val_epoch_loss
-                best_epoch = epoch
-                not_improved_count = 0
-                # save the best state
-                save_dict = {
+            # Handling early stopping and switching focus between losses
+            if not early_stop_pred_achieved:
+                if val_loss_pred < best_loss_pred:
+                    best_loss_pred = val_loss_pred
+                    best_epoch_pred = epoch
+                    not_improved_pred = 0
+                    # save the best state
+                    save_dict = {
+                        "epoch": epoch, 
+                        "model": self.model.state_dict(), 
+                        "optimizer": self.optimizer.state_dict(),
+                        }
+                    if not self.args.debug:
+                        best_path = self.best_path.replace('.pth', '_pred.pth')
+                        self.logger.info('**************Current best model (prediction) saved to {}'.format(best_path))
+                        torch.save(save_dict, self.best_path)
+                else:
+                    not_improved_pred += 1
+                
+                if not_improved_pred == self.args.early_stop_patience:
+                    early_stop_pred_achieved = True
+                    loss_weights = np.array([0, 1])  # Switch focus to bias loss
+                    self.logger.info(f'Switching training focus to bias loss after epoch {epoch}')
+                    
+            else:
+                if val_loss_bias < best_loss_bias:
+                    best_loss_bias = val_loss_bias
+                    best_epoch_bias = epoch
+                    not_improved_bias = 0
+                    save_dict = {
                     "epoch": epoch, 
                     "model": self.model.state_dict(), 
                     "optimizer": self.optimizer.state_dict(),
-                }
-                if not self.args.debug:
-                    self.logger.info('**************Current best model saved to {}'.format(self.best_path))
-                    torch.save(save_dict, self.best_path)
-            else:
-                not_improved_count += 1
-
-            # early stopping
-            if self.args.early_stop and not_improved_count == self.args.early_stop_patience:
-                self.logger.info("Validation performance didn\'t improve for {} epochs. "
-                                "Training stops.".format(self.args.early_stop_patience))
-                break   
-
+                    }
+                    if not self.args.debug:
+                        best_path = self.best_path.replace('.pth', '_bias.pth')
+                        self.logger.info('**************Current best model (bias) saved to {}'.format(best_path))
+                        torch.save(save_dict, self.best_path)        
+                else:
+                    not_improved_bias += 1
+                
+                if not_improved_bias == self.args.early_stop_patience:
+                    self.logger.info(f"Early stopping for bias loss after {self.args.early_stop_patience} non-improving epochs.")
+                    break
+                
         training_time = time.time() - start_time
         self.logger.info("== Training finished.\n"
                     "Total training time: {:.2f} min\t"
                     "best loss: {:.4f}\t"
                     "best epoch: {}\t".format(
                         (training_time / 60), 
-                        best_loss, 
+                        best_loss_pred, 
                         best_epoch))
         
         
@@ -299,7 +320,7 @@ class Trainer(object):
             plt.plot(train_epoch_losses, label='Train Loss')
             plt.plot(val_epoch_losses, label='Val Loss (pred only)')
 
-            labels = ["pred", "class"]
+            labels = ["pred", "bias"]
             # Plotting the separate losses
             # print("sep_epoch_losses: ", sep_epoch_losses)
             plt.plot(train_epoch_losses_pred, label=f'Loss {labels[0]}')
@@ -321,7 +342,7 @@ class Trainer(object):
         test_results = self.test(self.model, self.test_loader, self.scaler, 
                                 self.graph, self.logger, self.args)
         results = {
-            'best_val_loss': best_loss, 
+            'best_val_loss': best_loss_pred, 
             'best_val_epoch': best_epoch, 
             'test_results': test_results,
         }

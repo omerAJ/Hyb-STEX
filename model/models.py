@@ -166,7 +166,7 @@ class STSSL(nn.Module):
             combined_repr_cls = self.attentive_fuse_cls(combined_repr_cls)
         repr2 = None
         # combined_repr_cls = None
-        return combined_repr, combined_repr_cls
+        return combined_repr, combined_repr
 
 
     def fetch_spatial_sim(self):
@@ -213,7 +213,7 @@ class STSSL(nn.Module):
 
     def loss(self, z1, z1_cls, evs, y_true, scaler, loss_weights):
         l_pred, l_bias = self.pred_loss(z1, z1_cls, evs, y_true, scaler)
-        
+        # print(f"l_pred: {l_pred}, l_bias: {l_bias}")
         loss = loss_weights[0]*l_pred + loss_weights[1]*l_bias
 
         l_pred=l_pred.item()
@@ -258,7 +258,11 @@ class STSSL(nn.Module):
     def pred_loss(self, z1, z1_cls, evs_gt, y_true, scaler):
         o_tilde, bias = self.predict(z1, z1_cls)
         
-        residual = y_true - o_tilde
+        residual = y_true - o_tilde.detach()
+        # check if there is any nan value in residual
+        if torch.isnan(residual).any():
+            print("residual has nan values")
+
         ## y_true = o_tilde + bias, -> bias must track y_true-o_tilde
         o_tilde = scaler.inverse_transform(o_tilde)
         y_true = scaler.inverse_transform(y_true)
