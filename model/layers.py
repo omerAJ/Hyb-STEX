@@ -962,7 +962,7 @@ class PositionWise_cross_Attention(nn.Module):
         return output
     
 class PositionwiseFeedForward(nn.Module):
-    def __init__(self, d_model, d_ff, dropout=0.15):
+    def __init__(self, d_model, d_ff, dropout=0.0):
         super(PositionwiseFeedForward, self).__init__()
         self.d_model = d_model
         self.d_ff = d_ff

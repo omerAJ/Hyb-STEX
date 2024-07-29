@@ -70,14 +70,6 @@ class Trainer(object):
         self.logger.info('Experiment log path in: {}'.format(args.log_dir))
         self.logger.info('Experiment configs are: {}'.format(args))
         self.logger.info('\nModel has {} M trainable parameters'.format(self.num_params/(1e6)))
-
-        ema = [0.996, 1.0]
-        ipe = args.ipe
-        ipe_scale = 1.0
-        num_epochs=args.num_epochs
-        num_graphs = 8
-        self.momentum_scheduler = (ema[0] + i*(ema[1]-ema[0])/(ipe*num_epochs*ipe_scale*num_graphs)
-                            for i in range(int(ipe*num_epochs*ipe_scale*num_graphs)+1))
     
     def _get_dummy_input(self, dataloader, args):
         # Construct a suitable dummy input based on your dataloader and args
@@ -89,12 +81,13 @@ class Trainer(object):
                 
             return batch
         
-    def train_epoch(self, epoch, loss_weights, epoch_losses, epoch_losses_pred, epoch_losses_class):
+    def train_epoch(self, epoch, loss_weights, epoch_losses, epoch_losses_pred, epoch_losses_bias):
         self.model.train()
         
         total_loss = 0
         total_loss_pred = 0 
         total_loss_bias = 0 
+        
         for batch_idx, (data, target, evs) in enumerate(self.train_loader):
             # print("data.shape: ", data.shape, target.shape)
             self.optimizer.zero_grad()
@@ -103,11 +96,60 @@ class Trainer(object):
             repr1, repr1_cls = self.model(data, self.graph) # nvc
             
             loss, loss_pred, loss_bias = self.model.loss(repr1, repr1_cls, evs, target, self.scaler, loss_weights)
+            # print("loss: ", loss)
             # print("sep_loss: ", sep_loss)
             assert not torch.isnan(loss)
-            loss.backward()
+            """printing gradients
+            if batch_idx == 0:
+                # Before backward pass
+                module1 = self.model.mlp
+                module2 = self.model.mlp_bias
+                print("\n\n\n\n\nGradients before backward pass:")
+                for name, param in module1.named_parameters():
+                    if 'fc1' in name:
+                        if param.grad is None:
+                            print(f'\n\n {module1} - {name}: Gradient is None')
+                        elif torch.all(param.grad == 0):
+                            print(f'\n\n {module1} - {name}: Gradient is zero')
+                        else:
+                            print(f'\n\n {module1} - {name}: Gradient is not zero')
 
-            
+                for name, param in module2.named_parameters():
+                    if 'fc1' in name:
+                        if param.grad is None:
+                            print(f'\n\n {module2} - {name}: Gradient is None')
+                        elif torch.all(param.grad == 0):
+                            print(f'\n\n {module2} - {name}: Gradient is zero')
+                        else:
+                            print(f'\n\n {module2} - {name}: Gradient is not zero')
+
+                # Perform backward pass
+                loss.backward()
+
+                # After backward pass
+                print("\n\n\n\n\nGradients after backward pass:")
+                for name, param in module1.named_parameters():
+                    if 'fc1' in name:
+                        if param.grad is None:
+                            print(f'\n\n {module1} - {name}: Gradient is None')
+                        elif torch.all(param.grad == 0):
+                            print(f'\n\n {module1} - {name}: Gradient is zero')
+                        else:
+                            print(f'\n\n {module1} - {name}: Gradient is not zero')
+
+                for name, param in module2.named_parameters():
+                    if 'fc1' in name:
+                        if param.grad is None:
+                            print(f'\n\n\n {module2} - {name}: Gradient is None')
+                        elif torch.all(param.grad == 0):
+                            print(f'\n\n\n {module2} - {name}: Gradient is zero')
+                        else:
+                            print(f'\n\n\n {module2} - {name}: Gradient is not zero')
+
+            else:
+                loss.backward()            
+            """
+            loss.backward()
             # gradient clipping
             if self.args.grad_norm:
                 torch.nn.utils.clip_grad_norm_(
@@ -118,48 +160,7 @@ class Trainer(object):
             total_loss += loss.item()
             total_loss_pred += loss_pred
             total_loss_bias += loss_bias
-        if epoch % 1 == 0:
-            plot = "NO"
-            if plot == "image":
-                import networkx as nx
-                import matplotlib.pyplot as plt
-
-                if torch.is_tensor(learnable_graph):
-                    graph_matrix = learnable_graph.detach().cpu().numpy()  # Convert to NumPy
-                else:
-                    graph_matrix = learnable_graph  # Assuming it's already a NumPy array
-
-                G = nx.Graph(graph_matrix)  # Create the NetworkX graph
-                nx.draw(G, with_labels=True) 
-                save_path = os.path.join(self.args.log_dir, f'learnable_graph_epoch_{epoch}.png')
-                plt.savefig(save_path)
-                plt.close()  
-
-            elif plot == "matrix":
-                import seaborn as sns
-                import matplotlib.pyplot as plt
-                adj = learnable_graph.detach().cpu().numpy()
-                plt.figure(figsize=(20, 20))
-                sns.heatmap(adj, cmap='viridis', annot=True)  # annot=True shows values
-                plt.title('Adjacency Matrix Visualization')
-                save_path = os.path.join(self.args.log_dir, f'learnable_graph_epoch_{epoch}.png')
-                plt.savefig(save_path)
-
-            elif plot == "npArray":
-                # print("==>", learnable_graph.detach().cpu().numpy().shape)
-                np.save(os.path.join(self.args.log_dir, f'learnable_graph_epoch_{epoch}.npy'), learnable_graph.detach().cpu().numpy())
-
-            elif plot == "node_status":
-                import matplotlib.pyplot as plt
-                import seaborn as sns
-                learnable_graph = np.reshape(learnable_graph.detach().cpu().numpy().squeeze(0).squeeze(0), (20, 10))
-                plt.figure(figsize=(40, 40))
-                sns.heatmap(learnable_graph, cmap='viridis', annot=True)  # annot=True shows values
-                plt.title('Adjacency Matrix Visualization')
-                save_path = os.path.join(self.args.log_dir, f'learnable_graph_epoch.png')
-                plt.savefig(save_path)
-                # print("learnable_graph.shape: ", learnable_graph.shape)
-
+        
                 
         train_epoch_loss = total_loss/self.train_per_epoch
         train_epoch_loss_pred = total_loss_pred/self.train_per_epoch
@@ -167,10 +168,10 @@ class Trainer(object):
         # Save losses for plotting
         epoch_losses.append(train_epoch_loss)
         epoch_losses_pred.append(train_epoch_loss_pred)
-        epoch_losses_class.append(train_epoch_loss_bias)
+        epoch_losses_bias.append(train_epoch_loss_bias)
         self.logger.info(f'*******Train Epoch {epoch}: averaged Loss : {train_epoch_loss}, loss_pred: {train_epoch_loss_pred}, loss_bias: {train_epoch_loss_bias}')
 
-        return train_epoch_loss, epoch_losses, epoch_losses_pred, epoch_losses_class
+        return train_epoch_loss, epoch_losses, epoch_losses_pred, epoch_losses_bias
     
     def val_epoch(self, epoch, val_dataloader, loss_weights):
         self.model.eval()
@@ -318,7 +319,7 @@ class Trainer(object):
 
             # Plotting the total loss
             plt.plot(train_epoch_losses, label='Train Loss')
-            plt.plot(val_epoch_losses, label='Val Loss (pred only)')
+            plt.plot(val_epoch_losses, label='Val Loss')
 
             labels = ["pred", "bias"]
             # Plotting the separate losses
@@ -355,18 +356,30 @@ class Trainer(object):
         model.eval()
         y_pred = []
         y_true = []
+        o_tildes = []
         with torch.no_grad():
             for batch_idx, (data, target, evs) in enumerate(dataloader):
                 repr1, repr1_cls = model(data, graph)                
                 pred_output = model.predict_final(repr1, repr1_cls)
+                o_tilde, bias = model.predict(repr1, repr1_cls)
+                o_tildes.append(o_tilde)
                 y_true.append(target)
                 y_pred.append(pred_output)
         y_true = scaler.inverse_transform(torch.cat(y_true, dim=0))
         y_pred = scaler.inverse_transform(torch.cat(y_pred, dim=0))
+        o_tildes = scaler.inverse_transform(torch.cat(o_tildes, dim=0))
         
         test_results = []
         # inflow
         # print("y_pred.shape: ", y_pred.shape, "y_true.shape: ", y_true.shape)
+        mae, mape = test_metrics(o_tildes[..., 0], y_true[..., 0])
+        logger.info("just using o_tilde, no bias added")
+        logger.info("INFLOW, MAE: {:.2f}, MAPE: {:.4f}%".format(mae, mape*100))
+        # outflow 
+        mae, mape = test_metrics(o_tildes[..., 1], y_true[..., 1])
+        logger.info("OUTFLOW, MAE: {:.2f}, MAPE: {:.4f}%".format(mae, mape*100))
+        
+        logger.info("o_tilde+bias")
         mae, mape = test_metrics(y_pred[..., 0], y_true[..., 0])
         logger.info("INFLOW, MAE: {:.2f}, MAPE: {:.4f}%".format(mae, mape*100))
         test_results.append([mae, mape])
