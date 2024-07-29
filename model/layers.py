@@ -276,7 +276,7 @@ class STEncoder(nn.Module):
         
         self.get_adj_mx = get_adj_mx(d_model=c[2])
         self.threshold_adj_mx = threshold_adj_mx
-        self.nodes_status = nn.Parameter(torch.zeros(1, 1, 1, num_nodes), requires_grad=True)  ## shape for sconv
+        # self.nodes_status = nn.Parameter(torch.zeros(1, 1, 1, num_nodes), requires_grad=True)  ## shape for sconv
 
         
 
@@ -319,7 +319,7 @@ class STEncoder(nn.Module):
             x = self.sconv12(x, Lk)   # nclv      
             x = self.lns1(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)     ## ln([b, t, n, c]) -> [b, c, t, n]
             # print(f"x.shape: {x.shape} self.nodes_status.shape: {self.nodes_status.shape}")
-            x = x*torch.sigmoid(self.nodes_status)
+            # x = x*torch.sigmoid(self.nodes_status)
         x = self.tconv13(x)  
         x = self.dropout1(self.ln1(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2))   ## btnc -> bctn
         
@@ -332,7 +332,7 @@ class STEncoder(nn.Module):
 
             x = self.sconv22(x, Lk)   # nclv
             x = self.lns2(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)
-            x = x*torch.sigmoid(self.nodes_status)
+            # x = x*torch.sigmoid(self.nodes_status)
         x = self.tconv23(x)
         x = self.dropout2(self.ln2(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2))
 
@@ -396,7 +396,7 @@ class STEncoder(nn.Module):
         ## also add dropouts later
 
         # need to return # nlvc  [32, 1, 200, 64]
-        return x, self.nodes_status # nl(=1)vc
+        return x # nl(=1)vc
         # return x # nl(=1)vc
     
 

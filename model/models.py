@@ -28,7 +28,7 @@ class STSSL(nn.Module):
         self.ff = PositionwiseFeedForward(d_model=128, d_ff=64*4)
         self.mlp = MLP(int((2)*args.d_model), args.d_output)
         if args.loss == 'mae':
-            self.loss_fun = masked_mae_loss(mask_value=0.0)
+            self.loss_fun = masked_mae_loss(mask_value=5.0)
         elif args.loss == 'mse':
             self.loss_fun = masked_mse_loss(mask_value=5.0)
         self.args = args
@@ -71,7 +71,7 @@ class STSSL(nn.Module):
 
         T = 8
         N = 200
-        self.weights = nn.Parameter(torch.ones(N) / N)
+        self.weights = nn.Parameter(torch.ones(T) / T)
         
         
 
@@ -165,16 +165,16 @@ class STSSL(nn.Module):
         # repr1A = self.encoderA(view1A, learnable_graph) # view1: n,l,v,c; graph: v,v 
         # repr1B = self.encoderB(view1B, learnable_graph) # view1: n,l,v,c; graph: v,v 
         
-        repr1A, self.nodes_statusA = self.encoderA(view1A, learnable_graph) # view1: n,l,v,c; graph: v,v 
-        repr1B, self.nodes_statusB = self.encoderB(view1B, learnable_graph) # view1: n,l,v,c; graph: v,v 
+        repr1A = self.encoderA(view1A, learnable_graph) # view1: n,l,v,c; graph: v,v 
+        repr1B = self.encoderB(view1B, learnable_graph) # view1: n,l,v,c; graph: v,v 
         # print(f"repr1A.shape: {repr1A.shape}, repr1B.shape: {repr1B.shape}")
         
         combined_repr = torch.cat((repr1A, repr1B), dim=3)            ## combine along the channel dimension d_model
         
-        combined_nodes_status = torch.mean(torch.stack([self.nodes_statusA, self.nodes_statusB]), dim=0)
+        # combined_nodes_status = torch.mean(torch.stack([self.nodes_statusA, self.nodes_statusB]), dim=0)
         # print(f"combined_repr.shape: {combined_repr.shape}, combined_nodes_status.shape: {combined_nodes_status.shape}")
-        combined_nodes_status = combined_nodes_status.transpose(2, 3)
-        combined_repr = combined_repr*combined_nodes_status
+        # combined_nodes_status = combined_nodes_status.transpose(2, 3)
+        # combined_repr = combined_repr*combined_nodes_status
 
         if self.self_attention_flag:
             combined_repr = combined_repr.squeeze(1)
