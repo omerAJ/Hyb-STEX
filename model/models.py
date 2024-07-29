@@ -213,7 +213,7 @@ class STSSL(nn.Module):
         ## which repr to use to calculate the bias, maybe both
         
         o = o_tilde + self.get_bias(z1) * evs
-        return o
+        return o, o_tilde, self.get_bias(z1) * evs
     
     def classification_loss(self, z1, evs_gt):
         evs = self.get_evs(z1)

@@ -103,7 +103,7 @@ class Trainer(object):
             repr1, repr1_cls = self.model(data, self.graph) # nvc
             
 
-            loss, loss_pred, loss_class = self.model.loss(repr1, evs, target, self.scaler, loss_weights)
+            loss, loss_pred, loss_class = self.model.loss(repr1, repr1_cls, evs, target, self.scaler, loss_weights)
             # print("sep_loss: ", sep_loss)
             assert not torch.isnan(loss)
             loss.backward()
@@ -184,9 +184,9 @@ class Trainer(object):
         with torch.no_grad():
             for batch_idx, (data, target, evs) in enumerate(val_dataloader):
                 repr1, repr1_cls = self.model(data, self.graph)
-                loss, loss_pred, loss_class = self.model.loss(repr1, evs, target, self.scaler, loss_weights)
+                loss, loss_pred, loss_class = self.model.loss(repr1, repr1_cls, evs, target, self.scaler, loss_weights)
                 evs_true.append(evs)
-                evs_pred.append(self.model.get_evs(repr1))
+                evs_pred.append(self.model.classify_evs(repr1, repr1_cls))
                 if not torch.isnan(loss):
                     total_val_loss += loss.item()
                     total_val_loss_pred += loss_pred
@@ -347,7 +347,7 @@ class Trainer(object):
         with torch.no_grad():
             for batch_idx, (data, target, evs) in enumerate(dataloader):
                 repr1, repr1_cls = model(data, graph)                
-                pred_output = model.predict(repr1)
+                pred_output = model.predict(repr1,)
                 pred_evs = model.get_evs(repr1)
                 y_true.append(target)
                 y_pred.append(pred_output)
