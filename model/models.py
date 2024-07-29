@@ -27,11 +27,11 @@ class STSSL(nn.Module):
         # self.attention2 = self_Attention(int((2)*args.d_model), 4)
         
         self.attentive_fuse = attentive_fusion(args.d_model)
-        # self.attentive_fuse_cls = attentive_fusion(args.d_model)
+        self.attentive_fuse_cls = attentive_fusion(args.d_model)
 
         self.ff = PositionwiseFeedForward(d_model=128, d_ff=64*4)
         self.mlp = MLP(int((2)*args.d_model), args.d_output)
-        self.mlp_classifier = MLP(int((2)*args.d_model), args.d_output)
+        self.mlp_classifier = MLP(int((2)*args.d_model+2), args.d_output)
         if args.loss == 'mae':
             self.loss_fun = masked_mae_loss(mask_value=5.0)
         elif args.loss == 'mse':
@@ -55,10 +55,10 @@ class STSSL(nn.Module):
         self.encoderB = STEncoder(Kt=3, Ks=args.cheb_order, blocks=[[2, int(args.d_model//2), args.d_model], [args.d_model, int(args.d_model//2), args.d_model]], 
                         input_length=args.input_length, num_nodes=args.num_nodes, droprate=args.dropout, graph_init=graph_init, learnable_flag=args.learnable_flag, row=args.row, col=args.col, threshold_adj_mx=args.threshold_adj_mx, do_affinity=args.affinity_conv)         
         
-        # self.encoderA_cls = STEncoder(Kt=3, Ks=args.cheb_order, blocks=[[2, int(args.d_model//2), args.d_model], [args.d_model, int(args.d_model//2), args.d_model]], 
-        #                 input_length=args.input_length, num_nodes=args.num_nodes, droprate=args.dropout, graph_init=graph_init, learnable_flag=args.learnable_flag, row=args.row, col=args.col, threshold_adj_mx=args.threshold_adj_mx, do_affinity=args.affinity_conv)
-        # self.encoderB_cls = STEncoder(Kt=3, Ks=args.cheb_order, blocks=[[2, int(args.d_model//2), args.d_model], [args.d_model, int(args.d_model//2), args.d_model]], 
-                        # input_length=args.input_length, num_nodes=args.num_nodes, droprate=args.dropout, graph_init=graph_init, learnable_flag=args.learnable_flag, row=args.row, col=args.col, threshold_adj_mx=args.threshold_adj_mx, do_affinity=args.affinity_conv)         
+        self.encoderA_cls = STEncoder(Kt=3, Ks=args.cheb_order, blocks=[[2, int(args.d_model//2), args.d_model], [args.d_model, int(args.d_model//2), args.d_model]], 
+                        input_length=args.input_length, num_nodes=args.num_nodes, droprate=args.dropout, graph_init=graph_init, learnable_flag=args.learnable_flag, row=args.row, col=args.col, threshold_adj_mx=args.threshold_adj_mx, do_affinity=args.affinity_conv)
+        self.encoderB_cls = STEncoder(Kt=3, Ks=args.cheb_order, blocks=[[2, int(args.d_model//2), args.d_model], [args.d_model, int(args.d_model//2), args.d_model]], 
+                        input_length=args.input_length, num_nodes=args.num_nodes, droprate=args.dropout, graph_init=graph_init, learnable_flag=args.learnable_flag, row=args.row, col=args.col, threshold_adj_mx=args.threshold_adj_mx, do_affinity=args.affinity_conv)         
         
         # ## norms
         self.layernorm1 = nn.LayerNorm(int((2)*args.d_model))
@@ -85,7 +85,7 @@ class STSSL(nn.Module):
         # self.key_projection = nn.Linear(int((2)*args.d_model), int((2)*args.d_model))
         self.ff_key_projection = PositionwiseFeedForward(d_model=128, d_ff=64*4)
         # self.project_to_classify = nn.Linear(int((2)*args.d_model), int((2)*args.d_model))
-        self.ff_to_classify = PositionwiseFeedForward(d_model=128, d_ff=64*4)
+        self.ff_to_classify = PositionwiseFeedForward(d_model=128+2, d_ff=130*4)
         self.learnable_vectors = nn.Parameter(torch.zeros(1, 1, 128, 2), requires_grad=True)
         # self.xavier_uniform_init(self.learnable_vectors) 
 
@@ -160,19 +160,18 @@ class STSSL(nn.Module):
         repr1A = self.encoderA(view1A, learnable_graph) # view1: n,l,v,c; graph: v,v 
         repr1B = self.encoderB(view1B, learnable_graph) # view1: n,l,v,c; graph: v,v 
         
-        # repr1A_cls = self.encoderA(view1A, learnable_graph) # view1: n,l,v,c; graph: v,v 
-        # repr1B_cls = self.encoderB(view1B, learnable_graph) # view1: n,l,v,c; graph: v,v 
+        repr1A_cls = self.encoderA_cls(view1A, learnable_graph) # view1: n,l,v,c; graph: v,v 
+        repr1B_cls = self.encoderB_cls(view1B, learnable_graph) # view1: n,l,v,c; graph: v,v 
         # print(f"repr1A.shape: {repr1A.shape}, repr1B.shape: {repr1B.shape}")
         
         combined_repr = torch.cat((repr1A, repr1B), dim=3)            ## combine along the channel dimension d_model
         
-        # combined_repr_cls = torch.cat((repr1A_cls, repr1B_cls), dim=3)            ## combine along the channel dimension d_model
+        combined_repr_cls = torch.cat((repr1A_cls, repr1B_cls), dim=3)            ## combine along the channel dimension d_model
         
         if self.self_attention_flag:
             combined_repr = self.attentive_fuse(combined_repr)
-            # combined_repr_cls = self.attentive_fuse_cls(combined_repr_cls)
+            combined_repr_cls = self.attentive_fuse_cls(combined_repr_cls)
         repr2 = None
-        combined_repr_cls = None
         return combined_repr, combined_repr_cls
 
 
@@ -195,33 +194,55 @@ class STSSL(nn.Module):
         bias = torch.matmul(k, self.learnable_vectors)
         return bias
 
+    def classify_evs(self, z1, z1_cls):
+        """
+        classify each next prediction as EV or not
+        use separate backbone, and prediction as input. 
+        """
+        o_tilde = self.predict_o_tilde(z1)
+        # print(f"o_tilde.shape: {o_tilde.shape}, z1_cls.shape: {z1_cls.shape}")
+        ## o_tilde.shape: torch.Size([32, 1, 200, 2]), z1_cls.shape: torch.Size([32, 1, 200, 128])
+        z1_cls = torch.cat((o_tilde, z1_cls), dim=3)
+        evs = self.get_evs(z1_cls)
+        return evs
+
+
     def get_evs(self, z1):
         """
         classify each next prediction as EV or not
         """
         return torch.sigmoid(self.mlp_classifier(self.ff_to_classify(z1)))
 
-    def predict(self, z1):
+    def predict(self, z1, z1_cls):
         '''Predicting future traffic flow.
         :param z1, z2 (tensor): shape nvc
         :return: nlvc, l=1, c=2
         '''
         # print("z1.shape: ", z1.shape)
         o_tilde = self.mlp(z1)
-        evs = self.get_evs(z1)
+        evs = self.classify_evs(z1, z1_cls)
         
         ## which repr to use to calculate the bias, maybe both
         
         o = o_tilde + self.get_bias(z1) * evs
         return o
     
-    def classification_loss(self, z1, evs_gt):
-        evs = self.get_evs(z1)
+    def predict_o_tilde(self, z1):
+        '''Predicting future traffic flow.
+        :param z1, z2 (tensor): shape nvc
+        :return: nlvc, l=1, c=2
+        '''
+        # print("z1.shape: ", z1.shape)
+        o_tilde = self.mlp(z1)
+        return o_tilde.detach()
+    
+    def classification_loss(self, z1, z1_cls, evs_gt):
+        evs = self.classify_evs(z1, z1_cls)
         return self.focal_loss(evs, evs_gt)
     
     
-    def pred_loss(self, z1, evs_gt, y_true, scaler):
-        preds = self.predict(z1)
+    def pred_loss(self, z1, z1_cls, evs_gt, y_true, scaler):
+        preds = self.predict(z1, z1_cls)
         y_pred = scaler.inverse_transform(preds)
         y_true = scaler.inverse_transform(y_true)
 
@@ -233,10 +254,10 @@ class STSSL(nn.Module):
         return loss
     
 
-    def loss(self, z1, evs, y_true, scaler, loss_weights):
-        l_pred = self.pred_loss(z1, evs, y_true, scaler)
+    def loss(self, z1, z1_cls, evs, y_true, scaler, loss_weights):
+        l_pred = self.pred_loss(z1, z1_cls, evs, y_true, scaler)
         
-        l_class = self.classification_loss(z1, evs)
+        l_class = self.classification_loss(z1, z1_cls, evs)
         # sep_loss = [l1.item()]
         loss = loss_weights[0]*l_pred + loss_weights[1]*l_class
 
