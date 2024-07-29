@@ -7,7 +7,7 @@ TIMEOUT 3
 
 REM Loop through values 1 to 3 for the -s parameter
 FOR /L %%G IN (1,1,3) DO (
-    python main.py -c "evl (cheating) noisy_gt 2, 1" -s %%G -cf configs/NYCTaxi.yaml
+    python main.py -c "evl (cheating) 90 percentile evs" -s %%G -cf configs/NYCBike2.yaml
     echo Experiment completed: Ks = %%G
     TIMEOUT /T 3 /NOBREAK
 )
