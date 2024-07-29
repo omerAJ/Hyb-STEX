@@ -82,8 +82,10 @@ class STSSL(nn.Module):
         T = 8
         N = 200
         self.weights = nn.Parameter(torch.ones(N) / N)
-        self.key_projection = nn.Linear(int((2)*args.d_model), int((2)*args.d_model))
-        self.project_to_classify = nn.Linear(int((2)*args.d_model), int((2)*args.d_model))
+        # self.key_projection = nn.Linear(int((2)*args.d_model), int((2)*args.d_model))
+        self.ff_key_projection = PositionwiseFeedForward(d_model=128, d_ff=64*4)
+        # self.project_to_classify = nn.Linear(int((2)*args.d_model), int((2)*args.d_model))
+        self.ff_to_classify = PositionwiseFeedForward(d_model=128, d_ff=64*4)
         self.learnable_vectors = nn.Parameter(torch.zeros(1, 1, 128, 2), requires_grad=True)
         # self.xavier_uniform_init(self.learnable_vectors) 
 
@@ -189,7 +191,7 @@ class STSSL(nn.Module):
         """
         get the bias for each node and timestep 
         """
-        k = self.key_projection(z1)
+        k = self.ff_key_projection(z1)
         bias = torch.matmul(k, self.learnable_vectors)
         return bias
 
@@ -197,7 +199,7 @@ class STSSL(nn.Module):
         """
         classify each next prediction as EV or not
         """
-        return torch.sigmoid(self.mlp_classifier(self.project_to_classify(z1)))
+        return torch.sigmoid(self.mlp_classifier(self.ff_to_classify(z1)))
 
     def predict(self, z1):
         '''Predicting future traffic flow.
@@ -210,8 +212,26 @@ class STSSL(nn.Module):
         
         ## which repr to use to calculate the bias, maybe both
         
-        o = o_tilde * (1-evs) + self.get_bias(z1) * evs
+        o = o_tilde + self.get_bias(z1) * evs
         return o
+    
+    def classification_loss(self, z1, evs_gt):
+        evs = self.get_evs(z1)
+        return self.focal_loss(evs, evs_gt)
+    
+    
+    def pred_loss(self, z1, evs_gt, y_true, scaler):
+        preds = self.predict(z1)
+        y_pred = scaler.inverse_transform(preds)
+        y_true = scaler.inverse_transform(y_true)
+
+        pred_loss = self.args.yita * self.loss_fun(y_pred[..., 0], y_true[..., 0]) + \
+                (1 - self.args.yita) * self.loss_fun(y_pred[..., 1], y_true[..., 1])
+
+        
+        loss = pred_loss
+        return loss
+    
 
     def loss(self, z1, evs, y_true, scaler, loss_weights):
         l_pred = self.pred_loss(z1, evs, y_true, scaler)
@@ -274,21 +294,6 @@ class STSSL(nn.Module):
     #     evs = self.get_evs(z1_detached)
     #     return self.focal_loss(evs, evs_gt)
     
-    def classification_loss(self, z1, evs_gt):
-        evs = self.get_evs(z1)
-        return self.focal_loss(evs, evs_gt)
-    
-    def pred_loss(self, z1, evs_gt, y_true, scaler):
-        preds = self.predict(z1)
-        y_pred = scaler.inverse_transform(preds)
-        y_true = scaler.inverse_transform(y_true)
-
-        pred_loss = self.args.yita * self.loss_fun(y_pred[..., 0], y_true[..., 0]) + \
-                (1 - self.args.yita) * self.loss_fun(y_pred[..., 1], y_true[..., 1])
-
-        
-        loss = pred_loss
-        return loss
     
     def temporal_loss(self, z1, z2):
         return self.thm(z1, z2)
