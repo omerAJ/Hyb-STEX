@@ -31,7 +31,13 @@ class STSSL(nn.Module):
 
         self.ff = PositionwiseFeedForward(d_model=128, d_ff=64*4)
         self.mlp = MLP(int((2)*args.d_model), args.d_output)
-        self.mlp_classifier = MLP(int((2)*args.d_model+2), args.d_output)
+        self.mlp_cls = MLP(int((2)*args.d_model), args.d_output)
+        self.mlp_bias = MLP(int((2)*args.d_model), args.d_output)
+        self.mlp_bias.fc1.linear.bias.data.fill_(+0.5)  ## bias it to predicting normal
+        self.mlp_bias.fc2.linear.bias.data.fill_(+0.5)  ## bias it to predicting normal
+        self.mlp_cls.fc1.linear.bias.data.fill_(+0.5)  ## bias it to predicting normal
+        self.mlp_cls.fc2.linear.bias.data.fill_(+0.5)  ## bias it to predicting normal
+        # self.mlp_classifier.fc2.linear.bias.data.fill_(-1)  ## bias it to predicting normal
         if args.loss == 'mae':
             self.loss_fun = masked_mae_loss(mask_value=5.0)
         elif args.loss == 'mse':
@@ -83,10 +89,10 @@ class STSSL(nn.Module):
         N = 200
         self.weights = nn.Parameter(torch.ones(N) / N)
         # self.key_projection = nn.Linear(int((2)*args.d_model), int((2)*args.d_model))
-        self.ff_key_projection = PositionwiseFeedForward(d_model=128, d_ff=64*4)
+        self.ff_key_projection_bias = PositionwiseFeedForward(d_model=128, d_ff=128*4)
         # self.project_to_classify = nn.Linear(int((2)*args.d_model), int((2)*args.d_model))
-        self.ff_to_classify = PositionwiseFeedForward(d_model=128+2, d_ff=130*4)
-        self.learnable_vectors = nn.Parameter(torch.zeros(1, 1, 128, 2), requires_grad=True)
+        self.ff_to_cls = PositionwiseFeedForward(d_model=128, d_ff=128)
+        self.learnable_vectors_bias = nn.Parameter(torch.zeros(1, 1, args.num_nodes, 128, 2), requires_grad=True)
         # self.xavier_uniform_init(self.learnable_vectors) 
 
     def xavier_uniform_init(self, tensor):
@@ -160,17 +166,22 @@ class STSSL(nn.Module):
         repr1A = self.encoderA(view1A, learnable_graph) # view1: n,l,v,c; graph: v,v 
         repr1B = self.encoderB(view1B, learnable_graph) # view1: n,l,v,c; graph: v,v 
         
-        repr1A_cls = self.encoderA_cls(view1A, learnable_graph) # view1: n,l,v,c; graph: v,v 
-        repr1B_cls = self.encoderB_cls(view1B, learnable_graph) # view1: n,l,v,c; graph: v,v 
         # print(f"repr1A.shape: {repr1A.shape}, repr1B.shape: {repr1B.shape}")
         
         combined_repr = torch.cat((repr1A, repr1B), dim=3)            ## combine along the channel dimension d_model
         
-        combined_repr_cls = torch.cat((repr1A_cls, repr1B_cls), dim=3)            ## combine along the channel dimension d_model
         
         if self.self_attention_flag:
             combined_repr = self.attentive_fuse(combined_repr)
-            combined_repr_cls = self.attentive_fuse_cls(combined_repr_cls)
+        
+        o_tilde = self.predict_o_tilde(combined_repr)
+
+        view1A = torch.cat((view1A, o_tilde), dim=1)
+        repr1A_cls = self.encoderA_cls(view1A, learnable_graph) # view1: n,l,v,c; graph: v,v 
+        repr1B_cls = self.encoderB_cls(view1B, learnable_graph) # view1: n,l,v,c; graph: v,v 
+        combined_repr_cls = torch.cat((repr1A_cls, repr1B_cls), dim=3)            ## combine along the channel dimension d_model
+        combined_repr_cls = self.attentive_fuse_cls(combined_repr_cls)
+        # print(f"combined_repr_cls.shape: {combined_repr_cls.shape}, combined_repr.shape: {combined_repr.shape}")
         repr2 = None
         return combined_repr, combined_repr_cls
 
@@ -190,8 +201,15 @@ class STSSL(nn.Module):
         """
         get the bias for each node and timestep 
         """
-        k = self.ff_key_projection(z1)
-        bias = torch.matmul(k, self.learnable_vectors)
+        ## z1.shape: torch.Size([32, 1, 200, 128])
+        k = self.ff_key_projection_bias(z1)
+        k = k.unsqueeze(-2)  ## z1.shape: torch.Size([32, 1, 200, 1, 128])
+        # print(f"k.shape: {k.shape}, learnable_vectors_bias.shape: {self.learnable_vectors_bias.shape}")  ## learnable_vectors_bias.shape: torch.Size([1, 1, 200, 128, 2])
+        
+        bias = torch.matmul(k, self.learnable_vectors_bias)
+        # print(f"bias.shape: {bias.shape}")  ## bias.shape: torch.Size([32, 1, 200, 1, 2])
+        bias = bias.squeeze(-2)
+        # bias = self.mlp_bias(k)
         return bias
 
     def classify_evs(self, z1, z1_cls):
@@ -199,11 +217,9 @@ class STSSL(nn.Module):
         classify each next prediction as EV or not
         use separate backbone, and prediction as input. 
         """
-        o_tilde = self.predict_o_tilde(z1)
-        # print(f"o_tilde.shape: {o_tilde.shape}, z1_cls.shape: {z1_cls.shape}")
-        ## o_tilde.shape: torch.Size([32, 1, 200, 2]), z1_cls.shape: torch.Size([32, 1, 200, 128])
-        z1_cls = torch.cat((o_tilde, z1_cls), dim=3)
         evs = self.get_evs(z1_cls)
+        # threshold evs at 0.5
+        # evs = (evs > 0.5).float()
         return evs
 
 
@@ -211,9 +227,9 @@ class STSSL(nn.Module):
         """
         classify each next prediction as EV or not
         """
-        return torch.sigmoid(self.mlp_classifier(self.ff_to_classify(z1)))
+        return torch.sigmoid(self.mlp_cls(self.ff_to_cls(z1)))
 
-    def predict(self, z1, z1_cls):
+    def predict(self, z1, z1_cls, t=None):
         '''Predicting future traffic flow.
         :param z1, z2 (tensor): shape nvc
         :return: nlvc, l=1, c=2
@@ -221,7 +237,8 @@ class STSSL(nn.Module):
         # print("z1.shape: ", z1.shape)
         o_tilde = self.mlp(z1)
         evs = self.classify_evs(z1, z1_cls)
-        
+        if t is not None:
+            evs = (evs > t).float()
         ## which repr to use to calculate the bias, maybe both
         
         o = o_tilde + self.get_bias(z1) * evs
@@ -236,10 +253,14 @@ class STSSL(nn.Module):
         o_tilde = self.mlp(z1)
         return o_tilde.detach()
     
+    # def classification_loss(self, z1, z1_cls, evs_gt):
+    #     evs = self.classify_evs(z1, z1_cls)
+    #     return self.focal_loss(evs, evs_gt)
+    
     def classification_loss(self, z1, z1_cls, evs_gt):
         evs = self.classify_evs(z1, z1_cls)
-        return self.focal_loss(evs, evs_gt)
-    
+        return F.binary_cross_entropy(evs, evs_gt)
+        
     
     def pred_loss(self, z1, z1_cls, evs_gt, y_true, scaler):
         preds = self.predict(z1, z1_cls)
@@ -258,18 +279,23 @@ class STSSL(nn.Module):
         l_pred = self.pred_loss(z1, z1_cls, evs, y_true, scaler)
         
         l_class = self.classification_loss(z1, z1_cls, evs)
-        # sep_loss = [l1.item()]
+        total_loss = l_pred + l_class
+        pred_weight = l_class / total_loss
+        cls_weight = l_pred / total_loss
+
+        # Normalize weights to keep the sum constant, e.g., sum to 2
+        # weight_sum = pred_weight + cls_weight
+        # pred_weight = 2 * (pred_weight / weight_sum)
+        # cls_weight = 2 * (cls_weight / weight_sum)
+
+        loss_weights = [pred_weight.item(), cls_weight.item()]
         loss = loss_weights[0]*l_pred + loss_weights[1]*l_class
 
         l_pred=l_pred.item()
         l_class=l_class.item()
-        return loss, l_pred, l_class
+        return loss, l_pred, l_class, loss_weights
     
     """
-    # def classification_loss(self, z1, evs_gt):
-    #     evs = self.get_evs(z1)
-    #     return F.binary_cross_entropy(evs, evs_gt)
-    
     # def classification_loss(self, z1, evs_gt):
     #     evs = self.get_evs(z1)
         

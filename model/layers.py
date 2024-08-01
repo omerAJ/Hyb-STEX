@@ -711,11 +711,9 @@ class MLP(nn.Module):
         self.fc2 = FCLayer(int(c_in // 2), c_out)
 
     def forward(self, x):
-        # print("x.shape before fc1: ", x.shape)   # torch.Size([32, 1, 200, 128])
-        x = torch.tanh(self.fc1(x.permute(0, 3, 1, 2))) # nlvc->nclv
-        # print("x.shape after fc1: ", x.shape)
+        # x = torch.tanh(self.fc1(x.permute(0, 3, 1, 2))) # nlvc->nclv
+        x = torch.relu(self.fc1(x.permute(0, 3, 1, 2))) # nlvc->nclv
         x = self.fc2(x).permute(0, 2, 3, 1) # nclv->nlvc
-        # print("x.shape after fc2: ", x.shape)
         return x
 
 class FCLayer(nn.Module):
@@ -747,6 +745,7 @@ class actuallyMLP(nn.Module):
 class self_Attention(nn.Module):
     def __init__(self, d_model, n_heads):
         super(self_Attention, self).__init__()
+        # print(f"d_model = {d_model}")
         self.d_model = d_model
         self.n_heads = n_heads
         self.q_linear = nn.Linear(d_model, d_model)
@@ -840,7 +839,7 @@ class PositionWise_cross_Attention(nn.Module):
         return output
     
 class PositionwiseFeedForward(nn.Module):
-    def __init__(self, d_model, d_ff, dropout=0.15):
+    def __init__(self, d_model, d_ff, dropout=0.20):
         super(PositionwiseFeedForward, self).__init__()
         self.d_model = d_model
         self.d_ff = d_ff

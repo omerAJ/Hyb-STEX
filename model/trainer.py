@@ -103,7 +103,7 @@ class Trainer(object):
             repr1, repr1_cls = self.model(data, self.graph) # nvc
             
 
-            loss, loss_pred, loss_class = self.model.loss(repr1, repr1_cls, evs, target, self.scaler, loss_weights)
+            loss, loss_pred, loss_class, loss_weights = self.model.loss(repr1, repr1_cls, evs, target, self.scaler, loss_weights)
             # print("sep_loss: ", sep_loss)
             assert not torch.isnan(loss)
             loss.backward()
@@ -171,7 +171,7 @@ class Trainer(object):
         epoch_losses_class.append(train_epoch_loss_class)
         self.logger.info(f'*******Train Epoch {epoch}: averaged Loss : {train_epoch_loss}, loss_pred: {train_epoch_loss_pred}, loss_class: {train_epoch_loss_class}')
 
-        return train_epoch_loss, epoch_losses, epoch_losses_pred, epoch_losses_class
+        return train_epoch_loss, epoch_losses, epoch_losses_pred, epoch_losses_class, loss_weights
     
     def val_epoch(self, epoch, val_dataloader, loss_weights):
         self.model.eval()
@@ -184,7 +184,7 @@ class Trainer(object):
         with torch.no_grad():
             for batch_idx, (data, target, evs) in enumerate(val_dataloader):
                 repr1, repr1_cls = self.model(data, self.graph)
-                loss, loss_pred, loss_class = self.model.loss(repr1, repr1_cls, evs, target, self.scaler, loss_weights)
+                loss, loss_pred, loss_class, _ = self.model.loss(repr1, repr1_cls, evs, target, self.scaler, loss_weights)
                 evs_true.append(evs)
                 evs_pred.append(self.model.classify_evs(repr1, repr1_cls))
                 if not torch.isnan(loss):
@@ -229,19 +229,16 @@ class Trainer(object):
             print("Ctrl+Shift+K pressed. Ending training...")
 
         keyboard.add_hotkey('ctrl+shift+k', end_training)
-        loss_tm1 = loss_t = np.ones(2) #(1.0, 1.0)
+        cls_w = 0
+        loss_weights = np.array([1, cls_w])
         for epoch in range(1, self.args.epochs + 1):
+            if epoch <= 15:
+                cls_w = 0
+                loss_weights = np.array([1, cls_w])
             if key_pressed:
                 self.logger.info('Key press detected. Exiting training loop...')
                 break
-            # dwa mechanism to balance optimization speed for different tasks
-            if self.args.use_dwa:
-                loss_tm2 = loss_tm1
-                loss_tm1 = loss_t
-                if (epoch == 1) or (epoch == 2):
-                    loss_weights = dwa(loss_tm1, loss_tm1, self.args.temp)
-                else:
-                    loss_weights  = dwa(loss_tm1, loss_tm2, self.args.temp)
+            
             self.logger.info('loss weights: {}'.format(loss_weights))
             if epoch == 1 and self.args.load_path is not None:
                 self.logger.info('validating pretrained model')
@@ -249,7 +246,7 @@ class Trainer(object):
                 val_epoch_loss = self.val_epoch(epoch, val_dataloader, loss_weights)       
                 val_epoch_losses.append(val_epoch_loss)
             
-            train_epoch_loss, train_epoch_losses, train_epoch_losses_pred, train_epoch_losses_class = self.train_epoch(epoch, loss_weights, train_epoch_losses, train_epoch_losses_pred, train_epoch_losses_class)
+            train_epoch_loss, train_epoch_losses, train_epoch_losses_pred, train_epoch_losses_class, loss_weights = self.train_epoch(epoch, loss_weights, train_epoch_losses, train_epoch_losses_pred, train_epoch_losses_class)
             if train_epoch_loss > 1e6:
                 self.logger.warning('Gradient explosion detected. Ending...')
                 break
@@ -376,7 +373,7 @@ class Trainer(object):
 def plot_cm(pred, true):
     from sklearn.metrics import confusion_matrix
     # Example data, replace these with your actual data
-    evs_pred_binary = (pred >= 0.2).astype(int)       # Threshold predictions at 0.2
+    evs_pred_binary = (pred >= 0.5).astype(int)       # Threshold predictions at 0.2
 
     # Flatten the arrays
     evs_true_flat = true.flatten()

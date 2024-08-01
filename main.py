@@ -15,7 +15,7 @@ from model.trainer import Trainer
 from lib.dataloader import get_dataloader
 from lib.utils import (
     init_seed,
-    get_model_params,
+    # get_model_params,
     load_graph, 
 )
 
@@ -39,14 +39,40 @@ def model_supervisor(args):
     args.ipe = len(dataloader['train'])
     ## init model and set optimizer
     model = STSSL(args).to(args.device)
-    model_parameters = get_model_params([model])
-    optimizer = torch.optim.Adam(
-        params=model_parameters, 
-        lr=args.lr_init, 
-        eps=1.0e-8, 
-        weight_decay=0, 
-        amsgrad=False
-    )
+    
+    def get_model_params(model):
+        pred_params = []
+        classifier_params = []
+        bias_params = []
+        for name, param in model.named_parameters():
+            if 'cls' in name:
+                classifier_params.append(param)
+            elif "bias" in name:    
+                bias_params.append(param)
+            else:
+                pred_params.append(param)
+        return pred_params, classifier_params, bias_params
+    
+    pred_params, classifier_params, bias_params = get_model_params(model)
+    optimizer = torch.optim.Adam([
+        {"params":pred_params, 
+        "lr":args.lr_init, 
+        "eps":1.0e-8, 
+        'weight_decay':0, 
+        "amsgrad":False},
+        
+        {"params":classifier_params, 
+        "lr":args.lr_init*0.01, 
+        "eps":1.0e-8, 
+        'weight_decay':0, 
+        "amsgrad":True},
+
+        {"params":bias_params, 
+        "lr":args.lr_init*0.1, 
+        "eps":1.0e-8, 
+        'weight_decay':1.0e-5, 
+        "amsgrad":True} 
+    ])
 
     ## start training
     trainer = Trainer(
