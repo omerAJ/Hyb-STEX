@@ -61,6 +61,7 @@ class Trainer(object):
         self.logger = get_logger(args.log_dir, name=args.log_dir, debug=args.debug)
         self.logger.info('\nModel has {} M trainable parameters'.format(self.num_params/(1e6)))
         self.best_path = os.path.join(self.args.log_dir, 'best_model.pth')
+        self.logs_dir = self.args.log_dir
         
         # create a panda object to log loss and acc
         self.training_stats = PD_Stats(
@@ -223,18 +224,33 @@ class Trainer(object):
         current_weights = self.model.weights.detach().cpu().numpy()
         weight_history.append(current_weights)
         key_pressed = False
+        import shutil
+        import os
+        # Specify the paths to the Python files
+        current_directory = os.path.dirname(os.path.abspath(__file__))
+
+        # Define the paths to models.py and layers.py dynamically
+        models_file_path = os.path.join(current_directory, 'models.py')
+        layers_file_path = os.path.join(current_directory, 'layers.py')
+        save_dir = self.logs_dir
+        # Copy these files to the same directory as the saved model
+        shutil.copy(models_file_path, save_dir)
+        shutil.copy(layers_file_path, save_dir)
+        self.logger.info('Model code files saved: {}, {}'.format(
+            os.path.join(save_dir, 'models.py'), 
+            os.path.join(save_dir, 'layers.py')))
         def end_training():
             nonlocal key_pressed
             key_pressed = True
             print("Ctrl+Shift+K pressed. Ending training...")
 
         keyboard.add_hotkey('ctrl+shift+k', end_training)
-        cls_w = 0
+        cls_w = 1
         loss_weights = np.array([1, cls_w])
         for epoch in range(1, self.args.epochs + 1):
-            if epoch <= 15:
-                cls_w = 0
-                loss_weights = np.array([1, cls_w])
+            # if epoch <= 15:
+            #     cls_w = 0
+            #     loss_weights = np.array([1, cls_w])
             if key_pressed:
                 self.logger.info('Key press detected. Exiting training loop...')
                 break
@@ -275,8 +291,10 @@ class Trainer(object):
                     "optimizer": self.optimizer.state_dict(),
                 }
                 if not self.args.debug:
+
                     self.logger.info('**************Current best model saved to {}'.format(self.best_path))
                     torch.save(save_dict, self.best_path)
+                    
             else:
                 not_improved_count += 1
 

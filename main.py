@@ -68,9 +68,9 @@ def model_supervisor(args):
         "amsgrad":True},
 
         {"params":bias_params, 
-        "lr":args.lr_init*0.1, 
+        "lr":args.lr_init*10, 
         "eps":1.0e-8, 
-        'weight_decay':1.0e-5, 
+        'weight_decay':1.0e-6, 
         "amsgrad":True} 
     ])
 

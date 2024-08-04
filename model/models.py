@@ -32,11 +32,11 @@ class STSSL(nn.Module):
         self.ff = PositionwiseFeedForward(d_model=128, d_ff=64*4)
         self.mlp = MLP(int((2)*args.d_model), args.d_output)
         self.mlp_cls = MLP(int((2)*args.d_model), args.d_output)
-        self.mlp_bias = MLP(int((2)*args.d_model), args.d_output)
-        self.mlp_bias.fc1.linear.bias.data.fill_(+0.5)  ## bias it to predicting normal
-        self.mlp_bias.fc2.linear.bias.data.fill_(+0.5)  ## bias it to predicting normal
-        self.mlp_cls.fc1.linear.bias.data.fill_(+0.5)  ## bias it to predicting normal
-        self.mlp_cls.fc2.linear.bias.data.fill_(+0.5)  ## bias it to predicting normal
+        # self.mlp_bias = MLP(int((2)*args.d_model), args.d_output)
+        # self.mlp_bias.fc1.linear.bias.data.fill_(+0.5)  ## bias it to predicting normal
+        # self.mlp_bias.fc2.linear.bias.data.fill_(+0.5)  ## bias it to predicting normal
+        self.mlp_cls.fc1.linear.bias.data.fill_(+0.25)  ## bias it to predicting normal
+        self.mlp_cls.fc2.linear.bias.data.fill_(+0.25)  ## bias it to predicting normal
         # self.mlp_classifier.fc2.linear.bias.data.fill_(-1)  ## bias it to predicting normal
         if args.loss == 'mae':
             self.loss_fun = masked_mae_loss(mask_value=5.0)
@@ -89,10 +89,11 @@ class STSSL(nn.Module):
         N = 200
         self.weights = nn.Parameter(torch.ones(N) / N)
         # self.key_projection = nn.Linear(int((2)*args.d_model), int((2)*args.d_model))
-        self.ff_key_projection_bias = PositionwiseFeedForward(d_model=128, d_ff=128*4)
+        self.ff_key_projection_bias = PositionwiseFeedForward(d_model=128, d_ff=128*2)
         # self.project_to_classify = nn.Linear(int((2)*args.d_model), int((2)*args.d_model))
-        self.ff_to_cls = PositionwiseFeedForward(d_model=128, d_ff=128)
-        self.learnable_vectors_bias = nn.Parameter(torch.zeros(1, 1, args.num_nodes, 128, 2), requires_grad=True)
+        self.ff_to_cls = PositionwiseFeedForward(d_model=128, d_ff=128*4)
+        # self.learnable_vectors_bias = nn.Parameter(torch.zeros(1, 1, args.num_nodes, 128, 2), requires_grad=True)
+        self.learnable_vectors_bias = nn.Parameter(torch.zeros(1, 1, 128, 2), requires_grad=True)
         # self.xavier_uniform_init(self.learnable_vectors) 
 
     def xavier_uniform_init(self, tensor):
@@ -203,12 +204,12 @@ class STSSL(nn.Module):
         """
         ## z1.shape: torch.Size([32, 1, 200, 128])
         k = self.ff_key_projection_bias(z1)
-        k = k.unsqueeze(-2)  ## z1.shape: torch.Size([32, 1, 200, 1, 128])
+        # k = k.unsqueeze(-2)  ## z1.shape: torch.Size([32, 1, 200, 1, 128])
         # print(f"k.shape: {k.shape}, learnable_vectors_bias.shape: {self.learnable_vectors_bias.shape}")  ## learnable_vectors_bias.shape: torch.Size([1, 1, 200, 128, 2])
         
         bias = torch.matmul(k, self.learnable_vectors_bias)
         # print(f"bias.shape: {bias.shape}")  ## bias.shape: torch.Size([32, 1, 200, 1, 2])
-        bias = bias.squeeze(-2)
+        # bias = bias.squeeze(-2)
         # bias = self.mlp_bias(k)
         return bias
 
@@ -236,7 +237,7 @@ class STSSL(nn.Module):
         '''
         # print("z1.shape: ", z1.shape)
         o_tilde = self.mlp(z1)
-        evs = self.classify_evs(z1, z1_cls)
+        evs = self.classify_evs(z1, z1_cls).detach()
         if t is not None:
             evs = (evs > t).float()
         ## which repr to use to calculate the bias, maybe both
