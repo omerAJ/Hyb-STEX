@@ -232,13 +232,16 @@ class Trainer(object):
         # Define the paths to models.py and layers.py dynamically
         models_file_path = os.path.join(current_directory, 'models.py')
         layers_file_path = os.path.join(current_directory, 'layers.py')
+        trainer_file_path = os.path.join(current_directory, 'trainer.py')
+        main_file_path = os.path.join(os.path.dirname(current_directory), 'main.py')
         save_dir = self.logs_dir
         # Copy these files to the same directory as the saved model
         shutil.copy(models_file_path, save_dir)
         shutil.copy(layers_file_path, save_dir)
-        self.logger.info('Model code files saved: {}, {}'.format(
-            os.path.join(save_dir, 'models.py'), 
-            os.path.join(save_dir, 'layers.py')))
+        shutil.copy(trainer_file_path, save_dir)
+        shutil.copy(main_file_path, save_dir)
+        self.logger.info('Model code files saved in: {}'.format(
+            save_dir))
         def end_training():
             nonlocal key_pressed
             key_pressed = True
@@ -369,7 +372,8 @@ class Trainer(object):
                 evs_true.append(evs)
                 evs_pred.append(pred_evs)
         y_true = scaler.inverse_transform(torch.cat(y_true, dim=0))
-        y_pred = scaler.inverse_transform(torch.cat(y_pred, dim=0))
+        # y_pred = scaler.inverse_transform(torch.cat(y_pred, dim=0))
+        y_pred = torch.cat(y_pred, dim=0)
         evs_true = torch.cat(evs_true, dim=0).cpu().numpy()
         evs_pred = torch.cat(evs_pred, dim=0).cpu().numpy()
 

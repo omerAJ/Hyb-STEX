@@ -35,8 +35,8 @@ class STSSL(nn.Module):
         # self.mlp_bias = MLP(int((2)*args.d_model), args.d_output)
         # self.mlp_bias.fc1.linear.bias.data.fill_(+0.5)  ## bias it to predicting normal
         # self.mlp_bias.fc2.linear.bias.data.fill_(+0.5)  ## bias it to predicting normal
-        self.mlp_cls.fc1.linear.bias.data.fill_(+0.25)  ## bias it to predicting normal
-        self.mlp_cls.fc2.linear.bias.data.fill_(+0.25)  ## bias it to predicting normal
+        self.mlp_cls.fc1.linear.bias.data.fill_(+0.5)  ## bias it to predicting normal
+        self.mlp_cls.fc2.linear.bias.data.fill_(+0.5)  ## bias it to predicting normal
         # self.mlp_classifier.fc2.linear.bias.data.fill_(-1)  ## bias it to predicting normal
         if args.loss == 'mae':
             self.loss_fun = masked_mae_loss(mask_value=5.0)
@@ -237,12 +237,15 @@ class STSSL(nn.Module):
         '''
         # print("z1.shape: ", z1.shape)
         o_tilde = self.mlp(z1)
+        bias = self.get_bias(z1)
+        # o_tilde = scaler.inverse_transform(o_tilde)
+        # bias = scaler.inverse_transform(bias)
         evs = self.classify_evs(z1, z1_cls).detach()
         if t is not None:
             evs = (evs > t).float()
         ## which repr to use to calculate the bias, maybe both
         
-        o = o_tilde + self.get_bias(z1) * evs
+        o = o_tilde + bias * evs
         return o
     
     def predict_o_tilde(self, z1):
@@ -264,8 +267,8 @@ class STSSL(nn.Module):
         
     
     def pred_loss(self, z1, z1_cls, evs_gt, y_true, scaler):
-        preds = self.predict(z1, z1_cls)
-        y_pred = scaler.inverse_transform(preds)
+        y_pred = self.predict(z1, z1_cls)
+        # y_pred = scaler.inverse_transform(preds)
         y_true = scaler.inverse_transform(y_true)
 
         pred_loss = self.args.yita * self.loss_fun(y_pred[..., 0], y_true[..., 0]) + \
@@ -280,16 +283,17 @@ class STSSL(nn.Module):
         l_pred = self.pred_loss(z1, z1_cls, evs, y_true, scaler)
         
         l_class = self.classification_loss(z1, z1_cls, evs)
-        total_loss = l_pred + l_class
-        pred_weight = l_class / total_loss
-        cls_weight = l_pred / total_loss
+        # total_loss = l_pred + l_class
+        # pred_weight = l_class / total_loss
+        # cls_weight = l_pred / total_loss
 
         # Normalize weights to keep the sum constant, e.g., sum to 2
         # weight_sum = pred_weight + cls_weight
         # pred_weight = 2 * (pred_weight / weight_sum)
         # cls_weight = 2 * (cls_weight / weight_sum)
 
-        loss_weights = [pred_weight.item(), cls_weight.item()]
+        # loss_weights = [pred_weight.item(), cls_weight.item()]
+        loss_weights = [1.0, 1.0]
         loss = loss_weights[0]*l_pred + loss_weights[1]*l_class
 
         l_pred=l_pred.item()
