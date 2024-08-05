@@ -35,8 +35,8 @@ class STSSL(nn.Module):
         # self.mlp_bias = MLP(int((2)*args.d_model), args.d_output)
         # self.mlp_bias.fc1.linear.bias.data.fill_(+0.5)  ## bias it to predicting normal
         # self.mlp_bias.fc2.linear.bias.data.fill_(+0.5)  ## bias it to predicting normal
-        self.mlp_cls.fc1.linear.bias.data.fill_(+0.5)  ## bias it to predicting normal
-        self.mlp_cls.fc2.linear.bias.data.fill_(+0.5)  ## bias it to predicting normal
+        # self.mlp_cls.fc1.linear.bias.data.fill_(+0.5)  ## bias it to predicting normal
+        # self.mlp_cls.fc2.linear.bias.data.fill_(+0.5)  ## bias it to predicting normal
         # self.mlp_classifier.fc2.linear.bias.data.fill_(-1)  ## bias it to predicting normal
         if args.loss == 'mae':
             self.loss_fun = masked_mae_loss(mask_value=5.0)
@@ -240,7 +240,8 @@ class STSSL(nn.Module):
         bias = self.get_bias(z1)
         # o_tilde = scaler.inverse_transform(o_tilde)
         # bias = scaler.inverse_transform(bias)
-        evs = self.classify_evs(z1, z1_cls).detach()
+        # evs = self.classify_evs(z1, z1_cls).detach()
+        evs = self.classify_evs(z1, z1_cls)
         if t is not None:
             evs = (evs > t).float()
         ## which repr to use to calculate the bias, maybe both
@@ -293,7 +294,7 @@ class STSSL(nn.Module):
         # cls_weight = 2 * (cls_weight / weight_sum)
 
         # loss_weights = [pred_weight.item(), cls_weight.item()]
-        loss_weights = [1.0, 1.0]
+        # loss_weights = [1.0, 1.0]
         loss = loss_weights[0]*l_pred + loss_weights[1]*l_class
 
         l_pred=l_pred.item()

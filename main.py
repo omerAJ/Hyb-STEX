@@ -71,7 +71,7 @@ def model_supervisor(args):
         "lr":args.lr_init, 
         "eps":1.0e-8, 
         'weight_decay':1.0e-4, 
-        "amsgrad":True} 
+        "amsgrad":False} 
     ])
 
     ## start training

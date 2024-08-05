@@ -248,12 +248,15 @@ class Trainer(object):
             print("Ctrl+Shift+K pressed. Ending training...")
 
         keyboard.add_hotkey('ctrl+shift+k', end_training)
-        cls_w = 1
+        cls_w = 0
         loss_weights = np.array([1, cls_w])
         for epoch in range(1, self.args.epochs + 1):
-            # if epoch <= 15:
-            #     cls_w = 0
-            #     loss_weights = np.array([1, cls_w])
+            if epoch == 15:
+                cls_w = 50
+                loss_weights = np.array([1, cls_w])
+            elif epoch > 15:
+                cls_w -= 1
+                loss_weights = np.array([1, cls_w])
             if key_pressed:
                 self.logger.info('Key press detected. Exiting training loop...')
                 break
