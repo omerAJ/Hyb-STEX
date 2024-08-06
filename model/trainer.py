@@ -256,6 +256,7 @@ class Trainer(object):
                 loss_weights = np.array([1, cls_w])
             elif epoch > 15:
                 cls_w -= 1
+                cls_w = max(cls_w, 1)
                 loss_weights = np.array([1, cls_w])
             if key_pressed:
                 self.logger.info('Key press detected. Exiting training loop...')
@@ -375,8 +376,8 @@ class Trainer(object):
                 evs_true.append(evs)
                 evs_pred.append(pred_evs)
         y_true = scaler.inverse_transform(torch.cat(y_true, dim=0))
-        # y_pred = scaler.inverse_transform(torch.cat(y_pred, dim=0))
-        y_pred = torch.cat(y_pred, dim=0)
+        y_pred = scaler.inverse_transform(torch.cat(y_pred, dim=0))
+        # y_pred = torch.cat(y_pred, dim=0)
         evs_true = torch.cat(evs_true, dim=0).cpu().numpy()
         evs_pred = torch.cat(evs_pred, dim=0).cpu().numpy()
 
