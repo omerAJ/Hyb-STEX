@@ -93,7 +93,7 @@ class STSSL(nn.Module):
         # self.project_to_classify = nn.Linear(int((2)*args.d_model), int((2)*args.d_model))
         self.ff_to_cls = PositionwiseFeedForward(d_model=128, d_ff=128*4)
         # self.learnable_vectors_bias = nn.Parameter(torch.zeros(1, 1, args.num_nodes, 128, 2), requires_grad=True)
-        self.learnable_vectors_bias = nn.Parameter(torch.zeros(1, 1, 128, 2), requires_grad=True)
+        # self.learnable_vectors_bias = nn.Parameter(torch.zeros(1, 1, 128, 2), requires_grad=True)
         self.learnable_bias_bias = nn.Parameter(torch.zeros(1, 1, args.num_nodes, 2), requires_grad=True)
         # self.xavier_uniform_init(self.learnable_vectors) 
 
@@ -208,7 +208,8 @@ class STSSL(nn.Module):
         # k = k.unsqueeze(-2)  ## z1.shape: torch.Size([32, 1, 200, 1, 128])
         # print(f"k.shape: {k.shape}, learnable_vectors_bias.shape: {self.learnable_vectors_bias.shape}")  ## learnable_vectors_bias.shape: torch.Size([1, 1, 200, 128, 2])
         
-        bias = torch.matmul(k, self.learnable_vectors_bias) + self.learnable_bias_bias
+        # bias = torch.matmul(k, self.learnable_vectors_bias) + self.learnable_bias_bias
+        bias = self.learnable_bias_bias
         # print(f"bias.shape: {bias.shape}")  ## bias.shape: torch.Size([32, 1, 200, 1, 2])
         # bias = bias.squeeze(-2)
         # bias = self.mlp_bias(k)
@@ -263,13 +264,33 @@ class STSSL(nn.Module):
     #     evs = self.classify_evs(z1, z1_cls)
     #     return self.focal_loss(evs, evs_gt)
     
-    def classification_loss(self, z1, z1_cls, evs_gt):
+    # def classification_loss(self, z1, z1_cls, evs_gt, y_true):
+    #     evs = self.classify_evs(z1, z1_cls)
+    #     return F.binary_cross_entropy(evs, evs_gt)
+    
+    def classification_loss(self, z1, z1_cls, evs_gt, y_true):
         evs = self.classify_evs(z1, z1_cls)
-        return F.binary_cross_entropy(evs, evs_gt)
-        
+        return self.masked_bce(evs, evs_gt, y_true, mask_value=5.0)
+    
+    def masked_bce(self, evs, evs_gt, true, mask_value=None):
+        if mask_value is not None:
+            mask = torch.gt(true, mask_value)
+            evs_masked = torch.masked_select(evs, mask)
+            evs_gt_masked = torch.masked_select(evs_gt, mask)
+        # Ensure no empty tensors
+        if evs.numel() == 0 or evs_gt.numel() == 0:
+            print("\nWarning: Empty tensor after masking")
+            return F.binary_cross_entropy(evs, evs_gt)
+
+        # Check for NaNs in input tensors
+        if torch.isnan(evs).any() or torch.isnan(evs_gt).any():
+            print("\nWarning: NaNs in input tensors")
+            return F.binary_cross_entropy(evs, evs_gt)
+            
+        return F.binary_cross_entropy(evs_masked, evs_gt_masked)
     
     def pred_loss(self, z1, z1_cls, evs_gt, y_true, scaler):
-        preds = self.predict(z1, z1_cls)
+        preds = self.predict(z1, z1_cls, t=0.5)
         y_pred = scaler.inverse_transform(preds)
         y_true = scaler.inverse_transform(y_true)
 
@@ -284,7 +305,7 @@ class STSSL(nn.Module):
     def loss(self, z1, z1_cls, evs, y_true, scaler, loss_weights):
         l_pred = self.pred_loss(z1, z1_cls, evs, y_true, scaler)
         
-        l_class = self.classification_loss(z1, z1_cls, evs)
+        l_class = self.classification_loss(z1, z1_cls, evs, y_true)
         # total_loss = l_pred + l_class
         # pred_weight = l_class / total_loss
         # cls_weight = l_pred / total_loss

@@ -8,7 +8,7 @@ TIMEOUT 3
 
 REM Loop through values 1 to 3 for the -s parameter
 FOR /L %%G IN (1,1,3) DO (
-    python main.py -c "cls lr 0.1, wd bias minus 5, annealing, XTY plus B" -s %%G -cf configs/NYCBike2.yaml
+    python main.py -c "threshold at point5, masked bce" -s %%G -cf configs/NYCTaxi.yaml
     echo Experiment completed: Ks = %%G
     TIMEOUT /T 3 /NOBREAK
 )

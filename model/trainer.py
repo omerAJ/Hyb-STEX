@@ -2,6 +2,8 @@ import os
 import time
 import numpy as np
 import torch
+from sklearn.metrics import confusion_matrix
+    
 # torch.autograd.set_detect_anomaly(True)
 import matplotlib.pyplot as plt
 
@@ -182,23 +184,26 @@ class Trainer(object):
         total_val_loss_class = 0
         evs_true = []
         evs_pred = []
+        targets = []
         with torch.no_grad():
             for batch_idx, (data, target, evs) in enumerate(val_dataloader):
                 repr1, repr1_cls = self.model(data, self.graph)
                 loss, loss_pred, loss_class, _ = self.model.loss(repr1, repr1_cls, evs, target, self.scaler, loss_weights)
                 evs_true.append(evs)
                 evs_pred.append(self.model.classify_evs(repr1, repr1_cls))
+                targets.append(self.scaler.inverse_transform(target))
                 if not torch.isnan(loss):
                     total_val_loss += loss.item()
                     total_val_loss_pred += loss_pred
                     total_val_loss_class += loss_class
-        evs_true = torch.cat(evs_true, dim=0).cpu().numpy()
-        evs_pred = torch.cat(evs_pred, dim=0).cpu().numpy()
+        evs_true = torch.cat(evs_true, dim=0).cpu()
+        evs_pred = torch.cat(evs_pred, dim=0).cpu()
+        targets = torch.cat(targets, dim=0).cpu()
         val_loss = total_val_loss / len(val_dataloader)
         val_loss_pred = total_val_loss_pred / len(val_dataloader)
         val_loss_class = total_val_loss_class / len(val_dataloader)
         self.logger.info(f'*******Val Epoch {epoch}: averaged Loss : {val_loss}, loss_pred: {val_loss_pred}, loss_class: {val_loss_class}')
-        cm = plot_cm(evs_pred, evs_true)
+        cm = plot_cm(evs_pred, evs_true, gt=targets)
         self.logger.info(f"Confusion Matrix: \n{cm}")
         return val_loss_pred
 
@@ -369,7 +374,7 @@ class Trainer(object):
         with torch.no_grad():
             for batch_idx, (data, target, evs) in enumerate(dataloader):
                 repr1, repr1_cls = model(data, graph)                
-                pred_output = model.predict(repr1, repr1_cls)
+                pred_output = model.predict(repr1, repr1_cls, t=0.5)
                 pred_evs = model.classify_evs(repr1, repr1_cls)
                 y_true.append(target)
                 y_pred.append(pred_output)
@@ -378,8 +383,8 @@ class Trainer(object):
         y_true = scaler.inverse_transform(torch.cat(y_true, dim=0))
         y_pred = scaler.inverse_transform(torch.cat(y_pred, dim=0))
         # y_pred = torch.cat(y_pred, dim=0)
-        evs_true = torch.cat(evs_true, dim=0).cpu().numpy()
-        evs_pred = torch.cat(evs_pred, dim=0).cpu().numpy()
+        evs_true = torch.cat(evs_true, dim=0).cpu()
+        evs_pred = torch.cat(evs_pred, dim=0).cpu()
 
         test_results = []
         # inflow
@@ -391,14 +396,25 @@ class Trainer(object):
         mae, mape = test_metrics(y_pred[..., 1], y_true[..., 1])
         logger.info("OUTFLOW, MAE: {:.2f}, MAPE: {:.4f}%".format(mae, mape*100))
         test_results.append([mae, mape]) 
-        cm = plot_cm(evs_pred, evs_true)
+        cm = plot_cm(evs_pred, evs_true, gt=y_true)
         logger.info(f"Confusion Matrix: \n{cm}")
         return np.stack(test_results, axis=0)
 
 
-def plot_cm(pred, true):
-    from sklearn.metrics import confusion_matrix
+def plot_cm(pred, true, gt=None):
     # Example data, replace these with your actual data
+    # print("gt.shape: ", gt.shape, "pred.shape: ", pred.shape)
+        
+    # gt=None
+    if gt is not None:
+        mask_value = 5.0
+        # gt = gt.cpu().numpy()
+        mask = torch.gt(gt, mask_value).cpu()
+        # print("==>", torch.sum(mask))
+        pred = torch.masked_select(pred, mask)
+        true = torch.masked_select(true, mask)
+    pred = pred.cpu().numpy()
+    true = true.cpu().numpy()
     evs_pred_binary = (pred >= 0.5).astype(int)       # Threshold predictions at 0.2
 
     # Flatten the arrays
