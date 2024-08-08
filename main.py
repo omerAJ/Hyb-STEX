@@ -10,7 +10,6 @@ import traceback
 import time
 import torch
 
-from model.models import STSSL
 from model.trainer import Trainer
 from lib.dataloader import get_dataloader
 from lib.utils import (
@@ -18,13 +17,20 @@ from lib.utils import (
     # get_model_params,
     load_graph, 
 )
-
+import os
 
 def model_supervisor(args):
     init_seed(args.seed)
     if not torch.cuda.is_available():
         args.device = 'cpu'
     
+    if args.load_path is None:
+        from model.models import STSSL
+    else:
+        model_dir = os.path.dirname(args.load_path)
+        sys.path.append(model_dir)
+        from models import STSSL
+
     ## load dataset
     dataloader = get_dataloader(
         data_dir=args.data_dir, 

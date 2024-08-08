@@ -93,7 +93,7 @@ class STSSL(nn.Module):
         # self.project_to_classify = nn.Linear(int((2)*args.d_model), int((2)*args.d_model))
         self.ff_to_cls = PositionwiseFeedForward(d_model=128, d_ff=128*4)
         # self.learnable_vectors_bias = nn.Parameter(torch.zeros(1, 1, args.num_nodes, 128, 2), requires_grad=True)
-        # self.learnable_vectors_bias = nn.Parameter(torch.zeros(1, 1, 128, 2), requires_grad=True)
+        self.learnable_vectors_bias = nn.Parameter(torch.zeros(1, 1, 128, 2), requires_grad=True)
         self.learnable_bias_bias = nn.Parameter(torch.zeros(1, 1, args.num_nodes, 2), requires_grad=True)
         # self.xavier_uniform_init(self.learnable_vectors) 
 
@@ -147,14 +147,14 @@ class STSSL(nn.Module):
     
     
     def forward(self, view1, graph):
-        
-        if self.dataset == "NYCBike1":
-            view1A = view1[:, -4:19, :, :]
-            view1B = view1[:, -9:-4, :, :]
+        # print(f"view1.shape: {view1.shape}")  
+        if self.dataset == "NYCBike1":  ## view1.shape: torch.Size([32, 9, 200, 2])
+            view1A = view1[:, :4, :, :]
+            view1B = view1[:, 4:9, :, :]
             # view1 = view1[:, -4:19, :, :]
-        elif self.dataset == "NYCBike2" or self.dataset == "NYCTaxi" or self.dataset == "BJTaxi": 
-            view1A = view1[:, -8:35, :, :]
-            view1B = view1[:, -17:-8, :, :]
+        elif self.dataset == "NYCBike2" or self.dataset == "NYCTaxi" or self.dataset == "BJTaxi":   ## view1.shape: torch.Size([32, 17, 200, 2])
+            view1A = view1[:, :8, :, :]
+            view1B = view1[:, 8:17, :, :]
             # view1 = view1[:, -8:35, :, :]
         view1A = view1A.to(self.args.device)
         view1B = view1B.to(self.args.device)
@@ -208,8 +208,8 @@ class STSSL(nn.Module):
         # k = k.unsqueeze(-2)  ## z1.shape: torch.Size([32, 1, 200, 1, 128])
         # print(f"k.shape: {k.shape}, learnable_vectors_bias.shape: {self.learnable_vectors_bias.shape}")  ## learnable_vectors_bias.shape: torch.Size([1, 1, 200, 128, 2])
         
-        # bias = torch.matmul(k, self.learnable_vectors_bias) + self.learnable_bias_bias
-        bias = self.learnable_bias_bias
+        bias = torch.matmul(k, self.learnable_vectors_bias) + self.learnable_bias_bias
+        # bias = self.learnable_bias_bias
         # print(f"bias.shape: {bias.shape}")  ## bias.shape: torch.Size([32, 1, 200, 1, 2])
         # bias = bias.squeeze(-2)
         # bias = self.mlp_bias(k)
@@ -232,7 +232,7 @@ class STSSL(nn.Module):
         """
         return torch.sigmoid(self.mlp_cls(self.ff_to_cls(z1)))
 
-    def predict(self, z1, z1_cls, t=None):
+    def predict(self, z1, z1_cls, phase, t=None):
         '''Predicting future traffic flow.
         :param z1, z2 (tensor): shape nvc
         :return: nlvc, l=1, c=2
@@ -247,9 +247,15 @@ class STSSL(nn.Module):
         if t is not None:
             evs = (evs > t).float()
         ## which repr to use to calculate the bias, maybe both
-        
-        o = o_tilde + bias * evs
-        return o
+        if phase == "pred":
+            return o_tilde
+        elif phase == "cls":
+            return o_tilde
+        elif phase == "bias" or phase == "pred_2":
+            return o_tilde + bias * evs
+        else:
+            raise ValueError("phase not recognized")
+     
     
     def predict_o_tilde(self, z1):
         '''Predicting future traffic flow.
@@ -264,46 +270,45 @@ class STSSL(nn.Module):
     #     evs = self.classify_evs(z1, z1_cls)
     #     return self.focal_loss(evs, evs_gt)
     
-    # def classification_loss(self, z1, z1_cls, evs_gt, y_true):
-    #     evs = self.classify_evs(z1, z1_cls)
-    #     return F.binary_cross_entropy(evs, evs_gt)
-    
     def classification_loss(self, z1, z1_cls, evs_gt, y_true):
         evs = self.classify_evs(z1, z1_cls)
-        return self.masked_bce(evs, evs_gt, y_true, mask_value=5.0)
+        return F.binary_cross_entropy(evs, evs_gt)
     
-    def masked_bce(self, evs, evs_gt, true, mask_value=None):
-        if mask_value is not None:
-            mask = torch.gt(true, mask_value)
-            evs_masked = torch.masked_select(evs, mask)
-            evs_gt_masked = torch.masked_select(evs_gt, mask)
-        # Ensure no empty tensors
-        if evs.numel() == 0 or evs_gt.numel() == 0:
-            print("\nWarning: Empty tensor after masking")
-            return F.binary_cross_entropy(evs, evs_gt)
+    # def classification_loss(self, z1, z1_cls, evs_gt, y_true):
+    #     evs = self.classify_evs(z1, z1_cls)
+    #     return self.masked_bce(evs, evs_gt, y_true, mask_value=5.0)
+    
+    # def masked_bce(self, evs, evs_gt, true, mask_value=None):
+    #     if mask_value is not None:
+    #         mask = torch.gt(true, mask_value)
+    #         evs_masked = torch.masked_select(evs, mask)
+    #         evs_gt_masked = torch.masked_select(evs_gt, mask)
+    #     # Ensure no empty tensors
+    #     if evs.numel() == 0 or evs_gt.numel() == 0:
+    #         print("\nWarning: Empty tensor after masking")
+    #         return F.binary_cross_entropy(evs, evs_gt)
 
-        # Check for NaNs in input tensors
-        if torch.isnan(evs).any() or torch.isnan(evs_gt).any():
-            print("\nWarning: NaNs in input tensors")
-            return F.binary_cross_entropy(evs, evs_gt)
+    #     # Check for NaNs in input tensors
+    #     if torch.isnan(evs).any() or torch.isnan(evs_gt).any():
+    #         print("\nWarning: NaNs in input tensors")
+    #         return F.binary_cross_entropy(evs, evs_gt)
             
-        return F.binary_cross_entropy(evs_masked, evs_gt_masked)
+    #     return F.binary_cross_entropy(evs_masked, evs_gt_masked)
     
-    def pred_loss(self, z1, z1_cls, evs_gt, y_true, scaler):
-        preds = self.predict(z1, z1_cls, t=0.5)
+    def pred_loss(self, z1, z1_cls, evs_gt, y_true, scaler, phase):
+        preds = self.predict(z1, z1_cls, phase)
         y_pred = scaler.inverse_transform(preds)
         y_true = scaler.inverse_transform(y_true)
 
         pred_loss = self.args.yita * self.loss_fun(y_pred[..., 0], y_true[..., 0]) + \
                 (1 - self.args.yita) * self.loss_fun(y_pred[..., 1], y_true[..., 1])
 
-        
         loss = pred_loss
         return loss
     
 
-    def loss(self, z1, z1_cls, evs, y_true, scaler, loss_weights):
-        l_pred = self.pred_loss(z1, z1_cls, evs, y_true, scaler)
+    def loss(self, z1, z1_cls, evs, y_true, scaler, loss_weights, phase):
+        l_pred = self.pred_loss(z1, z1_cls, evs, y_true, scaler, phase)
         
         l_class = self.classification_loss(z1, z1_cls, evs, y_true)
         # total_loss = l_pred + l_class
