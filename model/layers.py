@@ -239,26 +239,26 @@ class STEncoder(nn.Module):
             print("in else")
             self.Ks=Ks
             c = blocks[0]
-            self.tconv11 = TemporalConvLayer(Kt, c[0], c[1], "GLU")
+            self.tconv11 = TemporalConvLayer(Kt, c[0], c[1], "GLU", paddin="same")
             # self.represent = representationLayerOnGrid(Kt, c[0], c[1], self.row, self.col, "GLU", paddin='valid', flag=False)
-            self.pooler = Pooler(input_length - (Kt - 1), c[1])
+            self.pooler = Pooler(int((input_length+1) /2), c[1])
             
             self.sconv12 = SpatioConvLayer(Ks, c[1], c[1])
             t = input_length + 2 - 2 - 2 
             self.lns1 = nn.LayerNorm([num_nodes, c[1]])
-            self.tconv13 = TemporalConvLayer(Kt, c[1], c[2])
+            self.tconv13 = TemporalConvLayer(Kt, c[1], c[2], paddin="same")
             self.ln1 = nn.LayerNorm([num_nodes, c[2]])
             self.dropout1 = nn.Dropout(droprate)
 
             c = blocks[1]
-            self.tconv21 = TemporalConvLayer(Kt, c[0], c[1], "GLU")
+            self.tconv21 = TemporalConvLayer(Kt, c[0], c[1], "GLU", paddin="same")
             
             self.sconv22 = SpatioConvLayer(Ks, c[1], c[1])
             t = input_length + 2 - 2 - 2 - 2 - 2 
             self.lns2 = nn.LayerNorm([num_nodes, c[1]])
             self.lns3 = nn.LayerNorm([num_nodes, c[2]])
             self.lns4 = nn.LayerNorm([num_nodes, c[2]])
-            self.tconv23 = TemporalConvLayer(Kt, c[1], c[2])
+            self.tconv23 = TemporalConvLayer(Kt, c[1], c[2], paddin="same")
             self.ln2 = nn.LayerNorm([num_nodes, c[2]])
             self.dropout2 = nn.Dropout(droprate)
             self.sconvAffinity1 = SpatioConvLayer(Ks, c[2], c[2])
@@ -268,11 +268,13 @@ class STEncoder(nn.Module):
             self.s_sim_mx = None
             self.t_sim_mx = None
 
-            out_len = input_length - 2 * (Kt - 1) * len(blocks)   # input_length - 8
-            self.out_conv = TemporalConvLayer(out_len, c[2], c[2], "GLU")
+            # out_len = input_length - 2 * (Kt - 1) * len(blocks)   # input_length - 8
+            out_len = int((input_length + 1) / 2)
+            self.out_conv = TemporalConvLayer(out_len, c[2], c[2], "GLU", flag=True)
             self.ln3 = nn.LayerNorm([num_nodes, c[2]])
             self.dropout3 = nn.Dropout(droprate)
-            self.receptive_field = input_length + Kt -1
+            # self.receptive_field = input_length + Kt -1
+            self.receptive_field = int((input_length + 1) / 2)
         
         self.get_adj_mx = get_adj_mx(d_model=c[2])
         self.threshold_adj_mx = threshold_adj_mx
@@ -292,7 +294,9 @@ class STEncoder(nn.Module):
                 
         in_len = x0.size(1) # x0, nlvc
         if in_len < self.receptive_field:
+            # print(f"x0.shape: {x0.shape}, in_len: {in_len}, self.receptive_field: {self.receptive_field}")
             x = F.pad(x0, (0,0,0,0,self.receptive_field-in_len,0))
+            # print(f"x.shape: {x.shape}")
         else:
             x = x0
         x = x.permute(0, 3, 1, 2)  # (batch_size, feature_dim, input_length, num_nodes), nclv 
@@ -327,7 +331,8 @@ class STEncoder(nn.Module):
         x = self.dropout2(self.ln2(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2))
 
         
-        # print(f"x.shape: {x.shape}, before out_conv")  ## x.shape: torch.Size([32, 64, 27, 200]), before out_conv
+        # print(f"x.shape: {x.shape}, before out_conv")  ## x.shape: torch.Size([32, 64, 9, 200]), before out_conv
+        
         x = self.out_conv(x) # ncl(=1)v    ## filter_size = (l, 1), so dot product with time length and same kernel used for every node.
         x = self.dropout3(self.ln3(x.permute(0, 2, 3, 1))) # nlvc  [32, 1, 200, 64]
         # print(f"x.shape: {x.shape} after out_conv")
@@ -431,6 +436,7 @@ class attentive_fusion(nn.Module):
         combined_repr = combined_repr.squeeze(1)
         çombined_repr_copy = combined_repr
         combined_repr = self.attention1(combined_repr)
+        # print(f"combined_repr.shape: {combined_repr.shape}, çombined_repr_copy.shape: {çombined_repr_copy.shape}")
         combined_repr = combined_repr + çombined_repr_copy  # skip connection
         combined_repr_copy = combined_repr
         combined_repr = self.attention2(combined_repr)
@@ -545,11 +551,14 @@ class TemporalConvLayer(nn.Module):
         :return: (n,c,l-kt+1,v)
         """
         if self.flag:
-            x_in = self.align(x)  
+            x_in = self.align(x)[:, :, self.kt-1:, :]
         else:
-            x_in = self.align(x)[:, :, self.kt - 1:, :]   # align does nothing as c_in == c_out
+            # print(f"x.shape: {x.shape}")
+            x_in = self.align(x)[:, :, :, :]   # align does nothing as c_in == c_out
+            # print(f"x_in.shape: {x_in.shape}")
         if self.act == "GLU":
             x_conv = self.conv(x)
+            # print(f"x_conv.shape: {x_conv.shape}, x_in.shape: {x_in.shape}")
             return (x_conv[:, :self.c_out, :, :] + x_in) * torch.sigmoid(x_conv[:, self.c_out:, :, :])
         if self.act == "sigmoid":
             x_conv = self.conv(x)
@@ -699,6 +708,7 @@ class Pooler(nn.Module):
         # print("A.shape: ", A.shape)
         A = self.softmax(self.agg(A).squeeze(2)) # A: lnqv->lnv
         # print("A.shape: ", A.shape)
+        # print("x.shape: ", x.shape, "x_in.shape: ", x_in.shape)
         return torch.relu(x + x_in), x_agg.detach(), A.detach()
 
 ########################################

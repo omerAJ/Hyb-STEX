@@ -11,7 +11,7 @@ T_Loss: 0
 ## data 
 data_dir: data
 dataset: NYCBike1  
-input_length: 19 # 4+5*3
+input_length: 9 # 4+5*3
 batch_size: 32
 test_batch_size: 32
 graph_file: data/NYCBike1/adj_mx.npz # 128 x 128
