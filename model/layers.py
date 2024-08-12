@@ -425,24 +425,38 @@ class STEncoder(nn.Module):
         L = I - torch.bmm(torch.bmm(D_sqrt_inv, graph), D_sqrt_inv)
         return L
 
+
 class attentive_fusion(nn.Module):
-    def __init__(self, d_model):
+    def __init__(self, d_model, n_heads, ln=False):
         super(attentive_fusion, self).__init__()
         self.d_model = d_model
-        self.attention1 = self_Attention(int((2)*self.d_model), 4)
-        self.attention2 = self_Attention(int((2)*self.d_model), 4)
+        self.attention1 = self_Attention(int(2 * self.d_model), n_heads)
+        self.attention2 = self_Attention(int(2 * self.d_model), n_heads)
+        self.do_ln = ln
+        if self.do_ln:
+            self.ln1 = nn.LayerNorm(int(2 * self.d_model))
+            self.ln2 = nn.LayerNorm(int(2 * self.d_model))
         
     def forward(self, combined_repr):
+        
         combined_repr = combined_repr.squeeze(1)
-        çombined_repr_copy = combined_repr
+        combined_repr_copy = combined_repr
         combined_repr = self.attention1(combined_repr)
-        # print(f"combined_repr.shape: {combined_repr.shape}, çombined_repr_copy.shape: {çombined_repr_copy.shape}")
-        combined_repr = combined_repr + çombined_repr_copy  # skip connection
+        combined_repr = combined_repr + combined_repr_copy  # skip connection
+
+        if self.do_ln:
+            combined_repr = self.ln1(combined_repr)
+
         combined_repr_copy = combined_repr
         combined_repr = self.attention2(combined_repr)
         combined_repr = combined_repr + combined_repr_copy  # skip connection
+        
+        if self.do_ln:
+            combined_repr = self.ln2(combined_repr)
+
         combined_repr = combined_repr.unsqueeze(1)
         return combined_repr
+
 
 class get_adj_mx(nn.Module):
         def __init__(self, d_model):

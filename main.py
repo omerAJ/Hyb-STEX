@@ -68,7 +68,7 @@ def model_supervisor(args):
         "amsgrad":False},
         
         {"params":classifier_params, 
-        "lr":args.lr_init*0.1, 
+        "lr":args.lr_init, 
         "eps":1.0e-8, 
         'weight_decay':0, 
         "amsgrad":True},
@@ -76,7 +76,7 @@ def model_supervisor(args):
         {"params":bias_params, 
         "lr":args.lr_init, 
         "eps":1.0e-8, 
-        'weight_decay':1.0e-5, 
+        'weight_decay':1.0e-8, 
         "amsgrad":True} 
     ])
 
@@ -92,6 +92,7 @@ def model_supervisor(args):
     try:
         if args.mode == 'train':
             results = trainer.train() # best_eval_loss, best_epoch
+            print("Training done")
         elif args.mode == 'test':
             # test
             state_dict = torch.load(

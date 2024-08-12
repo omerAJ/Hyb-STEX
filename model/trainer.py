@@ -141,48 +141,7 @@ class Trainer(object):
             total_loss += loss.item()
             total_loss_pred += loss_pred
             total_loss_class += loss_class
-        if epoch % 1 == 0:
-            plot = "NO"
-            if plot == "image":
-                import networkx as nx
-                import matplotlib.pyplot as plt
-
-                if torch.is_tensor(learnable_graph):
-                    graph_matrix = learnable_graph.detach().cpu().numpy()  # Convert to NumPy
-                else:
-                    graph_matrix = learnable_graph  # Assuming it's already a NumPy array
-
-                G = nx.Graph(graph_matrix)  # Create the NetworkX graph
-                nx.draw(G, with_labels=True) 
-                save_path = os.path.join(self.args.log_dir, f'learnable_graph_epoch_{epoch}.png')
-                plt.savefig(save_path)
-                plt.close()  
-
-            elif plot == "matrix":
-                import seaborn as sns
-                import matplotlib.pyplot as plt
-                adj = learnable_graph.detach().cpu().numpy()
-                plt.figure(figsize=(20, 20))
-                sns.heatmap(adj, cmap='viridis', annot=True)  # annot=True shows values
-                plt.title('Adjacency Matrix Visualization')
-                save_path = os.path.join(self.args.log_dir, f'learnable_graph_epoch_{epoch}.png')
-                plt.savefig(save_path)
-
-            elif plot == "npArray":
-                # print("==>", learnable_graph.detach().cpu().numpy().shape)
-                np.save(os.path.join(self.args.log_dir, f'learnable_graph_epoch_{epoch}.npy'), learnable_graph.detach().cpu().numpy())
-
-            elif plot == "node_status":
-                import matplotlib.pyplot as plt
-                import seaborn as sns
-                learnable_graph = np.reshape(learnable_graph.detach().cpu().numpy().squeeze(0).squeeze(0), (20, 10))
-                plt.figure(figsize=(40, 40))
-                sns.heatmap(learnable_graph, cmap='viridis', annot=True)  # annot=True shows values
-                plt.title('Adjacency Matrix Visualization')
-                save_path = os.path.join(self.args.log_dir, f'learnable_graph_epoch.png')
-                plt.savefig(save_path)
-                # print("learnable_graph.shape: ", learnable_graph.shape)
-
+        
                 
         train_epoch_loss = total_loss/self.train_per_epoch
         train_epoch_loss_pred = total_loss_pred/self.train_per_epoch
@@ -191,7 +150,7 @@ class Trainer(object):
         epoch_losses.append(train_epoch_loss)
         epoch_losses_pred.append(train_epoch_loss_pred)
         epoch_losses_class.append(train_epoch_loss_class)
-        self.logger.info(f'*******Train Epoch {epoch}: averaged Loss : {train_epoch_loss:.2f}, loss_pred: {train_epoch_loss_pred:.2f}, loss_class: {train_epoch_loss_class:.2f}')
+        self.logger.info(f'*******Train Epoch {epoch}: averaged Loss : {train_epoch_loss:.5f}, loss_pred: {train_epoch_loss_pred:.5f}, loss_class: {train_epoch_loss_class:.5f}')
 
         return train_epoch_loss, epoch_losses, epoch_losses_pred, epoch_losses_class, loss_weights
     
@@ -221,7 +180,7 @@ class Trainer(object):
         val_loss = total_val_loss / len(val_dataloader)
         val_loss_pred = total_val_loss_pred / len(val_dataloader)
         val_loss_class = total_val_loss_class / len(val_dataloader)
-        self.logger.info(f'*******Val Epoch {epoch}: averaged Loss : {val_loss:.2f}, loss_pred: {val_loss_pred:.2f}, loss_class: {val_loss_class:.2f}')
+        self.logger.info(f'*******Val Epoch {epoch}: averaged Loss : {val_loss:.5f}, loss_pred: {val_loss_pred:.5f}, loss_class: {val_loss_class:.5f}')
         cm = plot_cm(evs_pred, evs_true, gt=targets)
         self.logger.info(f"Confusion Matrix: \n{cm}")
         return val_loss_pred, val_loss_class
@@ -276,6 +235,8 @@ class Trainer(object):
                 val_loss_pred, val_loss_cls = self.val_epoch(epoch, val_dataloader, loss_weights, component_name)       
                 val_epoch_loss = val_loss_cls if component_name == 'cls' else val_loss_pred
                 val_epoch_losses.append(val_epoch_loss)
+                best_loss = val_epoch_loss  
+                self.best_path = self.args.load_path
 
             train_epoch_loss, train_epoch_losses, train_epoch_losses_pred, train_epoch_losses_class, loss_weights = self.train_epoch(epoch, loss_weights, train_epoch_losses, train_epoch_losses_pred, train_epoch_losses_class, component_name)
             if train_epoch_loss > 1e6:
@@ -305,9 +266,10 @@ class Trainer(object):
                     "optimizer": self.optimizer.state_dict(),
                 }
                 if not self.args.debug:
-                    self.logger.info('**************Current best model saved to {}'.format(self.best_path))
                     # edit self.best_path to have component_name
                     self.best_path = os.path.join(self.args.log_dir, f'best_model_{component_name}.pth')
+                    self.logger.info('**************Current best model saved to {}'.format(self.best_path))
+                    
                     torch.save(save_dict, self.best_path)
             else:
                 not_improved_count += 1
@@ -363,10 +325,9 @@ class Trainer(object):
         
         pred_params, classifier_params, bias_params = get_model_params_grouped(self.model)
 
-        
         # Train the prediction parameters until convergence
         results = self.train_component(
-            pred_params, classifier_params + bias_params, 'pred', esp=45)
+            pred_params, bias_params+classifier_params, 'pred', esp=25)
 
         load_from = self.best_path
         if load_from is not None:
@@ -380,7 +341,7 @@ class Trainer(object):
 
         # Train the classification parameters until convergence
         results = self.train_component(
-            classifier_params, pred_params + bias_params, 'cls', esp=30)
+            classifier_params, pred_params + bias_params, 'cls', esp=10)
 
         load_from = self.best_path
         if load_from is not None:
@@ -391,10 +352,10 @@ class Trainer(object):
             print("\nmsg: ", msg)
             # Extract parameter groups
             pred_params, classifier_params, bias_params = get_model_params_grouped(self.model)
-
+        
         # Train the all parameters until convergence
         results = self.train_component(
-            classifier_params+pred_params+bias_params, None, 'pred_2', esp=45)
+            bias_params, classifier_params+pred_params, 'bias', esp=15)
 
         load_from = self.best_path
         if load_from is not None:
@@ -409,7 +370,7 @@ class Trainer(object):
         
         # Train the bias parameters until convergence
         results = self.train_component(
-            bias_params, classifier_params + pred_params, 'bias', esp=15)
+            bias_params + classifier_params + pred_params, None, 'pred_2', esp=10)
         
         return results
 

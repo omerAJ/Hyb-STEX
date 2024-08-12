@@ -105,7 +105,7 @@ def get_dataloader(data_dir, dataset, batch_size, test_batch_size, scalar_type='
             data['x_' + category] = cat_data['x'][:, -9:19, :, :]  # cat_data['x'].shape: (1912, 35, 200, 2)
         else:
             data['x_' + category] = cat_data['x'][:, -17:35, :, :]  # cat_data['x'].shape: (1912, 35, 200, 2)
-        
+        # data['x_' + category] = cat_data['x']
         data['y_' + category] = cat_data['y']
         data['evs_' + category] = cat_data['evs_90']
         print("using 90percent evs")

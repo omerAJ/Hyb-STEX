@@ -21,13 +21,26 @@ import numpy as np
 class STSSL(nn.Module):
     def __init__(self, args):
         super(STSSL, self).__init__()
+        
+        # if args.load_path is not None:
+        #     import os
+        #     import sys
+        #     model_dir = os.path.dirname(args.load_path)
+        #     sys.path.append(model_dir)
+        #     from layers import (
+        #         STEncoder, 
+        #         MLP,
+        #         self_Attention,
+        #         PositionwiseFeedForward,
+        #         attentive_fusion,
+        #     )
         self.args = args
 
         # self.attention1 = self_Attention(int((2)*args.d_model), 4)
         # self.attention2 = self_Attention(int((2)*args.d_model), 4)
         
-        self.attentive_fuse = attentive_fusion(args.d_model)
-        self.attentive_fuse_cls = attentive_fusion(args.d_model)
+        self.attentive_fuse = attentive_fusion(args.d_model, n_heads=2, ln=True)
+        self.attentive_fuse_cls = attentive_fusion(args.d_model, n_heads=2, ln=True)
 
         self.ff = PositionwiseFeedForward(d_model=128, d_ff=64*4)
         self.mlp = MLP(int((2)*args.d_model), args.d_output)
@@ -94,7 +107,7 @@ class STSSL(nn.Module):
         self.ff_to_cls = PositionwiseFeedForward(d_model=128, d_ff=128*4)
         # self.learnable_vectors_bias = nn.Parameter(torch.zeros(1, 1, args.num_nodes, 128, 2), requires_grad=True)
         self.learnable_vectors_bias = nn.Parameter(torch.zeros(1, 1, 128, 2), requires_grad=True)
-        self.learnable_bias_bias = nn.Parameter(torch.zeros(1, 1, args.num_nodes, 2), requires_grad=True)
+        # self.learnable_bias_bias = nn.Parameter(torch.zeros(1, 1, args.num_nodes, 2), requires_grad=True)
         # self.xavier_uniform_init(self.learnable_vectors) 
 
     def xavier_uniform_init(self, tensor):
@@ -149,12 +162,12 @@ class STSSL(nn.Module):
     def forward(self, view1, graph):
         # print(f"view1.shape: {view1.shape}")  
         if self.dataset == "NYCBike1":  ## view1.shape: torch.Size([32, 9, 200, 2])
-            view1A = view1[:, :4, :, :]
-            view1B = view1[:, 4:9, :, :]
+            view1B = view1[:, :5, :, :]
+            view1A = view1[:, 5:9, :, :]
             # view1 = view1[:, -4:19, :, :]
         elif self.dataset == "NYCBike2" or self.dataset == "NYCTaxi" or self.dataset == "BJTaxi":   ## view1.shape: torch.Size([32, 17, 200, 2])
-            view1A = view1[:, :8, :, :]
-            view1B = view1[:, 8:17, :, :]
+            view1B = view1[:, :9, :, :]
+            view1A = view1[:, 9:17, :, :]
             # view1 = view1[:, -8:35, :, :]
         view1A = view1A.to(self.args.device)
         view1B = view1B.to(self.args.device)
@@ -178,7 +191,7 @@ class STSSL(nn.Module):
         
         o_tilde = self.predict_o_tilde(combined_repr)
 
-        view1A = torch.cat((view1A, o_tilde), dim=1)
+        # view1A = torch.cat((view1A, o_tilde), dim=1)
         repr1A_cls = self.encoderA_cls(view1A, learnable_graph) # view1: n,l,v,c; graph: v,v 
         repr1B_cls = self.encoderB_cls(view1B, learnable_graph) # view1: n,l,v,c; graph: v,v 
         combined_repr_cls = torch.cat((repr1A_cls, repr1B_cls), dim=3)            ## combine along the channel dimension d_model
@@ -208,7 +221,7 @@ class STSSL(nn.Module):
         # k = k.unsqueeze(-2)  ## z1.shape: torch.Size([32, 1, 200, 1, 128])
         # print(f"k.shape: {k.shape}, learnable_vectors_bias.shape: {self.learnable_vectors_bias.shape}")  ## learnable_vectors_bias.shape: torch.Size([1, 1, 200, 128, 2])
         
-        bias = torch.matmul(k, self.learnable_vectors_bias) + self.learnable_bias_bias
+        bias = torch.matmul(k, self.learnable_vectors_bias)
         # bias = self.learnable_bias_bias
         # print(f"bias.shape: {bias.shape}")  ## bias.shape: torch.Size([32, 1, 200, 1, 2])
         # bias = bias.squeeze(-2)
