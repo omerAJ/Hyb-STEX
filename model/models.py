@@ -39,8 +39,8 @@ class STSSL(nn.Module):
         # self.attention1 = self_Attention(int((2)*args.d_model), 4)
         # self.attention2 = self_Attention(int((2)*args.d_model), 4)
         
-        self.attentive_fuse = attentive_fusion(args.d_model, n_heads=2, ln=True)
-        self.attentive_fuse_cls = attentive_fusion(args.d_model, n_heads=2, ln=True)
+        self.attentive_fuse = attentive_fusion(int((2)*args.d_model), n_heads=4, ln=False)
+        self.attentive_fuse_cls = attentive_fusion(int((2)*args.d_model), n_heads=4, ln=False)
 
         self.ff = PositionwiseFeedForward(d_model=128, d_ff=64*4)
         self.mlp = MLP(int((2)*args.d_model), args.d_output)
@@ -93,7 +93,11 @@ class STSSL(nn.Module):
 
         neighbours = f"data/{args.dataset}/adj_mx.npz"
         neighbours = np.load(neighbours)["adj_mx"]
-        self.neighbours = nn.Parameter(torch.from_numpy(neighbours).float(), requires_grad=False).to(self.args.device)
+        if graph_init == "no_sconv":             ## eye sconv because of cheb approximation. actual adj will be: [eye, zero, zero], placeholder actually no sconv because of flag
+            self.neighbours = nn.Parameter(torch.zeros_like(torch.tensor(neighbours).float()), requires_grad=False).to(self.args.device)
+        else:
+            self.neighbours = nn.Parameter(torch.from_numpy(neighbours).float(), requires_grad=False).to(self.args.device)
+
         self.eye = torch.eye(args.num_nodes).to(self.args.device)
         
         self.add_x_encoder = args.add_x_encoder
@@ -109,6 +113,8 @@ class STSSL(nn.Module):
         self.learnable_vectors_bias = nn.Parameter(torch.zeros(1, 1, 128, 2), requires_grad=True)
         # self.learnable_bias_bias = nn.Parameter(torch.zeros(1, 1, args.num_nodes, 2), requires_grad=True)
         # self.xavier_uniform_init(self.learnable_vectors) 
+
+        
 
     def xavier_uniform_init(self, tensor):
         fan_in, fan_out = nn.init._calculate_fan_in_and_fan_out(tensor)
@@ -166,8 +172,14 @@ class STSSL(nn.Module):
             view1A = view1[:, 5:9, :, :]
             # view1 = view1[:, -4:19, :, :]
         elif self.dataset == "NYCBike2" or self.dataset == "NYCTaxi" or self.dataset == "BJTaxi":   ## view1.shape: torch.Size([32, 17, 200, 2])
-            view1B = view1[:, :9, :, :]
-            view1A = view1[:, 9:17, :, :]
+            ## when using input length = 35, these are C and D
+            # view1B = view1[:, :9, :, :]
+            # view1A = view1[:, 9:17, :, :]
+            ## these are A and B
+            view1A = view1[:, -8:35, :, :]
+            view1B = view1[:, -17:-8, :, :]
+            
+            
             # view1 = view1[:, -8:35, :, :]
         view1A = view1A.to(self.args.device)
         view1B = view1B.to(self.args.device)
@@ -189,7 +201,7 @@ class STSSL(nn.Module):
         if self.self_attention_flag:
             combined_repr = self.attentive_fuse(combined_repr)
         
-        o_tilde = self.predict_o_tilde(combined_repr)
+        # o_tilde = self.predict_o_tilde(combined_repr)
 
         # view1A = torch.cat((view1A, o_tilde), dim=1)
         repr1A_cls = self.encoderA_cls(view1A, learnable_graph) # view1: n,l,v,c; graph: v,v 
@@ -336,6 +348,7 @@ class STSSL(nn.Module):
         # loss_weights = [pred_weight.item(), cls_weight.item()]
         # loss_weights = [1.0, 1.0]
         loss = loss_weights[0]*l_pred + loss_weights[1]*l_class
+        # loss = loss_weights[0]*l_pred
 
         l_pred=l_pred.item()
         l_class=l_class.item()

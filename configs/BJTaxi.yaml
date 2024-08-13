@@ -8,9 +8,10 @@ debug: False # true means no log in file
 ## data
 data_dir: data
 dataset: BJTaxi 
-input_length: 17 # 8+9*3
-batch_size: 12
-test_batch_size: 12
+# input_length: 17 # 8+9*3
+input_length: 35 # 8+9*3
+batch_size: 20
+test_batch_size: 20
 graph_file: data/BJTaxi/adj_mx.npz # num_nodes: 1024
 num_nodes: 1024
 row: 32

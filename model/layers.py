@@ -239,26 +239,27 @@ class STEncoder(nn.Module):
             print("in else")
             self.Ks=Ks
             c = blocks[0]
-            self.tconv11 = TemporalConvLayer(Kt, c[0], c[1], "GLU", paddin="same")
+            self.tconv11 = TemporalConvLayer(Kt, c[0], c[1], "GLU")
             # self.represent = representationLayerOnGrid(Kt, c[0], c[1], self.row, self.col, "GLU", paddin='valid', flag=False)
-            self.pooler = Pooler(int((input_length+1) /2), c[1])
+            # self.pooler = Pooler(int((input_length+1) /2), c[1])
+            self.pooler = Pooler(input_length - (Kt - 1), c[1])
             
             self.sconv12 = SpatioConvLayer(Ks, c[1], c[1])
             t = input_length + 2 - 2 - 2 
             self.lns1 = nn.LayerNorm([num_nodes, c[1]])
-            self.tconv13 = TemporalConvLayer(Kt, c[1], c[2], paddin="same")
+            self.tconv13 = TemporalConvLayer(Kt, c[1], c[2])
             self.ln1 = nn.LayerNorm([num_nodes, c[2]])
             self.dropout1 = nn.Dropout(droprate)
 
             c = blocks[1]
-            self.tconv21 = TemporalConvLayer(Kt, c[0], c[1], "GLU", paddin="same")
+            self.tconv21 = TemporalConvLayer(Kt, c[0], c[1], "GLU")
             
             self.sconv22 = SpatioConvLayer(Ks, c[1], c[1])
             t = input_length + 2 - 2 - 2 - 2 - 2 
             self.lns2 = nn.LayerNorm([num_nodes, c[1]])
             self.lns3 = nn.LayerNorm([num_nodes, c[2]])
             self.lns4 = nn.LayerNorm([num_nodes, c[2]])
-            self.tconv23 = TemporalConvLayer(Kt, c[1], c[2], paddin="same")
+            self.tconv23 = TemporalConvLayer(Kt, c[1], c[2])
             self.ln2 = nn.LayerNorm([num_nodes, c[2]])
             self.dropout2 = nn.Dropout(droprate)
             self.sconvAffinity1 = SpatioConvLayer(Ks, c[2], c[2])
@@ -269,12 +270,14 @@ class STEncoder(nn.Module):
             self.t_sim_mx = None
 
             # out_len = input_length - 2 * (Kt - 1) * len(blocks)   # input_length - 8
-            out_len = int((input_length + 1) / 2)
-            self.out_conv = TemporalConvLayer(out_len, c[2], c[2], "GLU", flag=True)
+            # out_len = int((input_length + 1) / 2)
+            out_len = input_length - 2 * (Kt - 1) * len(blocks)
+            self.out_conv = TemporalConvLayer(out_len, c[2], c[2], "GLU")
             self.ln3 = nn.LayerNorm([num_nodes, c[2]])
             self.dropout3 = nn.Dropout(droprate)
             # self.receptive_field = input_length + Kt -1
-            self.receptive_field = int((input_length + 1) / 2)
+            # self.receptive_field = int((input_length + 1) / 2)
+            self.receptive_field = input_length + Kt -1
         
         self.get_adj_mx = get_adj_mx(d_model=c[2])
         self.threshold_adj_mx = threshold_adj_mx
@@ -287,10 +290,12 @@ class STEncoder(nn.Module):
         if self.threshold_adj_mx:
             threshold = True
 
-        if self.graph_init == "8_neighbours":
+        if self.graph_init == "8_neighbours" or "zeros":
             lap_mx = self._cal_laplacian(learnable_graph)      ## from adj to laplacian
             Lk = self._cheb_polynomial(lap_mx, self.Ks)
-
+        elif self.graph_init == "no_sconv":
+            Lk=None
+        # Lk = learnable_graph
                 
         in_len = x0.size(1) # x0, nlvc
         if in_len < self.receptive_field:
@@ -320,6 +325,7 @@ class STEncoder(nn.Module):
         ## ST block 2
         x = self.tconv21(x)
         if self.do_sconv:
+            print("doing sconv")
             # print(f"x.shape: {x.shape}, before sconv22")
             # x.shape: torch.Size([32, 32, 29, 200]), before sconv22
             # print(f"x.shape: {x.shape} Lk.shape: {Lk.shape}") 
@@ -430,12 +436,12 @@ class attentive_fusion(nn.Module):
     def __init__(self, d_model, n_heads, ln=False):
         super(attentive_fusion, self).__init__()
         self.d_model = d_model
-        self.attention1 = self_Attention(int(2 * self.d_model), n_heads)
-        self.attention2 = self_Attention(int(2 * self.d_model), n_heads)
+        self.attention1 = self_Attention(int(self.d_model), n_heads)
+        self.attention2 = self_Attention(int(self.d_model), n_heads)
         self.do_ln = ln
         if self.do_ln:
-            self.ln1 = nn.LayerNorm(int(2 * self.d_model))
-            self.ln2 = nn.LayerNorm(int(2 * self.d_model))
+            self.ln1 = nn.LayerNorm(int(self.d_model))
+            self.ln2 = nn.LayerNorm(int(self.d_model))
         
     def forward(self, combined_repr):
         
@@ -568,7 +574,7 @@ class TemporalConvLayer(nn.Module):
             x_in = self.align(x)[:, :, self.kt-1:, :]
         else:
             # print(f"x.shape: {x.shape}")
-            x_in = self.align(x)[:, :, :, :]   # align does nothing as c_in == c_out
+            x_in = self.align(x)[:, :, self.kt - 1:, :]   # align does nothing as c_in == c_out
             # print(f"x_in.shape: {x_in.shape}")
         if self.act == "GLU":
             x_conv = self.conv(x)
@@ -736,7 +742,7 @@ class MLP(nn.Module):
 
     def forward(self, x):
         # x = torch.tanh(self.fc1(x.permute(0, 3, 1, 2))) # nlvc->nclv
-        x = torch.relu(self.fc1(x.permute(0, 3, 1, 2))) # nlvc->nclv
+        x = torch.tanh(self.fc1(x.permute(0, 3, 1, 2))) # nlvc->nclv
         x = self.fc2(x).permute(0, 2, 3, 1) # nclv->nlvc
         return x
 

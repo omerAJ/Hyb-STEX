@@ -101,11 +101,16 @@ def get_dataloader(data_dir, dataset, batch_size, test_batch_size, scalar_type='
         cat_data = np.load(os.path.join(data_dir, dataset, category + '.npz'))
         # skip = cat_data['x'].shape[1] - input_length
         # print(f"cat_data['x'].shape: {cat_data['x'].shape}, cat_data['y'].shape: {cat_data['y'].shape}, cat_data['evs_90'].shape: {cat_data['evs_90'].shape}")
-        if dataset == 'NYCBike1':
-            data['x_' + category] = cat_data['x'][:, -9:19, :, :]  # cat_data['x'].shape: (1912, 35, 200, 2)
-        else:
-            data['x_' + category] = cat_data['x'][:, -17:35, :, :]  # cat_data['x'].shape: (1912, 35, 200, 2)
-        # data['x_' + category] = cat_data['x']
+        
+        
+        # if dataset == 'NYCBike1':
+        #     data['x_' + category] = cat_data['x'][:, -9:19, :, :]  # cat_data['x'].shape: (1912, 35, 200, 2)
+        # else:
+        #     data['x_' + category] = cat_data['x'][:, -17:35, :, :]  # cat_data['x'].shape: (1912, 35, 200, 2)
+        # print("indexing")
+
+        print("not indexing")
+        data['x_' + category] = cat_data['x']
         data['y_' + category] = cat_data['y']
         data['evs_' + category] = cat_data['evs_90']
         print("using 90percent evs")

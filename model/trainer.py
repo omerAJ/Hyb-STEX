@@ -47,12 +47,19 @@ class Trainer(object):
                 _, _ = self.model(dummy_view, self.graph)  # Trigger initialization
                 
         
+        def rename_keys(state_dict):
+            renamed_state_dict = {}
+            for key in state_dict.keys():
+                # Example renaming pattern, adjust according to your needs
+                new_key = key.replace('attention1', 'attentive_fuse.attention1').replace('attention2', 'attentive_fuse.attention2')
+                renamed_state_dict[new_key] = state_dict[key]
+            return renamed_state_dict
         print("dummy forward pass done.")
         path_to_load = args.load_path
         if path_to_load is not None:
             state_dict = torch.load(
-                path_to_load, map_location=torch.device(args.device))
-            msg = self.model.load_state_dict(state_dict['model']) 
+                path_to_load, map_location=torch.device(args.device))['model']
+            msg = self.model.load_state_dict(state_dict, strict=False) 
             print("loading pretrained model from: ", path_to_load)
             print("\nmsg: ", msg)
             # Extract parameter groups
@@ -181,8 +188,8 @@ class Trainer(object):
         val_loss_pred = total_val_loss_pred / len(val_dataloader)
         val_loss_class = total_val_loss_class / len(val_dataloader)
         self.logger.info(f'*******Val Epoch {epoch}: averaged Loss : {val_loss:.5f}, loss_pred: {val_loss_pred:.5f}, loss_class: {val_loss_class:.5f}')
-        cm = plot_cm(evs_pred, evs_true, gt=targets)
-        self.logger.info(f"Confusion Matrix: \n{cm}")
+        # cm = plot_cm(evs_pred, evs_true, gt=None)
+        # self.logger.info(f"Confusion Matrix: \n{cm}")
         return val_loss_pred, val_loss_class
 
     def save_weights(self, weights, epoch=None, directory="weight_data"):
@@ -321,13 +328,23 @@ class Trainer(object):
         shutil.copy(main_file_path, save_dir)
         self.logger.info('Model code files saved in: {}'.format(save_dir))
 
-        
-        
+        cls_w = 1
+        loss_weights = np.array([1, cls_w])
+        epoch=1
+        component_name = 'pred'
+        self.logger.info('validating pretrained model')
+        val_dataloader = self.val_loader if self.val_loader != None else self.test_loader
+        val_loss_pred, val_loss_cls = self.val_epoch(epoch, val_dataloader, loss_weights, component_name)       
+        self.logger.info("testing")
+        test_results = self.test(self.model, self.test_loader, self.scaler, self.graph, self.logger, self.args, component_name)
         pred_params, classifier_params, bias_params = get_model_params_grouped(self.model)
+
+        # results = self.train_component(
+        #     classifier_params, pred_params+bias_params, 'cls', esp=5)
 
         # Train the prediction parameters until convergence
         results = self.train_component(
-            pred_params, bias_params+classifier_params, 'pred', esp=25)
+            pred_params, bias_params+classifier_params, 'pred', esp=35)
 
         load_from = self.best_path
         if load_from is not None:
@@ -339,23 +356,9 @@ class Trainer(object):
             # Extract parameter groups
             pred_params, classifier_params, bias_params = get_model_params_grouped(self.model)
 
-        # Train the classification parameters until convergence
-        results = self.train_component(
-            classifier_params, pred_params + bias_params, 'cls', esp=10)
-
-        load_from = self.best_path
-        if load_from is not None:
-            state_dict = torch.load(
-                load_from, map_location=torch.device(self.args.device))
-            msg = self.model.load_state_dict(state_dict['model']) 
-            print("loading pretrained model from: ", load_from)
-            print("\nmsg: ", msg)
-            # Extract parameter groups
-            pred_params, classifier_params, bias_params = get_model_params_grouped(self.model)
-        
         # Train the all parameters until convergence
         results = self.train_component(
-            bias_params, classifier_params+pred_params, 'bias', esp=15)
+            classifier_params, bias_params+pred_params, 'cls', esp=10)
 
         load_from = self.best_path
         if load_from is not None:
@@ -366,11 +369,26 @@ class Trainer(object):
             print("\nmsg: ", msg)
             # Extract parameter groups
             pred_params, classifier_params, bias_params = get_model_params_grouped(self.model)
+        
+        # Train the classification parameters until convergence
+        results = self.train_component(
+            bias_params, pred_params+classifier_params, 'bias', esp=10)
+        
+
+        # load_from = self.best_path
+        # if load_from is not None:
+        #     state_dict = torch.load(
+        #         load_from, map_location=torch.device(self.args.device))
+        #     msg = self.model.load_state_dict(state_dict['model']) 
+        #     print("loading pretrained model from: ", load_from)
+        #     print("\nmsg: ", msg)
+        #     # Extract parameter groups
+        #     pred_params, classifier_params, bias_params = get_model_params_grouped(self.model)
 
         
-        # Train the bias parameters until convergence
-        results = self.train_component(
-            bias_params + classifier_params + pred_params, None, 'pred_2', esp=10)
+        # # Train the bias parameters until convergence
+        # results = self.train_component(
+        #     bias_params + classifier_params + pred_params, None, 'pred_2', esp=10)
         
         return results
 
@@ -419,7 +437,7 @@ class Trainer(object):
         mae, mape = test_metrics(y_pred[..., 1], y_true[..., 1])
         logger.info("OUTFLOW, MAE: {:.2f}, MAPE: {:.4f}%".format(mae, mape*100))
         test_results.append([mae, mape]) 
-        cm = plot_cm(evs_pred, evs_true, gt=y_true)
+        cm = plot_cm(evs_pred, evs_true, gt=None)
         logger.info(f"Confusion Matrix: \n{cm}")
         return np.stack(test_results, axis=0)
 

@@ -24,12 +24,12 @@ def model_supervisor(args):
     if not torch.cuda.is_available():
         args.device = 'cpu'
     
-    if args.load_path is None:
-        from model.models import STSSL
-    else:
-        model_dir = os.path.dirname(args.load_path)
-        sys.path.append(model_dir)
-        from models import STSSL
+    # if args.load_path is None:
+    from model.models import STSSL
+    # else:
+    #     model_dir = os.path.dirname(args.load_path)
+    #     sys.path.append(model_dir)
+    #     from models import STSSL
 
     ## load dataset
     dataloader = get_dataloader(
