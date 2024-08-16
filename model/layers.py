@@ -315,8 +315,11 @@ class STEncoder(nn.Module):
         if self.do_sconv:
             # print(f"x.shape: {x.shape}, before sconv12")
             # x.shape: torch.Size([32, 32, 33, 200]), before sconv12
+            x_orig = x
             x = self.sconv12(x, Lk)   # nclv      
+            x=x+x_orig
             x = self.lns1(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)     ## ln([b, t, n, c]) -> [b, c, t, n]
+            
             # print(f"x.shape: {x.shape} self.nodes_status.shape: {self.nodes_status.shape}")
             
         x = self.tconv13(x)  
@@ -325,13 +328,15 @@ class STEncoder(nn.Module):
         ## ST block 2
         x = self.tconv21(x)
         if self.do_sconv:
-            print("doing sconv")
+            # print("doing sconv")
             # print(f"x.shape: {x.shape}, before sconv22")
             # x.shape: torch.Size([32, 32, 29, 200]), before sconv22
             # print(f"x.shape: {x.shape} Lk.shape: {Lk.shape}") 
-
+            x_orig = x
             x = self.sconv22(x, Lk)   # nclv
+            x=x+x_orig
             x = self.lns2(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)
+            
             
         x = self.tconv23(x)
         x = self.dropout2(self.ln2(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2))

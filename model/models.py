@@ -168,8 +168,10 @@ class STSSL(nn.Module):
     def forward(self, view1, graph):
         # print(f"view1.shape: {view1.shape}")  
         if self.dataset == "NYCBike1":  ## view1.shape: torch.Size([32, 9, 200, 2])
-            view1B = view1[:, :5, :, :]
-            view1A = view1[:, 5:9, :, :]
+            # view1B = view1[:, :5, :, :]
+            # view1A = view1[:, 5:9, :, :]
+            view1A = view1[:, -4:19, :, :]
+            view1B = view1[:, -9:-4, :, :]
             # view1 = view1[:, -4:19, :, :]
         elif self.dataset == "NYCBike2" or self.dataset == "NYCTaxi" or self.dataset == "BJTaxi":   ## view1.shape: torch.Size([32, 17, 200, 2])
             ## when using input length = 35, these are C and D

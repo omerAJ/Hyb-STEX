@@ -344,7 +344,7 @@ class Trainer(object):
 
         # Train the prediction parameters until convergence
         results = self.train_component(
-            pred_params, bias_params+classifier_params, 'pred', esp=35)
+            pred_params, bias_params+classifier_params, 'pred', esp=10)
 
         load_from = self.best_path
         if load_from is not None:

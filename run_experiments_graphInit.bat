@@ -8,11 +8,12 @@ TIMEOUT 3
 
 
 REM Loop through values 1 to 3 for the -s parameter
-FOR /L %%G IN (1,1,5) DO (
-    python main.py -c "no_sconv train" -s %%G -cf configs/BJTaxi.yaml -g "no_sconv"
+FOR /L %%G IN (1,1,3) DO (
+    python main.py -c "sconv with skip train v2, bias from cls, detach evs" -s %%G -cf configs/BJTaxi.yaml 
     echo Experiment completed: Ks = %%G
     TIMEOUT /T 3 /NOBREAK
 )
+
 
 
 
