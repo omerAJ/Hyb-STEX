@@ -78,7 +78,7 @@ def frechet_torch(pred, true, mask_value=None):
         fl_pos = 0
     
     if delta_neg.numel() > 0:
-        mae_neg = torch.mean(torch.abs(delta_neg))
+        mae_neg = torch.mean(torch.abs(delta_neg))*0
     else:
         mae_neg = 0
     return fl_pos + mae_neg
