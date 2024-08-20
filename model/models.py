@@ -1,7 +1,7 @@
 import torch.nn as nn
 import torch
 # import 
-from lib.utils import masked_mae_loss, masked_mse_loss
+from lib.utils import masked_mae_loss, masked_mse_loss, masked_gumbell_loss, masked_frechet_loss
 from model.aug import (
     aug_topology, 
     aug_traffic, 
@@ -51,10 +51,15 @@ class STSSL(nn.Module):
         # self.mlp_cls.fc1.linear.bias.data.fill_(+0.5)  ## bias it to predicting normal
         # self.mlp_cls.fc2.linear.bias.data.fill_(+0.5)  ## bias it to predicting normal
         # self.mlp_classifier.fc2.linear.bias.data.fill_(-1)  ## bias it to predicting normal
+        self.loss_fun_val = masked_mae_loss(mask_value=5.0)
         if args.loss == 'mae':
             self.loss_fun = masked_mae_loss(mask_value=5.0)
         elif args.loss == 'mse':
             self.loss_fun = masked_mse_loss(mask_value=5.0)
+        elif args.loss == 'gumbell':
+            self.loss_fun = masked_gumbell_loss(mask_value=5.0)
+        elif args.loss == 'frechet':
+            self.loss_fun = masked_frechet_loss(mask_value=5.0)
         self.args = args
         graph_init = args.graph_init
         ## attention flags
@@ -322,33 +327,25 @@ class STSSL(nn.Module):
             
     #     return F.binary_cross_entropy(evs_masked, evs_gt_masked)
     
-    def pred_loss(self, z1, z1_cls, evs_gt, y_true, scaler, phase):
+    def pred_loss(self, z1, z1_cls, evs_gt, y_true, scaler, phase, val=False):
         preds = self.predict(z1, z1_cls, phase)
         y_pred = scaler.inverse_transform(preds)
         y_true = scaler.inverse_transform(y_true)
 
-        pred_loss = self.args.yita * self.loss_fun(y_pred[..., 0], y_true[..., 0]) + \
-                (1 - self.args.yita) * self.loss_fun(y_pred[..., 1], y_true[..., 1])
+        if val:
+            pred_loss = self.args.yita * self.loss_fun_val(y_pred[..., 0], y_true[..., 0]) + \
+                    (1 - self.args.yita) * self.loss_fun_val(y_pred[..., 1], y_true[..., 1])
+        else:
+            pred_loss = self.args.yita * self.loss_fun(y_pred[..., 0], y_true[..., 0]) + \
+                    (1 - self.args.yita) * self.loss_fun(y_pred[..., 1], y_true[..., 1])
 
         loss = pred_loss
         return loss
     
-    def pred_loss_gumbell(self, z1, z1_cls, evs_gt, y_true, scaler, phase):
-        preds = self.predict(z1, z1_cls, phase)
-        y_pred = scaler.inverse_transform(preds)
-        y_true = scaler.inverse_transform(y_true)
-        gamma = 1
-        pred_loss_gumbell = ((1-torch.exp((y_true-y_pred)**2))**gamma)*(y_true-y_true)**2
-
-        # pred_loss = self.args.yita * self.loss_fun(y_pred[..., 0], y_true[..., 0]) + \
-        #         (1 - self.args.yita) * self.loss_fun(y_pred[..., 1], y_true[..., 1])
-        pred_loss = torch.mean(pred_loss_gumbell)
-        loss = pred_loss
-        return loss
     
 
-    def loss(self, z1, z1_cls, evs, y_true, scaler, loss_weights, phase):
-        l_pred = self.pred_loss(z1, z1_cls, evs, y_true, scaler, phase)
+    def loss(self, z1, z1_cls, evs, y_true, scaler, loss_weights, phase, val=False):
+        l_pred = self.pred_loss(z1, z1_cls, evs, y_true, scaler, phase, val=val)
         
         l_class = self.classification_loss(z1, z1_cls, evs, y_true)
         # total_loss = l_pred + l_class

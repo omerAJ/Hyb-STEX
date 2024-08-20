@@ -44,6 +44,47 @@ def mae_torch(pred, true, mask_value=None):
         true = torch.masked_select(true, mask)
     return torch.mean(torch.abs(true-pred))
 
+
+def gumbell_torch(pred, true, mask_value=None):
+    if mask_value != None:
+        # print(f"true.device: {true.device}, pred.device: {pred.device}")
+        mask = torch.gt(true, mask_value)
+        # nodesMasked=mask[mask==True].shape[0]
+        # print("total nodes masked", nodesMasked, "/4096",  "nodes on average masked in each sample: ", nodesMasked/true.shape[0])
+        pred = torch.masked_select(pred, mask)
+        true = torch.masked_select(true, mask)
+    delta = pred - true
+    gamma = 1.0
+    e = 2.71828
+    lg = ((1-e**(-delta**2))**gamma)*delta**2
+    return torch.mean(lg)
+
+def frechet_torch(pred, true, mask_value=None):
+    if mask_value is not None:
+        mask = torch.gt(true, mask_value)
+        pred = torch.masked_select(pred, mask)
+        true = torch.masked_select(true, mask)
+    
+    delta = pred - true
+    mask = torch.ge(delta, 0)
+    delta_pos = torch.masked_select(pred, mask)
+    delta_neg = torch.masked_select(pred, ~mask)
+    
+    if delta_pos.numel() > 0:  
+        s, a = 1.7, 10
+        fl_pos = (-1 - a) * (-(delta_pos + s * ((a) / (1 + a)) ** (1 / a)) / s) ** (-a) + torch.log((delta_pos + s * (a / (1 + a)) ** (1 / a)) / s)
+        fl_pos = torch.mean(fl_pos)
+    else:
+        fl_pos = 0
+    
+    if delta_neg.numel() > 0:
+        mae_neg = torch.mean(torch.abs(delta_neg))
+    else:
+        mae_neg = 0
+    return fl_pos + mae_neg
+
+
+
 def mse_torch(pred, true, mask_value=None):
     if mask_value is not None:
         mask = torch.gt(true, mask_value)
