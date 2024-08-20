@@ -333,6 +333,19 @@ class STSSL(nn.Module):
         loss = pred_loss
         return loss
     
+    def pred_loss_gumbell(self, z1, z1_cls, evs_gt, y_true, scaler, phase):
+        preds = self.predict(z1, z1_cls, phase)
+        y_pred = scaler.inverse_transform(preds)
+        y_true = scaler.inverse_transform(y_true)
+        gamma = 1
+        pred_loss_gumbell = ((1-torch.exp((y_true-y_pred)**2))**gamma)*(y_true-y_true)**2
+
+        # pred_loss = self.args.yita * self.loss_fun(y_pred[..., 0], y_true[..., 0]) + \
+        #         (1 - self.args.yita) * self.loss_fun(y_pred[..., 1], y_true[..., 1])
+        pred_loss = torch.mean(pred_loss_gumbell)
+        loss = pred_loss
+        return loss
+    
 
     def loss(self, z1, z1_cls, evs, y_true, scaler, loss_weights, phase):
         l_pred = self.pred_loss(z1, z1_cls, evs, y_true, scaler, phase)

@@ -282,7 +282,8 @@ class STEncoder(nn.Module):
         self.get_adj_mx = get_adj_mx(d_model=c[2])
         self.threshold_adj_mx = threshold_adj_mx
         
-        
+        self.alpha1 = nn.Parameter(torch.tensor(1.0))  # Learnable parameter for the first skip connection
+        self.alpha2 = nn.Parameter(torch.tensor(1.0))  # Learnable parameter for the second skip connection
 
     def forward(self, x0, learnable_graph):
         
@@ -316,8 +317,9 @@ class STEncoder(nn.Module):
             # print(f"x.shape: {x.shape}, before sconv12")
             # x.shape: torch.Size([32, 32, 33, 200]), before sconv12
             x_orig = x
-            x = self.sconv12(x, Lk)   # nclv      
-            x=x+x_orig
+            x = self.sconv12(x, Lk)   # nclv   
+            alpha1 = F.sigmoid(self.alpha1)   
+            x=alpha1*x+(1-alpha1)*x_orig
             x = self.lns1(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)     ## ln([b, t, n, c]) -> [b, c, t, n]
             
             # print(f"x.shape: {x.shape} self.nodes_status.shape: {self.nodes_status.shape}")
@@ -334,7 +336,8 @@ class STEncoder(nn.Module):
             # print(f"x.shape: {x.shape} Lk.shape: {Lk.shape}") 
             x_orig = x
             x = self.sconv22(x, Lk)   # nclv
-            x=x+x_orig
+            alpha2 = F.sigmoid(self.alpha2)
+            x=alpha2*x+(1-alpha2)*x_orig
             x = self.lns2(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)
             
             
@@ -666,7 +669,8 @@ class SpatioConvLayer(nn.Module):
     def __init__(self, ks, c_in, c_out):
         super(SpatioConvLayer, self).__init__()
         self.theta = nn.Parameter(torch.FloatTensor(c_in, c_out, ks)) # kernel: C_in*C_out*ks
-        self.b = nn.Parameter(torch.FloatTensor(1, c_out, 1, 1))
+        # self.b = nn.Parameter(torch.FloatTensor(1, c_out, 1, 1))
+        self.b = nn.Parameter(torch.zeros(1, c_out, 1, 1))
         self.align = Align(c_in, c_out)
         self.reset_parameters()
 

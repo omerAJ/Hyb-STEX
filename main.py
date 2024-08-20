@@ -62,9 +62,9 @@ def model_supervisor(args):
     pred_params, classifier_params, bias_params = get_model_params(model)
     optimizer = torch.optim.Adam([
         {"params":pred_params, 
-        "lr":args.lr_init*0.1, 
+        "lr":args.lr_init, 
         "eps":1.0e-8, 
-        'weight_decay':1e-5, 
+        'weight_decay':0, 
         "amsgrad":False},
         
         {"params":classifier_params, 
