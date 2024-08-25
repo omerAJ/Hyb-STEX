@@ -1,17 +1,25 @@
 @echo off
 setlocal enabledelayedexpansion
 
-call activate ST-SSL
+call "C:\Users\IST\miniconda3\Scripts\activate.bat"
+call conda activate ST-SSL
 TIMEOUT 3
 
 
-python main.py -c "pwt 4ps t2" -s 1 -cf configs/NYCBike2.yaml
 
-echo exp 1 complete
+FOR %%G IN (4 5) DO (
+    python main.py -c "common backbone ablation bias learnable global but not input dependent" -s %%G -cf configs/NYCBike2.yaml -l "mae"
+    echo Experiment completed: Ks = %%G
+    TIMEOUT /T 3 /NOBREAK
+)
+
+FOR /L %%G IN (1,1,5) DO (
+    python main.py -c "common backbone ablation bias learnable global but not input dependent" -s %%G -cf configs/NYCBike1.yaml -l "mae"
+    echo Experiment completed: Ks = %%G
+    TIMEOUT /T 3 /NOBREAK
+)
 
 
-python main.py -c "pwt 4ps t2" -s 1 -cf configs/NYCBike1.yaml
-    
 echo All experiments completed.
 TIMEOUT 99999
 

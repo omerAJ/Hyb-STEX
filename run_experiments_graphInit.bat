@@ -6,37 +6,19 @@ call conda activate ST-SSL
 TIMEOUT 3
 
 
+FOR %%G IN (1 2 3) DO (
+    python main.py -c "common backbone ablation bias learnable global but not input dependent" -s %%G -cf configs/NYCBike2.yaml -l "mae"
+    echo Experiment completed: Ks = %%G
+    TIMEOUT /T 3 /NOBREAK
+)
+
 FOR /L %%G IN (1,1,5) DO (
-    python main.py -c "gumbell sconv with skip (learnable weights), train v4" -s %%G -cf configs/NYCTaxi.yaml -l "gumbell"
+    python main.py -c "common backbone ablation bias learnable global but not input dependent" -s %%G -cf configs/NYCTaxi.yaml -l "mae"
     echo Experiment completed: Ks = %%G
     TIMEOUT /T 3 /NOBREAK
 )
 
 
-
-
-FOR /L %%G IN (1,1,5) DO (
-    python main.py -c "gumbell sconv with skip (learnable weights), train v4" -s %%G -cf configs/NYCBike1.yaml -l "gumbell"
-    echo Experiment completed: Ks = %%G
-    TIMEOUT /T 3 /NOBREAK
-)
-
-
-
-FOR /L %%G IN (1,1,5) DO (
-    python main.py -c "gumbell sconv with skip (learnable weights), train v3" -s %%G -cf configs/NYCBike2.yaml -l "gumbell"
-    echo Experiment completed: Ks = %%G
-    TIMEOUT /T 3 /NOBREAK
-)
-
-
-
-
-FOR /L %%G IN (1,1,5) DO (
-    python main.py -c "gumbell sconv with skip (learnable weights), train v3" -s %%G -cf configs/BJTaxi.yaml -l "gumbell"
-    echo Experiment completed: Ks = %%G
-    TIMEOUT /T 3 /NOBREAK
-)
 
 
 echo All experiments completed.
