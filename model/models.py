@@ -111,15 +111,15 @@ class STSSL(nn.Module):
         N = 200
         self.weights = nn.Parameter(torch.ones(N) / N)
         # self.key_projection = nn.Linear(int((2)*args.d_model), int((2)*args.d_model))
-        # self.ff_key_projection_bias = PositionwiseFeedForward(d_model=128, d_ff=64*4)
+        self.ff_key_projection_bias = PositionwiseFeedForward(d_model=128, d_ff=64*4)
         # self.project_to_classify = nn.Linear(int((2)*args.d_model), int((2)*args.d_model))
         self.ff_to_cls = PositionwiseFeedForward(d_model=128, d_ff=128*4)
         # self.learnable_vectors_bias = nn.Parameter(torch.zeros(1, 1, args.num_nodes, 128, 2), requires_grad=True)
-        # self.learnable_vectors_bias = nn.Parameter(torch.zeros(1, 1, 128, 2), requires_grad=True)
+        self.learnable_vectors_bias = nn.Parameter(torch.zeros(1, 1, 128, 2), requires_grad=True)
         # self.learnable_bias_bias = nn.Parameter(torch.zeros(1, 1, args.num_nodes, 2), requires_grad=True)
         # self.xavier_uniform_init(self.learnable_vectors) 
         # self.learnable_bias = nn.Parameter(torch.zeros(1, 1, args.num_nodes, 2), requires_grad=True)
-        self.learnable_bias = nn.Parameter(torch.zeros(1, 1, 1, 2), requires_grad=True)
+        # self.learnable_bias = nn.Parameter(torch.zeros(1, 1, 1, 2), requires_grad=True)
 
         
 
@@ -267,14 +267,14 @@ class STSSL(nn.Module):
         """
         return torch.sigmoid(self.mlp_cls(self.ff_to_cls(z1)))
 
-    def predict(self, z1, z1_cls, phase, t=None):
+    def predict(self, z1, z1_cls, phase, bias, t=0.5):
         '''Predicting future traffic flow.
         :param z1, z2 (tensor): shape nvc
         :return: nlvc, l=1, c=2
         '''
         # print("z1.shape: ", z1.shape)
         o_tilde = self.mlp(z1)
-        # bias = self.get_bias(z1)
+        _bias = self.get_bias(z1)
         # o_tilde = scaler.inverse_transform(o_tilde)
         # bias = scaler.inverse_transform(bias)
         # evs = self.classify_evs(z1, z1_cls).detach()
@@ -287,7 +287,7 @@ class STSSL(nn.Module):
         elif phase == "cls":
             return o_tilde
         elif phase == "bias" or phase == "pred_2":
-            return o_tilde + self.learnable_bias * evs
+            return o_tilde + _bias * evs
         else:
             raise ValueError("phase not recognized")
      
@@ -330,8 +330,8 @@ class STSSL(nn.Module):
             
     #     return F.binary_cross_entropy(evs_masked, evs_gt_masked)
     
-    def pred_loss(self, z1, z1_cls, evs_gt, y_true, scaler, phase, val=False):
-        preds = self.predict(z1, z1_cls, phase)
+    def pred_loss(self, z1, z1_cls, evs_gt, bias, y_true, scaler, phase, val=False):
+        preds = self.predict(z1, z1_cls, phase, bias)
         y_pred = scaler.inverse_transform(preds)
         y_true = scaler.inverse_transform(y_true)
 
@@ -347,8 +347,8 @@ class STSSL(nn.Module):
     
     
 
-    def loss(self, z1, z1_cls, evs, y_true, scaler, loss_weights, phase, val=False):
-        l_pred = self.pred_loss(z1, z1_cls, evs, y_true, scaler, phase, val=val)
+    def loss(self, z1, z1_cls, evs, bias, y_true, scaler, loss_weights, phase, val=False):
+        l_pred = self.pred_loss(z1, z1_cls, evs, bias, y_true, scaler, phase, val=val)
         
         l_class = self.classification_loss(z1, z1_cls, evs, y_true)
         # total_loss = l_pred + l_class
