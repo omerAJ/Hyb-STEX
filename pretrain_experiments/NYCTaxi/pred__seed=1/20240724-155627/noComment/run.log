@@ -1,0 +1,12 @@
+2024-07-24 15:56:27: 
+Model has 1.298958 M trainable parameters
+2024-07-24 15:56:27: Experiment log path in: D:\omer\ST-SSL_simple2\pretrain_experiments\NYCTaxi\pred__seed=1\20240724-155627\noComment
+2024-07-24 15:56:27: Experiment configs are: Namespace(S_Loss=0, T_Loss=0, add_8=True, add_eye=False, add_x_encoder=False, additional_sa_flag=False, affinity_conv=False, batch_size=32, best_path='D:\\omer\\ST-SSL_simple2\\pretrain_experiments\\NYCTaxi\\pred__seed=1\\20240724-154309\\noComment\\best_model.pth', cheb_order=3, col=10, comment='noComment', config_filename='configs/NYCTaxi.yaml', cross_attention_flag=False, d_input=2, d_model=64, d_output=2, data_dir='data', dataset='NYCTaxi', debug=False, device='cuda', dropout=0.1, early_stop=True, early_stop_patience=35, epochs=1000, experimentName='pred__seed=1', feedforward_flag=False, freeze_encoder=False, grad_norm=True, graph_file='data/NYCTaxi/adj_mx.npz', graph_init='8_neighbours', input_length=35, ipe=1000, layer_norm_flag=False, learnable_flag=False, load_path=None, log_dir='D:\\omer\\ST-SSL_simple2\\pretrain_experiments\\NYCTaxi\\pred__seed=1\\20240724-155627\\noComment', loss='mae', lr_init=0.001, max_grad_norm=5, mode='pretrain', nmb_prototype=4, num_epochs=1000, num_nodes=200, percent=0.1, pos_emb_flag=False, rank=0, row=20, seed=1, self_attention_flag=True, shm_temp=0.5, start_epoch=0, temp=2, test_batch_size=32, threshold_adj_mx=False, use_dwa=True, yita=0.5)
+2024-07-24 15:56:27: 
+Model has 1.298958 M trainable parameters
+2024-07-24 15:56:58: test, MAE: 115.18, test MAPE: 173.8057%
+2024-07-24 15:56:58: OUTFLOW, MAE: 103.67, MAPE: 148.5679%
+2024-07-24 16:19:38: test, MAE: 109.18, test MAPE: 177.6886%
+2024-07-24 16:19:38: OUTFLOW, MAE: 98.63, MAPE: 149.8023%
+2024-07-24 16:21:08: test, MAE: 109.18, test MAPE: 177.6886%
+2024-07-24 16:21:08: OUTFLOW, MAE: 98.63, MAPE: 149.8023%

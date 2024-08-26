@@ -1,26 +1,26 @@
 @echo off
 setlocal enabledelayedexpansion
 
-call activate i-jepaVENV
+call "C:\Users\IST\miniconda3\Scripts\activate.bat"
+call conda activate ST-SSL
 TIMEOUT 3
 
 
-FOR %%s IN (1 2 3 4 5) DO (
 
-python main.py -g "8_neighbours" -c "8_neighbours baseline" -cf configs/NYCBike1.yaml -sa True -s %%s
-echo Experiment completed: Ks = 1
-TIMEOUT 3
+FOR %%G IN (4 5) DO (
+    python main.py -c "evl (cheating) 90 percentile evs" -s %%G -cf configs/NYCBike2.yaml -l "mae"
+    echo Experiment completed: Ks = %%G
+    TIMEOUT /T 3 /NOBREAK
+)
 
-python main.py -g "8_neighbours" -c "8_neighbours baseline" -cf configs/NYCBike2.yaml -sa True -s %%s
-echo Experiment completed: Ks = 1
-TIMEOUT 3
-
-python main.py -g "8_neighbours" -c "8_neighbours baseline" -cf configs/NYCTaxi.yaml -sa True -s %%s
-echo Experiment completed: Ks = 1
-TIMEOUT 3
-
+FOR %%G IN (4 5) DO (
+    python main.py -c "evl (cheating) 90 percentile evs" -s %%G -cf configs/NYCBike1.yaml -l "mae"
+    echo Experiment completed: Ks = %%G
+    TIMEOUT /T 3 /NOBREAK
 )
 
 
 echo All experiments completed.
-TIMEOUT 30000
+TIMEOUT 99999
+
+cmd /k

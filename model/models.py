@@ -223,6 +223,15 @@ class STSSL(nn.Module):
         o_tilde = self.mlp(z1)
         o = o_tilde + self.get_bias(z1) * evs
         return o
+    
+    def get_o_tilde(self, z1):
+        '''Predicting future traffic flow.
+        :param z1, z2 (tensor): shape nvc
+        :return: nlvc, l=1, c=2
+        '''
+        # print("z1.shape: ", z1.shape)
+        o_tilde = self.mlp(z1)
+        return o_tilde
 
     def loss(self, z1, evs, y_true, scaler, loss_weights):
         l1 = self.pred_loss(z1, evs, y_true, scaler)

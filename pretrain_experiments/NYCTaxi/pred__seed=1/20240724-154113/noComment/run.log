@@ -1,0 +1,76 @@
+2024-07-24 15:41:13: 
+Model has 1.298958 M trainable parameters
+2024-07-24 15:41:13: Experiment log path in: D:\omer\ST-SSL_simple2\pretrain_experiments\NYCTaxi\pred__seed=1\20240724-154113\noComment
+2024-07-24 15:41:13: Experiment configs are: Namespace(S_Loss=0, T_Loss=0, add_8=False, add_eye=False, add_x_encoder=False, additional_sa_flag=False, affinity_conv=False, batch_size=32, best_path='None', cheb_order=3, col=10, comment='noComment', cross_attention_flag=False, d_input=2, d_model=64, d_output=2, data_dir='data', dataset='NYCTaxi', debug=False, device='cuda', dropout=0.1, early_stop=True, early_stop_patience=35, epochs=1000, experimentName='pred__seed=1', feedforward_flag=False, freeze_encoder=False, grad_norm=True, graph_file='data/NYCTaxi/adj_mx.npz', graph_init='8_neighbours', input_length=35, ipe=59, layer_norm_flag=False, learnable_flag=False, load_path=None, log_dir='D:\\omer\\ST-SSL_simple2\\pretrain_experiments\\NYCTaxi\\pred__seed=1\\20240724-154113\\noComment', loss='mae', lr_init=0.001, max_grad_norm=5, mode='pretrain', nmb_prototype=4, num_epochs=1000, num_nodes=200, percent=0.1, pos_emb_flag=False, rank=0, row=20, seed=1, self_attention_flag=True, shm_temp=0.5, start_epoch=0, temp=2, test_batch_size=32, threshold_adj_mx=False, use_dwa=True, yita=0.5)
+2024-07-24 15:41:13: 
+Model has 1.298958 M trainable parameters
+2024-07-24 15:41:13: loss weights: [1. 1.]
+2024-07-24 15:41:21: *******Train Epoch 1: averaged Loss : 0.009502955215146481, loss_pred: 0.0, loss_class: 0.009502955215146481
+2024-07-24 15:41:21: *******Val Epoch 1: averaged Loss : 0.00898161917575635, loss_pred: 0.0, loss_class: 0.00898161917575635
+2024-07-24 15:41:23: Confusion Matrix: 
+[[86895 12138]
+ [ 1347  2020]]
+2024-07-24 15:41:23: **************Current best model saved to D:\omer\ST-SSL_simple2\pretrain_experiments\NYCTaxi\pred__seed=1\20240724-154113\noComment\best_model.pth
+2024-07-24 15:41:23: loss weights: [1. 1.]
+2024-07-24 15:41:31: *******Train Epoch 2: averaged Loss : 0.007704806001067667, loss_pred: 0.0, loss_class: 0.007704806001067667
+2024-07-24 15:41:31: *******Val Epoch 2: averaged Loss : 0.008005812123883516, loss_pred: 0.0, loss_class: 0.008005812123883516
+2024-07-24 15:41:31: Confusion Matrix: 
+[[83419 15614]
+ [ 1013  2354]]
+2024-07-24 15:41:31: loss weights: [1. 1.]
+2024-07-24 15:41:39: *******Train Epoch 3: averaged Loss : 0.006959219542095217, loss_pred: 0.0, loss_class: 0.006959219542095217
+2024-07-24 15:41:39: *******Val Epoch 3: averaged Loss : 0.007601075805723667, loss_pred: 0.0, loss_class: 0.007601075805723667
+2024-07-24 15:41:39: Confusion Matrix: 
+[[76912 22121]
+ [  673  2694]]
+2024-07-24 15:41:39: loss weights: [1. 1.]
+2024-07-24 15:41:47: *******Train Epoch 4: averaged Loss : 0.006511968623657348, loss_pred: 0.0, loss_class: 0.006511968623657348
+2024-07-24 15:41:47: *******Val Epoch 4: averaged Loss : 0.007332574197789654, loss_pred: 0.0, loss_class: 0.007332574197789654
+2024-07-24 15:41:47: Confusion Matrix: 
+[[79763 19270]
+ [  721  2646]]
+2024-07-24 15:41:47: loss weights: [1. 1.]
+2024-07-24 15:41:55: *******Train Epoch 5: averaged Loss : 0.006245208525304067, loss_pred: 0.0, loss_class: 0.006245208525304067
+2024-07-24 15:41:55: *******Val Epoch 5: averaged Loss : 0.007259304926265031, loss_pred: 0.0, loss_class: 0.007259304926265031
+2024-07-24 15:41:56: Confusion Matrix: 
+[[75432 23601]
+ [  543  2824]]
+2024-07-24 15:41:56: loss weights: [1. 1.]
+2024-07-24 15:42:04: *******Train Epoch 6: averaged Loss : 0.006029424762700574, loss_pred: 0.0, loss_class: 0.006029424762700574
+2024-07-24 15:42:04: *******Val Epoch 6: averaged Loss : 0.007098208996467292, loss_pred: 0.0, loss_class: 0.007098208996467292
+2024-07-24 15:42:04: Confusion Matrix: 
+[[73647 25386]
+ [  478  2889]]
+2024-07-24 15:42:04: loss weights: [1. 1.]
+2024-07-24 15:42:12: *******Train Epoch 7: averaged Loss : 0.005896271293256748, loss_pred: 0.0, loss_class: 0.005896271293256748
+2024-07-24 15:42:12: *******Val Epoch 7: averaged Loss : 0.006916087819263339, loss_pred: 0.0, loss_class: 0.006916087819263339
+2024-07-24 15:42:12: Confusion Matrix: 
+[[76485 22548]
+ [  522  2845]]
+2024-07-24 15:42:12: loss weights: [1. 1.]
+2024-07-24 15:42:21: *******Train Epoch 8: averaged Loss : 0.005858069751411676, loss_pred: 0.0, loss_class: 0.005858069751411676
+2024-07-24 15:42:21: *******Val Epoch 8: averaged Loss : 0.00711331851198338, loss_pred: 0.0, loss_class: 0.00711331851198338
+2024-07-24 15:42:21: Confusion Matrix: 
+[[79057 19976]
+ [  648  2719]]
+2024-07-24 15:42:21: loss weights: [1. 1.]
+2024-07-24 15:42:29: *******Train Epoch 9: averaged Loss : 0.0056990704467614825, loss_pred: 0.0, loss_class: 0.0056990704467614825
+2024-07-24 15:42:29: *******Val Epoch 9: averaged Loss : 0.0071453790296800435, loss_pred: 0.0, loss_class: 0.0071453790296800435
+2024-07-24 15:42:29: Confusion Matrix: 
+[[76467 22566]
+ [  531  2836]]
+2024-07-24 15:42:29: loss weights: [1. 1.]
+2024-07-24 15:42:37: *******Train Epoch 10: averaged Loss : 0.005699539896479602, loss_pred: 0.0, loss_class: 0.005699539896479602
+2024-07-24 15:42:37: *******Val Epoch 10: averaged Loss : 0.007108147605322301, loss_pred: 0.0, loss_class: 0.007108147605322301
+2024-07-24 15:42:37: Confusion Matrix: 
+[[83436 15597]
+ [  792  2575]]
+2024-07-24 15:42:37: Key press detected. Exiting training loop...
+2024-07-24 15:42:37: == Training finished.
+Total training time: 1.41 min	best loss: 0.0000	best epoch: 1	
+2024-07-24 15:42:37: == Test results.
+2024-07-24 15:42:38: INFLOW, MAE: 122.89, MAPE: 191.8763%
+2024-07-24 15:42:38: OUTFLOW, MAE: 98.03, MAPE: 166.3770%
+2024-07-24 15:42:38: Confusion Matrix: 
+[[178900  32252]
+ [  2280   4968]]

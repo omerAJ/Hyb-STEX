@@ -1,0 +1,25 @@
+2024-07-24 15:39:32: 
+Model has 1.298958 M trainable parameters
+2024-07-24 15:39:32: Experiment log path in: D:\omer\ST-SSL_simple2\pretrain_experiments\NYCTaxi\pred__seed=1\20240724-153932\noComment
+2024-07-24 15:39:32: Experiment configs are: Namespace(S_Loss=0, T_Loss=0, add_8=False, add_eye=False, add_x_encoder=False, additional_sa_flag=False, affinity_conv=False, batch_size=32, best_path='None', cheb_order=3, col=10, comment='noComment', cross_attention_flag=False, d_input=2, d_model=64, d_output=2, data_dir='data', dataset='NYCTaxi', debug=False, device='cuda', dropout=0.1, early_stop=True, early_stop_patience=35, epochs=1000, experimentName='pred__seed=1', feedforward_flag=False, freeze_encoder=False, grad_norm=True, graph_file='data/NYCTaxi/adj_mx.npz', graph_init='8_neighbours', input_length=35, ipe=59, layer_norm_flag=False, learnable_flag=False, load_path=None, log_dir='D:\\omer\\ST-SSL_simple2\\pretrain_experiments\\NYCTaxi\\pred__seed=1\\20240724-153932\\noComment', loss='mae', lr_init=0.001, max_grad_norm=5, mode='pretrain', nmb_prototype=4, num_epochs=1000, num_nodes=200, percent=0.1, pos_emb_flag=False, rank=0, row=20, seed=1, self_attention_flag=True, shm_temp=0.5, start_epoch=0, temp=2, test_batch_size=32, threshold_adj_mx=False, use_dwa=True, yita=0.5)
+2024-07-24 15:39:32: 
+Model has 1.298958 M trainable parameters
+2024-07-24 15:39:32: loss weights: [1. 1.]
+2024-07-24 15:39:40: *******Train Epoch 1: averaged Loss : 0.009502955215146481, loss_pred: 0.0, loss_class: 0.009502955215146481
+2024-07-24 15:39:40: Traceback (most recent call last):
+  File "main.py", line 62, in model_supervisor
+    results = trainer.train() # best_eval_loss, best_epoch
+  File "D:\omer\ST-SSL_simple2\model\trainer.py", line 270, in train
+    val_epoch_loss = self.val_epoch(epoch, val_dataloader, loss_weights)
+  File "D:\omer\ST-SSL_simple2\model\trainer.py", line 194, in val_epoch
+    evs_pred.append(self.model.get_evs(repr1))
+  File "D:\omer\ST-SSL_simple2\model\models.py", line 208, in get_evs
+    return torch.sigmoid(self.mlp_classifier(self.project_to_classify(z1)))
+  File "C:\Users\IST\.conda\envs\ST-SSL\lib\site-packages\torch\nn\modules\module.py", line 1518, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "C:\Users\IST\.conda\envs\ST-SSL\lib\site-packages\torch\nn\modules\module.py", line 1527, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "C:\Users\IST\.conda\envs\ST-SSL\lib\site-packages\torch\nn\modules\linear.py", line 114, in forward
+    return F.linear(input, self.weight, self.bias)
+TypeError: linear(): argument 'input' (position 1) must be Tensor, not NoneType
+
