@@ -64,7 +64,8 @@ class STSSL(nn.Module):
 
         neighbours = f"data/{args.dataset}/adj_mx.npz"
         neighbours = np.load(neighbours)["adj_mx"]
-        self.neighbours = nn.Parameter(torch.from_numpy(neighbours).float(), requires_grad=False).to(self.args.device)
+        # self.neighbours = nn.Parameter(torch.from_numpy(neighbours).float(), requires_grad=False).to(self.args.device)
+        self.neighbours = nn.Parameter(torch.from_numpy(neighbours).float(), requires_grad=False)
         self.eye = torch.eye(args.num_nodes).to(self.args.device)
         
         self.add_x_encoder = args.add_x_encoder
