@@ -65,7 +65,6 @@ class STSSL(nn.Module):
         neighbours = f"data/{args.dataset}/adj_mx.npz"
         neighbours = np.load(neighbours)["adj_mx"]
         # self.neighbours = nn.Parameter(torch.from_numpy(neighbours).float(), requires_grad=False).to(self.args.device)
-        self.neighbours = nn.Parameter(torch.from_numpy(neighbours).float(), requires_grad=False)
         self.eye = torch.eye(args.num_nodes).to(self.args.device)
         
         self.add_x_encoder = args.add_x_encoder
@@ -161,7 +160,8 @@ class STSSL(nn.Module):
         # if self.add_eye:
         #     avg_attn_accum += self.eye 
 
-        learnable_graph = self.neighbours   ## make 1st channel dimension for einsum to properly message pass
+        # learnable_graph = self.neighbours   ## make 1st channel dimension for einsum to properly message pass
+        learnable_graph = graph   ## make 1st channel dimension for einsum to properly message pass
             
         """ check einsum implementation for message passing, is running but probly wrong """
         repr1A = self.encoderA(view1A, learnable_graph) # view1: n,l,v,c; graph: v,v 
