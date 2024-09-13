@@ -109,19 +109,19 @@ def get_dataloader(data_dir, dataset, batch_size, test_batch_size, scalar_type='
         #     data['x_' + category] = cat_data['x'][:, -17:35, :, :]  # cat_data['x'].shape: (1912, 35, 200, 2)
         # print("indexing")
 
-        print("not indexing")
+        # print("not indexing")
         data['x_' + category] = cat_data['x']
         data['y_' + category] = cat_data['y']
         data['evs_' + category] = cat_data['evs_90']
-        print("using 90percent evs")
+        # print("using 90percent evs")
     scaler = normalize_data(np.concatenate([data['x_train'], data['x_val']], axis=0), scalar_type)
     # print("skip: ", skip)
     # Data format
-    print("\n\n!!Scaling is NOT off!!\n\n")
+    # print("\n\n!!Scaling is NOT off!!\n\n")
     for category in ['train', 'val', 'test']:
         data['x_' + category] = scaler.transform(data['x_' + category])
         data['y_' + category] = scaler.transform(data['y_' + category])
-    print("data['x_train'].shape: ", data['x_train'].shape, data['y_train'].shape, "\n\n!!train shuffle is True!!\n\n")
+    # print("data['x_train'].shape: ", data['x_train'].shape, data['y_train'].shape, "\n\n!!train shuffle is True!!\n\n")
     # Construct dataloader
     dataloader = {}
     dataloader['train'] = STDataloader(
@@ -129,7 +129,7 @@ def get_dataloader(data_dir, dataset, batch_size, test_batch_size, scalar_type='
         data['y_train'], 
         data['evs_train'], 
         batch_size, 
-        shuffle=True
+        shuffle=False
     )
     dataloader['val'] = STDataloader(
         data['x_val'], 
