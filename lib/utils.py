@@ -62,3 +62,9 @@ def dwa(L_old, L_new, T=2):
     
     w = N * torch.softmax(r / T, dim=0)
     return w.numpy()
+
+def masked_gumbell_loss(mask_value):
+    pass
+
+def masked_frechet_loss(mask_value):
+    pass
