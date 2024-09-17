@@ -59,7 +59,7 @@ class MinMax11Scaler:
 
 def STDataloader(X, Y, evs, batch_size, shuffle=True, drop_last=True):
     cuda = True if torch.cuda.is_available() else False
-    cuda = False
+    # cuda = False
     TensorFloat = torch.cuda.FloatTensor if cuda else torch.FloatTensor
     X, Y, evs = TensorFloat(X), TensorFloat(Y), TensorFloat(evs)
     data = torch.utils.data.TensorDataset(X, Y, evs)
