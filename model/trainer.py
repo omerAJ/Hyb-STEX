@@ -173,7 +173,7 @@ class Trainer(object):
         with torch.no_grad():
             for batch_idx, (data, target, evs) in enumerate(val_dataloader):
                 repr1, repr1_cls = self.model(data, self.graph)
-                loss, loss_pred, loss_class, _ = self.model.loss(repr1, repr1_cls, evs, target, self.scaler, loss_weights, phase)
+                loss, loss_pred, loss_class, _ = self.model.loss(repr1, repr1_cls, evs, target, self.scaler, loss_weights, phase, val=True)
                 evs_true.append(evs)
                 evs_pred.append(self.model.classify_evs(repr1, repr1_cls))
                 targets.append(self.scaler.inverse_transform(target))
@@ -344,7 +344,7 @@ class Trainer(object):
 
         # Train the prediction parameters until convergence
         results = self.train_component(
-            pred_params, bias_params+classifier_params, 'pred', esp=20)
+            pred_params, bias_params+classifier_params, 'pred', esp=25)
 
         load_from = self.best_path
         if load_from is not None:
@@ -372,7 +372,7 @@ class Trainer(object):
         
         # Train the classification parameters until convergence
         results = self.train_component(
-            bias_params+pred_params, classifier_params, 'pred_2', esp=20)
+            bias_params+pred_params, classifier_params, 'pred_2', esp=15)
         
         load_from = self.best_path
         if load_from is not None:
@@ -386,7 +386,7 @@ class Trainer(object):
         
         # Train the classification parameters until convergence
         results = self.train_component(
-            bias_params, pred_params+classifier_params, 'bias', esp=20)
+            bias_params, pred_params+classifier_params, 'bias', esp=15)
         
 
         # load_from = self.best_path
