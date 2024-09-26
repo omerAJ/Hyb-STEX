@@ -124,7 +124,7 @@ class Trainer(object):
         total_loss = 0
         total_loss_pred = 0 
         total_loss_class = 0 
-        for batch_idx, (data, target, evs, bias) in enumerate(self.train_loader):
+        for batch_idx, (data, target, evs, _) in enumerate(self.train_loader):
             # print("data.shape: ", data.shape, target.shape)
             self.optimizer.zero_grad()
             
@@ -132,7 +132,7 @@ class Trainer(object):
             repr1, repr1_cls = self.model(data, self.graph) # nvc
             
 
-            loss, loss_pred, loss_class, loss_weights = self.model.loss(repr1, repr1_cls, evs, bias, target, self.scaler, loss_weights, phase)
+            loss, loss_pred, loss_class, loss_weights = self.model.loss(repr1, repr1_cls, evs, target, self.scaler, loss_weights, phase)
             # print("sep_loss: ", sep_loss)
             assert not torch.isnan(loss)
             loss.backward()
@@ -171,9 +171,9 @@ class Trainer(object):
         evs_pred = []
         targets = []
         with torch.no_grad():
-            for batch_idx, (data, target, evs, bias) in enumerate(val_dataloader):
+            for batch_idx, (data, target, evs, _) in enumerate(val_dataloader):
                 repr1, repr1_cls = self.model(data, self.graph)
-                loss, loss_pred, loss_class, _ = self.model.loss(repr1, repr1_cls, evs, bias, target, self.scaler, loss_weights, phase, val=True)
+                loss, loss_pred, loss_class, _ = self.model.loss(repr1, repr1_cls, evs, target, self.scaler, loss_weights, phase, val=True)
                 evs_true.append(evs)
                 evs_pred.append(self.model.classify_evs(repr1, repr1_cls))
                 targets.append(self.scaler.inverse_transform(target))
@@ -344,49 +344,49 @@ class Trainer(object):
 
         # Train the prediction parameters until convergence
         results = self.train_component(
-            pred_params, bias_params+classifier_params, 'pred', esp=25)
+            pred_params+bias_params+classifier_params, None, 'pred_2', esp=25)
 
-        load_from = self.best_path
-        if load_from is not None:
-            state_dict = torch.load(
-                load_from, map_location=torch.device(self.args.device))
-            msg = self.model.load_state_dict(state_dict['model']) 
-            print("loading pretrained model from: ", load_from)
-            print("\nmsg: ", msg)
-            # Extract parameter groups
-            pred_params, classifier_params, bias_params = get_model_params_grouped(self.model)
+        # load_from = self.best_path
+        # if load_from is not None:
+        #     state_dict = torch.load(
+        #         load_from, map_location=torch.device(self.args.device))
+        #     msg = self.model.load_state_dict(state_dict['model']) 
+        #     print("loading pretrained model from: ", load_from)
+        #     print("\nmsg: ", msg)
+        #     # Extract parameter groups
+        #     pred_params, classifier_params, bias_params = get_model_params_grouped(self.model)
 
-        # Train the all parameters until convergence
-        results = self.train_component(
-            classifier_params, bias_params+pred_params, 'cls', esp=10)
+        # # Train the all parameters until convergence
+        # results = self.train_component(
+        #     classifier_params, bias_params+pred_params, 'cls', esp=10)
 
-        load_from = self.best_path
-        if load_from is not None:
-            state_dict = torch.load(
-                load_from, map_location=torch.device(self.args.device))
-            msg = self.model.load_state_dict(state_dict['model']) 
-            print("loading pretrained model from: ", load_from)
-            print("\nmsg: ", msg)
-            # Extract parameter groups
-            pred_params, classifier_params, bias_params = get_model_params_grouped(self.model)
+        # load_from = self.best_path
+        # if load_from is not None:
+        #     state_dict = torch.load(
+        #         load_from, map_location=torch.device(self.args.device))
+        #     msg = self.model.load_state_dict(state_dict['model']) 
+        #     print("loading pretrained model from: ", load_from)
+        #     print("\nmsg: ", msg)
+        #     # Extract parameter groups
+        #     pred_params, classifier_params, bias_params = get_model_params_grouped(self.model)
         
-        # Train the classification parameters until convergence
-        results = self.train_component(
-            bias_params+pred_params, classifier_params, 'pred_2', esp=15)
+        # # Train the classification parameters until convergence
+        # results = self.train_component(
+        #     bias_params+pred_params, classifier_params, 'pred_2', esp=15)
         
-        load_from = self.best_path
-        if load_from is not None:
-            state_dict = torch.load(
-                load_from, map_location=torch.device(self.args.device))
-            msg = self.model.load_state_dict(state_dict['model']) 
-            print("loading pretrained model from: ", load_from)
-            print("\nmsg: ", msg)
-            # Extract parameter groups
-            pred_params, classifier_params, bias_params = get_model_params_grouped(self.model)
+        # load_from = self.best_path
+        # if load_from is not None:
+        #     state_dict = torch.load(
+        #         load_from, map_location=torch.device(self.args.device))
+        #     msg = self.model.load_state_dict(state_dict['model']) 
+        #     print("loading pretrained model from: ", load_from)
+        #     print("\nmsg: ", msg)
+        #     # Extract parameter groups
+        #     pred_params, classifier_params, bias_params = get_model_params_grouped(self.model)
         
-        # Train the classification parameters until convergence
-        results = self.train_component(
-            bias_params, pred_params+classifier_params, 'bias', esp=15)
+        # # Train the classification parameters until convergence
+        # results = self.train_component(
+        #     bias_params, pred_params+classifier_params, 'bias', esp=15)
         
 
         # load_from = self.best_path
@@ -427,9 +427,9 @@ class Trainer(object):
         evs_true = []
         evs_pred = []
         with torch.no_grad():
-            for batch_idx, (data, target, evs, bias) in enumerate(dataloader):
+            for batch_idx, (data, target, evs, _) in enumerate(dataloader):
                 repr1, repr1_cls = model(data, graph)                
-                pred_output = model.predict(repr1, repr1_cls, phase, bias)
+                pred_output = model.predict(repr1, repr1_cls, phase)
                 pred_evs = model.classify_evs(repr1, repr1_cls)
                 y_true.append(target)
                 y_pred.append(pred_output)
