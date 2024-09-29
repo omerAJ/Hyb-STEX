@@ -339,54 +339,16 @@ class Trainer(object):
         test_results = self.test(self.model, self.test_loader, self.scaler, self.graph, self.logger, self.args, component_name)
         pred_params, classifier_params, bias_params = get_model_params_grouped(self.model)
 
-        # results = self.train_component(
-        #     classifier_params, pred_params+bias_params, 'cls', esp=5)
-
-        # Train the prediction parameters until convergence
-        results = self.train_component(
-            pred_params+bias_params+classifier_params, None, 'pred_2', esp=25)
-
-        # load_from = self.best_path
-        # if load_from is not None:
-        #     state_dict = torch.load(
-        #         load_from, map_location=torch.device(self.args.device))
-        #     msg = self.model.load_state_dict(state_dict['model']) 
-        #     print("loading pretrained model from: ", load_from)
-        #     print("\nmsg: ", msg)
-        #     # Extract parameter groups
-        #     pred_params, classifier_params, bias_params = get_model_params_grouped(self.model)
-
-        # # Train the all parameters until convergence
-        # results = self.train_component(
-        #     classifier_params, bias_params+pred_params, 'cls', esp=10)
-
-        # load_from = self.best_path
-        # if load_from is not None:
-        #     state_dict = torch.load(
-        #         load_from, map_location=torch.device(self.args.device))
-        #     msg = self.model.load_state_dict(state_dict['model']) 
-        #     print("loading pretrained model from: ", load_from)
-        #     print("\nmsg: ", msg)
-        #     # Extract parameter groups
-        #     pred_params, classifier_params, bias_params = get_model_params_grouped(self.model)
         
-        # # Train the classification parameters until convergence
-        # results = self.train_component(
-        #     bias_params+pred_params, classifier_params, 'pred_2', esp=15)
-        
-        # load_from = self.best_path
-        # if load_from is not None:
-        #     state_dict = torch.load(
-        #         load_from, map_location=torch.device(self.args.device))
-        #     msg = self.model.load_state_dict(state_dict['model']) 
-        #     print("loading pretrained model from: ", load_from)
-        #     print("\nmsg: ", msg)
-        #     # Extract parameter groups
-        #     pred_params, classifier_params, bias_params = get_model_params_grouped(self.model)
-        
-        # # Train the classification parameters until convergence
-        # results = self.train_component(
-        #     bias_params, pred_params+classifier_params, 'bias', esp=15)
+        if self.args.variant == "pred":
+            results = self.train_component(
+                pred_params, bias_params+classifier_params, 'pred', esp=30)
+        elif self.args.variant == "cls":
+            results = self.train_component(
+                pred_params+classifier_params, bias_params, 'cls', esp=30)
+        elif self.args.variant == "bias":
+            results = self.train_component(
+                pred_params+classifier_params+bias_params, None, 'bias', esp=30)
         
 
         # load_from = self.best_path

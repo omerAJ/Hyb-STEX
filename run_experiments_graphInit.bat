@@ -8,8 +8,16 @@ TIMEOUT 3
 
 
 REM Loop through values 1 to 5 for the -s parameter
+FOR /L %%G IN (1,1,5) DO (
+    python main.py -c "prediction only model" -s %%G -cf configs/NYCTaxi.yaml -v "pred" 
+    echo Experiment completed: Ks = %%G
+    TIMEOUT /T 3 /NOBREAK
+)
+
+
+REM Loop through values 1 to 5 for the -s parameter
 FOR /L %%G IN (1,1,3) DO (
-    python main.py -c "common backbone ablation, end-to-end training" -s %%G -cf configs/BJTaxi.yaml 
+    python main.py -c "training classifier but only to improve representation" -s %%G -cf configs/NYCTaxi.yaml -v "cls" 
     echo Experiment completed: Ks = %%G
     TIMEOUT /T 3 /NOBREAK
 )
@@ -20,3 +28,4 @@ echo All experiments completed.
 TIMEOUT 99999
 
 cmd /k
+
