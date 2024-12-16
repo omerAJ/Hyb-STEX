@@ -47,7 +47,7 @@ np.savez(data_path, x=x_train, y=y_train, evs_90=extreme_values_binary_tensor)
 
 This process adds an additional binary tensor (`evs_90`) representing extreme values to the original sliding window datasets.
 
-
+---
 ## **Model Training and Evaluation**
 
 ### **Training**
