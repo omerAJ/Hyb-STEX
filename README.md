@@ -7,7 +7,7 @@ This repository contains the official PyTorch implementation of **Hyb-STEX**, a 
 > Under review at Association for Computing Machinery Transactions on Knowledge Discovery from Data (ACM TKDD).  
 
 
-![framework](assets\Hyb-STEX_Architecture.png)
+![framework](assets/Hyb-STEX_Architecture.png)
 
 
 ## Requirement
