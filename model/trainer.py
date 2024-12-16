@@ -350,7 +350,8 @@ class Trainer(object):
             results = self.train_component(
                 pred_params+classifier_params+bias_params, None, 'bias', esp=30)
         
-
+        ## Here use the train_component function repeatedly to train each component in phases.
+        
         # load_from = self.best_path
         # if load_from is not None:
         #     state_dict = torch.load(

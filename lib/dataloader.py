@@ -58,6 +58,7 @@ class MinMax11Scaler:
         return ((data + 1.) / 2.) * (self.max - self.min) + self.min
 
 def STDataloader(X, Y, evs, bias, batch_size, shuffle=True, drop_last=True):
+    ## Note: bias is only used when we use the fixed bias. A tensor for the fixed bias is passed to the model.
     cuda = True if torch.cuda.is_available() else False
     # cuda = False
     TensorFloat = torch.cuda.FloatTensor if cuda else torch.FloatTensor
