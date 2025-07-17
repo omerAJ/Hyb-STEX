@@ -2,3 +2,5 @@
 !/experiments/*.csv
 /data
 /logs
+/preprocessed_data
+/preprocessed_data.zip
