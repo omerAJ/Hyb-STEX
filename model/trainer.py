@@ -115,6 +115,8 @@ class Trainer(object):
             # print("batch.shape: ", batch[0].shape, batch[1].shape)  # batch.shape:  torch.Size([32, 35, 200, 2]) torch.Size([32, 1, 200, 2])
             if args.device == 'cuda':
                 batch = batch[0].to('cuda')
+            else:
+                batch = batch[0].to('cpu')
                 
             return batch
         
@@ -340,18 +342,17 @@ class Trainer(object):
         pred_params, classifier_params, bias_params = get_model_params_grouped(self.model)
 
         
-        if self.args.variant == "pred":
-            results = self.train_component(
-                pred_params, bias_params+classifier_params, 'pred', esp=30)
-        elif self.args.variant == "cls":
-            results = self.train_component(
-                pred_params+classifier_params, bias_params, 'cls', esp=30)
-        elif self.args.variant == "bias":
-            results = self.train_component(
-                pred_params+classifier_params+bias_params, None, 'bias', esp=30)
+        # if self.args.variant == "pred":
+        results = self.train_component(
+            pred_params, bias_params+classifier_params, 'pred', esp=30)
+        # elif self.args.variant == "cls":
+        results = self.train_component(
+            classifier_params, bias_params, 'cls', esp=10)
+        # elif self.args.variant == "bias":
+        results = self.train_component(
+            pred_params+bias_params, classifier_params, 'bias', esp=30)
         
-        ## Here use the train_component function repeatedly to train each component in phases.
-        
+
         # load_from = self.best_path
         # if load_from is not None:
         #     state_dict = torch.load(
@@ -363,9 +364,9 @@ class Trainer(object):
         #     pred_params, classifier_params, bias_params = get_model_params_grouped(self.model)
 
         
-        # # Train the bias parameters until convergence
-        # results = self.train_component(
-        #     bias_params + classifier_params + pred_params, None, 'pred_2', esp=10)
+        # Train the bias parameters until convergence
+        results = self.train_component(
+            bias_params, classifier_params + pred_params, 'pred_2', esp=30)
         
         return results
 

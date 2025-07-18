@@ -2,10 +2,10 @@ import torch.nn as nn
 import torch
 # import 
 from lib.utils import masked_mae_loss, masked_mse_loss, masked_gumbell_loss, masked_frechet_loss
-from model.aug import (
-    aug_topology, 
-    aug_traffic, 
-)
+# from model.aug import (
+#     aug_topology, 
+#     aug_traffic, 
+# )
 import sys
 import os
 
@@ -25,7 +25,7 @@ from layers import (
 )
 
 
-from model.vision_transformer_utils import apply_masks_targets
+# from model.vision_transformer_utils import apply_masks_targets
 import torch.nn.functional as F
 import numpy as np
 class STSSL(nn.Module):
@@ -106,12 +106,11 @@ class STSSL(nn.Module):
         self.add_8_neighbours = args.add_8
         self.add_eye = args.add_eye
 
-        neighbours = f"data/{args.dataset}/adj_mx.npz"
+        neighbours = f"preprocessed_data/{args.dataset}/adj_mx.npz"
         neighbours = np.load(neighbours)["adj_mx"]
-        if graph_init == "no_sconv":             ## eye sconv because of cheb approximation. actual adj will be: [eye, zero, zero], placeholder actually no sconv because of flag
-            self.neighbours = nn.Parameter(torch.zeros_like(torch.tensor(neighbours).float()), requires_grad=False).to(self.args.device)
-        else:
-            self.neighbours = nn.Parameter(torch.from_numpy(neighbours).float(), requires_grad=False).to(self.args.device)
+        # self.neighbours = nn.Parameter(torch.from_numpy(neighbours).float(), requires_grad=False).to(self.args.device)
+
+        self.neighbours = torch.from_numpy(neighbours).float().to(self.args.device)
 
         self.eye = torch.eye(args.num_nodes).to(self.args.device)
         
@@ -181,7 +180,8 @@ class STSSL(nn.Module):
     
     
     def forward(self, view1, graph):
-        # print(f"view1.shape: {view1.shape}")  
+        # print(f"view1.shape: {view1.dtype}, {view1.device}")  
+
         if self.dataset == "NYCBike1":  ## view1.shape: torch.Size([32, 9, 200, 2])
             # view1B = view1[:, :5, :, :]
             # view1A = view1[:, 5:9, :, :]

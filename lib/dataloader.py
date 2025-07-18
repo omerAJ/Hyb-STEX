@@ -114,7 +114,7 @@ def get_dataloader(data_dir, dataset, batch_size, test_batch_size, scalar_type='
         data['x_' + category] = cat_data['x']
         data['y_' + category] = cat_data['y']
         data['evs_' + category] = cat_data['evs_90']
-        data['bias_' + category] = cat_data['bias']
+        data['bias_' + category] = cat_data['evs_90']  ## This is a placeholder for the bias, which is not used in the current implementation.
         print("using 90percent evs")
     scaler = normalize_data(np.concatenate([data['x_train'], data['x_val']], axis=0), scalar_type)
     # print("skip: ", skip)

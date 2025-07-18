@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F 
 import torch.nn.init as init
 
-from model.aug import sim_global
+# from model.aug import sim_global
 
 ########################################
 ## Spatial Heterogeneity Modeling
@@ -352,6 +352,7 @@ class STEncoder(nn.Module):
         # print(f"x.shape: {x.shape} after out_conv")
         
         # need to return # nlvc  [32, 1, 200, 64]
+
         return x # nl(=1)vc
 
     def _cheb_polynomial(self, laplacian, K):
