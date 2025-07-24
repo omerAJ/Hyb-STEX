@@ -102,7 +102,7 @@ def model_supervisor(args):
             model.load_state_dict(state_dict['model'])
             print("Load saved model")
             results = trainer.test(model, dataloader['test'], dataloader['scaler'],
-                        graph, trainer.logger, trainer.args)
+                        graph, trainer.logger, trainer.args, 'bias')
         else:
             raise ValueError
     except:

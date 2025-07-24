@@ -2,7 +2,7 @@
 seed: 1
 device: cuda
 mode: test
-best_path: E:\estudy\hybstex-code\Hyb-STEX\weights\NYCBike1_p4.pth 
+best_path: E:\estudy\hybstex-code\Hyb-STEX\saved_weights\NYCBike1-p4.pth
 debug: False  
 experimentName: pred+T+S
 S_Loss: 0

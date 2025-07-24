@@ -106,7 +106,7 @@ class STSSL(nn.Module):
         self.add_8_neighbours = args.add_8
         self.add_eye = args.add_eye
 
-        neighbours = f"preprocessed_data/{args.dataset}/adj_mx.npz"
+        neighbours = args.graph_file
         neighbours = np.load(neighbours)["adj_mx"]
         # self.neighbours = nn.Parameter(torch.from_numpy(neighbours).float(), requires_grad=False).to(self.args.device)
 

@@ -435,8 +435,8 @@ class Trainer(object):
         mae, mape = test_metrics(y_pred[..., 1], y_true[..., 1])
         logger.info("OUTFLOW, MAE: {:.2f}, MAPE: {:.4f}%".format(mae, mape*100))
         test_results.append([mae, mape]) 
-        cm = plot_cm(evs_pred, evs_true, gt=None)
-        logger.info(f"Confusion Matrix: \n{cm}")
+        # cm = plot_cm(evs_pred, evs_true, gt=None)
+        # logger.info(f"Confusion Matrix: \n{cm}")
         return np.stack(test_results, axis=0)
 
 

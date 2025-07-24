@@ -1,8 +1,8 @@
 ## global
 seed: 1
 device: cuda
-mode: train
-best_path: None 
+mode: test
+best_path: E:\estudy\hybstex-code\Hyb-STEX\saved_weights\NYCBike2-p4.pth 
 debug: False 
 
 ## data
