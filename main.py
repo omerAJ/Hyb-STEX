@@ -114,6 +114,8 @@ if __name__=='__main__':
     parser.add_argument('--config_filename', '-cf', default='configs/NYCTaxi.yaml', 
                     type=str, help='the configuration to use')
 
+    parser.add_argument('--mode', default="train", type=str, help='train/test')
+    parser.add_argument('--best_path', default="/path/to/trained/model", type=str, help='path to the best model to load for testing')
     parser.add_argument('--S_Loss', default=0, type=int, help='use S_Loss or not')
     parser.add_argument('--T_Loss', default=0, type=int, help='use T_Loss or not')
     parser.add_argument('--seed', "-s", default=1, type=int, help='random seed to use')
