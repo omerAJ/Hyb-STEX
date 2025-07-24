@@ -100,7 +100,9 @@ You can evaluate the trained model using one of the following methods:
 
    ![results](assets/NYCTaxi_flow_annotated.png)
    
-   *This figure illustrates the performance of our model on the validation and test split of NYCTaxi dataset. The plot is for the total city wide inflow i.e., inflow summed over all nodes. Green circles highlight regions where the bias correction significantly improved the predictions, particularly in cases where the base model under-predicted. Red circle indicates the area where the model over-corrected due to false positives of the extreme event classifier. Blue circles mark instances of missed corrections, where highly local extreme values or left extreme values were not addressed by the model due to the limitation of how we currently define extreme values, these insights guide our future work.*
+   <sub>
+   This figure illustrates the performance of our model on the validation and test split of NYCTaxi dataset. The plot is for the total city wide inflow i.e., inflow summed over all nodes. Green circles highlight regions where the bias correction significantly improved the predictions, particularly in cases where the base model under-predicted. Red circle indicates the area where the model over-corrected due to false positives of the extreme event classifier. Blue circles mark instances of missed corrections, where highly local extreme values or left extreme values were not addressed by the model due to the limitation of how we currently define extreme values, these insights guide our future work.
+   </sub>
 
 ---
 
