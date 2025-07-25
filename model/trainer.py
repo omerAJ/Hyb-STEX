@@ -427,16 +427,13 @@ class Trainer(object):
 
         test_results = []
         # inflow
-        # print("y_pred.shape: ", y_pred.shape, "y_true.shape: ", y_true.shape)
-        mae, mape = test_metrics(y_pred[..., 0], y_true[..., 0])
-        logger.info("INFLOW, MAE: {:.2f}, MAPE: {:.4f}%".format(mae, mape*100))
-        test_results.append([mae, mape])
+        mae, eee = test_metrics(y_pred[..., 0], y_true[..., 0], evs=evs_true[..., 0])
+        logger.info("INFLOW, MAE: {:.2f}, EEE: {:.4f}".format(mae, eee))
+        test_results.append([mae, eee])
         # outflow 
-        mae, mape = test_metrics(y_pred[..., 1], y_true[..., 1])
-        logger.info("OUTFLOW, MAE: {:.2f}, MAPE: {:.4f}%".format(mae, mape*100))
-        test_results.append([mae, mape]) 
-        # cm = plot_cm(evs_pred, evs_true, gt=None)
-        # logger.info(f"Confusion Matrix: \n{cm}")
+        mae, eee = test_metrics(y_pred[..., 1], y_true[..., 1], evs=evs_true[..., 1])
+        logger.info("OUTFLOW, MAE: {:.2f}, EEE: {:.4f}".format(mae, eee))
+        test_results.append([mae, eee]) 
         return np.stack(test_results, axis=0)
 
 
@@ -462,5 +459,5 @@ def plot_cm(pred, true, gt=None):
 
     # Calculate confusion matrix
     conf_matrix = confusion_matrix(evs_true_flat, evs_pred_flat)
-    return conf_matrix     
+    return conf_matrix
 

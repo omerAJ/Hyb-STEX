@@ -89,18 +89,45 @@ def test_metrics_evalLosses(pred, true, mask1=5, mask2=4000000):
 
 
 
-def test_metrics(pred, true, mask1=5, mask2=5):
-    # mask1 filter the very small value, mask2 filter the value lower than a defined threshold
+def test_metrics(pred, true, evs=None, mask1=5):
+    """
+    Returns:
+        mae: Mean Absolute Error (all points)
+        eee: Extreme Event Error (MAE on extreme points, if evs is provided)
+    """
     assert type(pred) == type(true)
     if type(pred) == np.ndarray:
         mae  = mae_np(pred, true, mask1)
-        mape = mape_np(pred, true, mask2)
+        eee = np.nan
+        if evs is not None:
+            mask = evs == 1
+            if np.any(mask):
+                eee = np.mean(np.abs(pred[mask] - true[mask]))
     elif type(pred) == torch.Tensor:
         mae  = mae_torch(pred, true, mask1).item()
-        mape = mape_torch(pred, true, mask2).item()
+        eee = float('nan')
+        if evs is not None:
+            eee = eee_torch(pred, true, evs)
     else:
         raise TypeError
-    return mae, mape
+    return mae, eee
+
+def eee_torch(pred, true, evs):
+    """
+    Calculate Extreme Event Error (EEE) as MAE on datapoints where evs == 1.
+    Args:
+        pred (torch.Tensor): Predictions.
+        true (torch.Tensor): Ground truth.
+        evs (torch.Tensor): Binary extreme event indicator tensor (same shape as pred/true).
+    Returns:
+        float: MAE on extreme events, or np.nan if no extreme events.
+    """
+    mask = evs == 1
+    if mask.sum() == 0:
+        return float('nan')
+    pred_extreme = pred[mask]
+    true_extreme = true[mask]
+    return torch.mean(torch.abs(true_extreme - pred_extreme)).item()
 
 
 
