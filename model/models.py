@@ -123,10 +123,18 @@ class STSSL(nn.Module):
         self.ff_key_projection_bias = PositionwiseFeedForward(d_model=128, d_ff=64*4)
         # self.project_to_classify = nn.Linear(int((2)*args.d_model), int((2)*args.d_model))
         self.ff_to_cls = PositionwiseFeedForward(d_model=128, d_ff=128*4)
-        # self.learnable_vectors_bias = nn.Parameter(torch.zeros(1, 1, args.num_nodes, 128, 2), requires_grad=True)
-        self.learnable_vectors_bias = nn.Parameter(torch.zeros(1, 1, 128, 2), requires_grad=True)
+        # self.learnable_vectors_bias = nn.Parameter(torch.zeros(1, 1, args.num_nodes, 128, 4), requires_grad=True)
+        self.learnable_vectors_bias = nn.Parameter(torch.zeros(1, 1, 128, 4), requires_grad=True)
         # self.learnable_bias_bias = nn.Parameter(torch.zeros(1, 1, args.num_nodes, 2), requires_grad=True)
         # self.xavier_uniform_init(self.learnable_vectors) 
+
+        # GPD head hyperparameters
+        self.gpd_xi_max = getattr(args, "gpd_xi_max", 0.5)
+        self.gpd_sigma_min = getattr(args, "gpd_sigma_min", 1.0e-3)
+        self.gpd_sigma_max = getattr(args, "gpd_sigma_max", 1.0e3)
+        self.gpd_eps = getattr(args, "gpd_eps", 1.0e-6)
+        self.gpd_nll_weight = getattr(args, "gpd_nll_weight", 1.0)
+        self.gpd_debug = getattr(args, "gpd_debug", False)
 
         
 
@@ -242,21 +250,27 @@ class STSSL(nn.Module):
     def fetch_temporal_sim(self):
         return self.encoder.t_sim_mx.cpu()
 
-    def get_bias(self, z1):
+    def get_gpd_params(self, z1):
         """
-        get the bias for each node and timestep 
+        get GPD params (xi, sigma) for each node and timestep
         """
         ## z1.shape: torch.Size([32, 1, 200, 128])
         k = self.ff_key_projection_bias(z1)
-        # k = k.unsqueeze(-2)  ## z1.shape: torch.Size([32, 1, 200, 1, 128])
-        # print(f"k.shape: {k.shape}, learnable_vectors_bias.shape: {self.learnable_vectors_bias.shape}")  ## learnable_vectors_bias.shape: torch.Size([1, 1, 200, 128, 2])
-        
-        bias = torch.matmul(k, self.learnable_vectors_bias)
-        # bias = self.learnable_bias_bias
-        # print(f"bias.shape: {bias.shape}")  ## bias.shape: torch.Size([32, 1, 200, 1, 2])
-        # bias = bias.squeeze(-2)
-        # bias = self.mlp_bias(k)
-        return bias
+        params = torch.matmul(k, self.learnable_vectors_bias)
+        xi_raw = params[..., 0:2]
+        sigma_raw = params[..., 2:4]
+        xi = self.gpd_xi_max * torch.tanh(xi_raw)
+        sigma = F.softplus(sigma_raw) + self.gpd_sigma_min
+        if self.gpd_sigma_max is not None:
+            sigma = torch.clamp(sigma, max=self.gpd_sigma_max)
+        return xi, sigma
+
+    def get_bias(self, z1):
+        """
+        Backward-compatible wrapper: returns concatenated (xi, sigma).
+        """
+        xi, sigma = self.get_gpd_params(z1)
+        return torch.cat([xi, sigma], dim=-1)
 
     def classify_evs(self, z1, z1_cls):
         """
@@ -275,27 +289,31 @@ class STSSL(nn.Module):
         """
         return torch.sigmoid(self.mlp_cls(self.ff_to_cls(z1)))
 
-    def predict(self, z1, z1_cls, phase, t=None):
+    def predict(self, z1, z1_cls, phase, threshold=None, t=None):
         '''Predicting future traffic flow.
         :param z1, z2 (tensor): shape nvc
         :return: nlvc, l=1, c=2
         '''
         # print("z1.shape: ", z1.shape)
         o_tilde = self.mlp(z1)
-        bias = self.get_bias(z1)
+        xi, sigma = self.get_gpd_params(z1)
         # o_tilde = scaler.inverse_transform(o_tilde)
         # bias = scaler.inverse_transform(bias)
         # evs = self.classify_evs(z1, z1_cls).detach()
         evs = self.classify_evs(z1, z1_cls)
         if t is not None:
             evs = (evs > t).float()
+        if threshold is None:
+            threshold = 0.0
+        mean_excess = sigma / torch.clamp(1 - xi, min=self.gpd_eps)
+        gpd_pred = threshold + mean_excess
         ## which repr to use to calculate the bias, maybe both
         if phase == "pred":
             return o_tilde
         elif phase == "cls":
             return o_tilde
         elif phase == "bias" or phase == "pred_2":
-            return o_tilde + bias * evs
+            return o_tilde + evs * (gpd_pred - o_tilde)
         else:
             raise ValueError("phase not recognized")
      
@@ -338,8 +356,8 @@ class STSSL(nn.Module):
             
     #     return F.binary_cross_entropy(evs_masked, evs_gt_masked)
     
-    def pred_loss(self, z1, z1_cls, evs_gt, y_true, scaler, phase, val=False):
-        preds = self.predict(z1, z1_cls, phase)
+    def pred_loss(self, z1, z1_cls, evs_gt, y_true, threshold, scaler, phase, val=False):
+        preds = self.predict(z1, z1_cls, phase, threshold=threshold)
         y_pred = scaler.inverse_transform(preds)
         y_true = scaler.inverse_transform(y_true)
 
@@ -353,10 +371,20 @@ class STSSL(nn.Module):
         loss = pred_loss
         return loss
     
+    def gpd_nll(self, exceedance, xi, sigma):
+        # Negative log-likelihood for GPD
+        xi_abs = torch.abs(xi)
+        # avoid division by zero in the general formula
+        xi_safe = torch.where(xi_abs < 1.0e-3, torch.full_like(xi, 1.0e-3), xi)
+        t = 1 + xi * exceedance / sigma
+        t = torch.clamp(t, min=self.gpd_eps)
+        nll_general = torch.log(sigma) + (1 / xi_safe + 1) * torch.log(t)
+        nll_exp = torch.log(sigma) + exceedance / sigma  # xi -> 0
+        return torch.where(xi_abs < 1.0e-6, nll_exp, nll_general)
     
 
-    def loss(self, z1, z1_cls, evs, y_true, scaler, loss_weights, phase, val=False):
-        l_pred = self.pred_loss(z1, z1_cls, evs, y_true, scaler, phase, val=val)
+    def loss(self, z1, z1_cls, evs, y_true, threshold, scaler, loss_weights, phase, val=False, debug_tag=None):
+        l_pred = self.pred_loss(z1, z1_cls, evs, y_true, threshold, scaler, phase, val=val)
         
         l_class = self.classification_loss(z1, z1_cls, evs, y_true)
         # total_loss = l_pred + l_class
@@ -375,6 +403,15 @@ class STSSL(nn.Module):
         else:
             loss = loss_weights[0]*l_pred + loss_weights[1]*l_class
         # loss = loss_weights[0]*l_pred
+
+        if phase == "bias" or phase == "pred_2":
+            xi, sigma = self.get_gpd_params(z1)
+            exceedance = torch.clamp(y_true - threshold, min=0.0)
+            mask = (evs > 0.5) & (exceedance > 0)
+        
+            if mask.any().item():
+                gpd_nll = self.gpd_nll(exceedance[mask], xi[mask], sigma[mask]).mean()
+                loss = loss + self.gpd_nll_weight * gpd_nll
 
         l_pred=l_pred.item()
         l_class=l_class.item()

@@ -58,14 +58,28 @@ class MinMax11Scaler:
         return ((data + 1.) / 2.) * (self.max - self.min) + self.min
 
 def STDataloader(X, Y, evs, bias, batch_size, shuffle=True, drop_last=True):
-    ## Note: bias is only used when we use the fixed bias. A tensor for the fixed bias is passed to the model.
+    ## Note: bias is used here to carry per-node/per-feature thresholds (constant per sample).
     cuda = True if torch.cuda.is_available() else False
     # cuda = False
     TensorFloat = torch.cuda.FloatTensor if cuda else torch.FloatTensor
     X, Y, evs, bias = TensorFloat(X), TensorFloat(Y), TensorFloat(evs), TensorFloat(bias)
-    data = torch.utils.data.TensorDataset(X, Y, evs, bias)
+
+    class STDataset(torch.utils.data.Dataset):
+        def __init__(self, X, Y, evs, bias):
+            self.X = X
+            self.Y = Y
+            self.evs = evs
+            self.bias = bias  # thresholds
+
+        def __len__(self):
+            return self.X.shape[0]
+
+        def __getitem__(self, idx):
+            return self.X[idx], self.Y[idx], self.evs[idx], self.bias
+
+    dataset = STDataset(X, Y, evs, bias)
     dataloader = torch.utils.data.DataLoader(
-        data, 
+        dataset, 
         batch_size=batch_size,
         shuffle=shuffle, 
         drop_last=drop_last,
@@ -86,7 +100,8 @@ def normalize_data(data, scalar_type='Standard'):
     # time.sleep(3)
     return scalar
 
-def get_dataloader(data_dir, dataset, batch_size, test_batch_size, scalar_type='Standard'):
+def get_dataloader(data_dir, dataset, batch_size, test_batch_size, scalar_type='Standard',
+                   evs_key='evs_95', threshold_key='threshold_95'):
     data = {}
     
     # print("input_dataset_context: ", input_dataset_context, input_sequence_type)
@@ -113,8 +128,20 @@ def get_dataloader(data_dir, dataset, batch_size, test_batch_size, scalar_type='
         # print("not indexing")
         data['x_' + category] = cat_data['x']
         data['y_' + category] = cat_data['y']
-        data['evs_' + category] = cat_data['evs_90']
-        data['bias_' + category] = cat_data['evs_90']  ## This is a placeholder for the bias, which is not used in the current implementation.
+        if evs_key in cat_data:
+            data['evs_' + category] = cat_data[evs_key]
+        else:
+            raise KeyError(
+                f"{evs_key} is not a file in the archive. Available keys: {list(cat_data.keys())}"
+            )
+
+        if threshold_key in cat_data:
+            data['bias_' + category] = cat_data[threshold_key]
+        else:
+            raise KeyError(
+                f"{threshold_key} is not a file in the archive. Available keys: {list(cat_data.keys())}"
+            )
+
         # print("using 90percent evs")
     scaler = normalize_data(np.concatenate([data['x_train'], data['x_val']], axis=0), scalar_type)
     # print("skip: ", skip)
@@ -123,6 +150,9 @@ def get_dataloader(data_dir, dataset, batch_size, test_batch_size, scalar_type='
     for category in ['train', 'val', 'test']:
         data['x_' + category] = scaler.transform(data['x_' + category])
         data['y_' + category] = scaler.transform(data['y_' + category])
+        # scale thresholds using the same scaler (linear), and add time dimension
+        data['bias_' + category] = scaler.transform(data['bias_' + category])
+        data['bias_' + category] = data['bias_' + category][np.newaxis, ...]
     print("data['x_train'].shape: ", data['x_train'].shape, data['y_train'].shape)
     # Construct dataloader
     dataloader = {}

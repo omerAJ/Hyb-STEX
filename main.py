@@ -37,7 +37,9 @@ def model_supervisor(args):
         dataset=args.dataset, 
         batch_size=args.batch_size, 
         test_batch_size=args.test_batch_size,
-        scalar_type='Standard'
+        scalar_type='Standard',
+        evs_key=getattr(args, "evs_key", "evs_95"),
+        threshold_key=getattr(args, "threshold_key", "threshold_95"),
     )
     graph = load_graph(args.graph_file, device=args.device)
     args.num_nodes = len(graph)
@@ -143,6 +145,10 @@ if __name__=='__main__':
     parser.add_argument('--loss', "-l", default="mae", type=str, help='mae/mse')
     parser.add_argument('--load_path', "-lp", default=None, type=str, help='path to load pretrained model from')
     parser.add_argument('--variant', "-v", default=None, type=str, help='which variant of model to use. pred/cls/bias')
+    parser.add_argument('--resume_phase', "-rp", default=None, type=str, help='resume training from phase: pred/cls/bias/pred_2')
+    parser.add_argument('--resume_path', "-rpath", default=None, type=str, help='override checkpoint path to load when resuming')
+    parser.add_argument('--evs_key', default='evs_95', type=str, help='npz key for extreme-event labels')
+    parser.add_argument('--threshold_key', default='threshold_95', type=str, help='npz key for per-node/feature thresholds')
 
     # parser.add_argument('--input_length', default=0, type=int, help='# of samples to use for context')
     args = parser.parse_args()
@@ -177,16 +183,20 @@ if __name__=='__main__':
     configs['loss'] = args.loss
     configs['load_path'] = args.load_path
     configs['variant'] = args.variant
+    configs['resume_phase'] = args.resume_phase
+    configs['resume_path'] = args.resume_path
+    configs['evs_key'] = args.evs_key
+    configs['threshold_key'] = args.threshold_key
     
     # configs['input_length'] = args.input_length
     # experimentName = "pred_" + str(args.input_length) + "_"
-    experimentName = "pred_"
+    experimentName = ""
     if args.S_Loss == 1:
         experimentName += "+S"
 
     if args.T_Loss == 1:
         experimentName += "+T"
-    experimentName += f"_seed={args.seed}"
+    experimentName += f"seed={args.seed}"
     
     configs["experimentName"] = experimentName
     print(f'Starting experiment with configurations {configs}...')

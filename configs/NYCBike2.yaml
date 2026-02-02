@@ -1,39 +1,39 @@
 ## global
 seed: 1
 device: cuda
-mode: test
-best_path: E:\estudy\hybstex-code\Hyb-STEX\saved_weights\NYCBike2-p4.pth 
-debug: False 
+mode: train
+best_path: E:\estudy\hybstex-code\Hyb-STEX\saved_weights\NYCBike2-p4.pth
+debug: False
 
 ## data
-data_dir: data
-dataset: NYCBike2 
+data_dir: data_with_EVs
+dataset: NYCBike2
 input_length: 17
-batch_size: 32
+batch_size: 64
 test_batch_size: 32
-graph_file: data/NYCBike2/adj_mx.npz  # num_nodes 200 (20 x 10)
+graph_file: data/NYCBike2/adj_mx.npz # num_nodes 200 (20 x 10)
 num_nodes: 200
 row: 20
 col: 10
 
-## model 
-d_input: 2                  # means inflow and outflow
-d_output: 2                 # means inflow and outflow
+## model
+d_input: 2 # means inflow and outflow
+d_output: 2 # means inflow and outflow
 d_model: 64
 dropout: 0.3
-percent: 0.1                # augumentation percentage  
-shm_temp: 0.5               # temperature for loss of spatial heterogeneity modeling  , 0.5 is best for NYCBike
-nmb_prototype: 10           # number of clusters
-yita: 0.5                   # balance for inflow loss and outflow loss, $yita * inflow + (1 - yita) * outflow$
+percent: 0.1 # augumentation percentage
+shm_temp: 0.5 # temperature for loss of spatial heterogeneity modeling  , 0.5 is best for NYCBike
+nmb_prototype: 10 # number of clusters
+yita: 0.5 # balance for inflow loss and outflow loss, $yita * inflow + (1 - yita) * outflow$
 
-## train 
+## train
 start_epoch: 0
 num_epochs: 1000
 epochs: 1000
-lr_init: 0.001 
+lr_init: 0.001
 early_stop: True
 early_stop_patience: 30
 grad_norm: True
 max_grad_norm: 5
-use_dwa: True         # whether to use dwa for loss balance
-temp: 2               # tempurature parameter in dwa, a larger T means more similer weights
+use_dwa: True # whether to use dwa for loss balance
+temp: 2 # tempurature parameter in dwa, a larger T means more similer weights

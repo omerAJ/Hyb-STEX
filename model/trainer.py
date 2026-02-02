@@ -126,7 +126,7 @@ class Trainer(object):
         total_loss = 0
         total_loss_pred = 0 
         total_loss_class = 0 
-        for batch_idx, (data, target, evs, _) in enumerate(self.train_loader):
+        for batch_idx, (data, target, evs, threshold) in enumerate(self.train_loader):
             # print("data.shape: ", data.shape, target.shape)
             self.optimizer.zero_grad()
             
@@ -134,7 +134,9 @@ class Trainer(object):
             repr1, repr1_cls = self.model(data, self.graph) # nvc
             
 
-            loss, loss_pred, loss_class, loss_weights = self.model.loss(repr1, repr1_cls, evs, target, self.scaler, loss_weights, phase)
+            loss, loss_pred, loss_class, loss_weights = self.model.loss(
+                repr1, repr1_cls, evs, target, threshold, self.scaler, loss_weights, phase,
+                debug_tag={"epoch": epoch, "batch": batch_idx})
             # print("sep_loss: ", sep_loss)
             assert not torch.isnan(loss)
             loss.backward()
@@ -173,9 +175,10 @@ class Trainer(object):
         evs_pred = []
         targets = []
         with torch.no_grad():
-            for batch_idx, (data, target, evs, _) in enumerate(val_dataloader):
+            for batch_idx, (data, target, evs, threshold) in enumerate(val_dataloader):
                 repr1, repr1_cls = self.model(data, self.graph)
-                loss, loss_pred, loss_class, _ = self.model.loss(repr1, repr1_cls, evs, target, self.scaler, loss_weights, phase, val=True)
+                loss, loss_pred, loss_class, _ = self.model.loss(
+                    repr1, repr1_cls, evs, target, threshold, self.scaler, loss_weights, phase, val=True)
                 evs_true.append(evs)
                 evs_pred.append(self.model.classify_evs(repr1, repr1_cls))
                 targets.append(self.scaler.inverse_transform(target))
@@ -332,62 +335,62 @@ class Trainer(object):
 
         cls_w = 1
         loss_weights = np.array([1, cls_w])
-        epoch=1
-        component_name = 'pred'
-        self.logger.info('validating pretrained model')
-        val_dataloader = self.val_loader if self.val_loader != None else self.test_loader
-        val_loss_pred, val_loss_cls = self.val_epoch(epoch, val_dataloader, loss_weights, component_name)       
-        self.logger.info("testing")
-        test_results = self.test(self.model, self.test_loader, self.scaler, self.graph, self.logger, self.args, component_name)
         pred_params, classifier_params, bias_params = get_model_params_grouped(self.model)
 
-        
-        ## phase wise training. Load the saved model after every phase so we use the best model (best val loss) and not the latest model.
-        # Phase-1 training:
-        results = self.train_component(
-            pred_params, bias_params+classifier_params, 'pred', esp=30)
-        load_from = self.best_path
-        if load_from is not None:
-            state_dict = torch.load(
-                load_from, map_location=torch.device(self.args.device))
-            msg = self.model.load_state_dict(state_dict['model']) 
-            print("loading pretrained model from: ", load_from)
-            print("\nmsg: ", msg)
-            # Extract parameter groups
-            pred_params, classifier_params, bias_params = get_model_params_grouped(self.model)
-        
-        # Phase-2 training:
-        results = self.train_component(
-            classifier_params, pred_params+bias_params, 'cls', esp=10)
-        load_from = self.best_path
-        if load_from is not None:
-            state_dict = torch.load(
-                load_from, map_location=torch.device(self.args.device))
-            msg = self.model.load_state_dict(state_dict['model']) 
-            print("loading pretrained model from: ", load_from)
-            print("\nmsg: ", msg)
-            # Extract parameter groups
-            pred_params, classifier_params, bias_params = get_model_params_grouped(self.model)
-        
-        # Phase-3 training:
-        results = self.train_component(
-            pred_params+bias_params, classifier_params, 'bias', esp=30)
-        
-        load_from = self.best_path
-        if load_from is not None:
-            state_dict = torch.load(
-                load_from, map_location=torch.device(self.args.device))
-            msg = self.model.load_state_dict(state_dict['model']) 
-            print("loading pretrained model from: ", load_from)
-            print("\nmsg: ", msg)
-            # Extract parameter groups
-            pred_params, classifier_params, bias_params = get_model_params_grouped(self.model)
+        resume_phase = getattr(self.args, "resume_phase", None)
+        resume_path = getattr(self.args, "resume_path", None)
+        if isinstance(resume_phase, str):
+            resume_phase = resume_phase.lower()
 
-        
-        # Phase-4 training
-        results = self.train_component(
-            bias_params, classifier_params + pred_params, 'pred_2', esp=30)
-        
+        phases = [
+            ("pred", pred_params, bias_params + classifier_params, 30),
+            ("cls", classifier_params, pred_params + bias_params, 10),
+            ("bias", pred_params + bias_params, classifier_params, 30),
+            ("pred_2", bias_params, classifier_params + pred_params, 30),
+        ]
+
+        phase_names = [p[0] for p in phases]
+        start_idx = 0
+        if resume_phase:
+            if resume_phase not in phase_names:
+                raise ValueError(f"resume_phase must be one of {phase_names}, got {resume_phase}")
+            start_idx = phase_names.index(resume_phase)
+
+        # Optional: validate/test only on fresh runs
+        if not resume_phase:
+            epoch = 1
+            component_name = 'pred'
+            self.logger.info('validating pretrained model')
+            val_dataloader = self.val_loader if self.val_loader != None else self.test_loader
+            val_loss_pred, val_loss_cls = self.val_epoch(epoch, val_dataloader, loss_weights, component_name)       
+            self.logger.info("testing")
+            test_results = self.test(self.model, self.test_loader, self.scaler, self.graph, self.logger, self.args, component_name)
+
+        # If resuming, load best checkpoint from previous phase if available
+        if resume_phase and start_idx > 0:
+            prev_phase = phase_names[start_idx - 1]
+            candidate = os.path.join(self.args.log_dir, f'best_model_{prev_phase}.pth')
+            load_from = resume_path if resume_path is not None else (candidate if os.path.exists(candidate) else self.args.load_path)
+            if load_from is not None and os.path.exists(load_from):
+                state_dict = torch.load(
+                    load_from, map_location=torch.device(self.args.device))
+                msg = self.model.load_state_dict(state_dict['model'])
+                print("loading pretrained model from: ", load_from)
+                print("\nmsg: ", msg)
+                pred_params, classifier_params, bias_params = get_model_params_grouped(self.model)
+
+        results = None
+        for phase_name, train_params, other_params, esp in phases[start_idx:]:
+            results = self.train_component(train_params, other_params, phase_name, esp=esp)
+            load_from = self.best_path
+            if load_from is not None:
+                state_dict = torch.load(
+                    load_from, map_location=torch.device(self.args.device))
+                msg = self.model.load_state_dict(state_dict['model'])
+                print("loading pretrained model from: ", load_from)
+                print("\nmsg: ", msg)
+                pred_params, classifier_params, bias_params = get_model_params_grouped(self.model)
+
         return results
 
     def plot_losses(self, train_epoch_losses, val_epoch_losses, train_epoch_losses_pred, train_epoch_losses_class, component_name):
@@ -411,9 +414,9 @@ class Trainer(object):
         evs_true = []
         evs_pred = []
         with torch.no_grad():
-            for batch_idx, (data, target, evs, _) in enumerate(dataloader):
+            for batch_idx, (data, target, evs, threshold) in enumerate(dataloader):
                 repr1, repr1_cls = model(data, graph)                
-                pred_output = model.predict(repr1, repr1_cls, phase)
+                pred_output = model.predict(repr1, repr1_cls, phase, threshold=threshold)
                 pred_evs = model.classify_evs(repr1, repr1_cls)
                 y_true.append(target)
                 y_pred.append(pred_output)
@@ -460,4 +463,3 @@ def plot_cm(pred, true, gt=None):
     # Calculate confusion matrix
     conf_matrix = confusion_matrix(evs_true_flat, evs_pred_flat)
     return conf_matrix
-
