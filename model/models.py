@@ -305,7 +305,11 @@ class STSSL(nn.Module):
             evs = (evs > t).float()
         if threshold is None:
             threshold = 0.0
-        mean_excess = sigma / torch.clamp(1 - xi, min=self.gpd_eps)
+        # IMPORTANT: keep the point-forecast loss (MAE/MSE) from updating GPD head params.
+        # The GPD head is trained only via the GPD NLL term in `loss()`.
+        xi_detached = xi.detach()
+        sigma_detached = sigma.detach()
+        mean_excess = sigma_detached / torch.clamp(1 - xi_detached, min=self.gpd_eps)
         gpd_pred = threshold + mean_excess
         ## which repr to use to calculate the bias, maybe both
         if phase == "pred":

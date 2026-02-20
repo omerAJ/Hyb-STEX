@@ -1,3 +1,4 @@
+import argparse
 import csv
 import re
 from pathlib import Path
@@ -85,7 +86,23 @@ def safe_stdev(values):
     return stdev(values)
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="Compile GPD results across datasets and seeds.")
+    parser.add_argument(
+        "--experiment",
+        default=EXPERIMENT_NAME,
+        help="Experiment folder name under each dataset (default: %(default)s).",
+    )
+    return parser.parse_args()
+
+
 def main():
+    args = parse_args()
+    experiment_name = args.experiment
+    output_csv = BASE_DIR / f"{experiment_name}_results.csv"
+    phase4_mae_csv = BASE_DIR / f"{experiment_name}_phase4_mae_summary.csv"
+    phase4_eee_csv = BASE_DIR / f"{experiment_name}_phase4_eee_summary.csv"
+
     rows = []
     summary_rows = []
     phase4_mae_rows = []
@@ -93,7 +110,7 @@ def main():
     warnings = []
 
     for dataset in DATASETS:
-        exp_dir = BASE_DIR / dataset / EXPERIMENT_NAME
+        exp_dir = BASE_DIR / dataset / experiment_name
         if not exp_dir.exists():
             warnings.append(f"Missing experiment folder: {exp_dir}")
             continue
@@ -190,8 +207,8 @@ def main():
         "std_outflow_eee",
     ]
 
-    OUTPUT_CSV.parent.mkdir(parents=True, exist_ok=True)
-    output_path = OUTPUT_CSV
+    output_csv.parent.mkdir(parents=True, exist_ok=True)
+    output_path = output_csv
     try:
         with output_path.open("w", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -208,7 +225,7 @@ def main():
             for row in summary_rows:
                 writer.writerow(row)
     except PermissionError:
-        output_path = OUTPUT_CSV.with_name(f"{OUTPUT_CSV.stem}.new{OUTPUT_CSV.suffix}")
+        output_path = output_csv.with_name(f"{output_csv.stem}.new{output_csv.suffix}")
         with output_path.open("w", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             writer.writeheader()
@@ -240,7 +257,7 @@ def main():
             "outflow_mae_mean",
             "outflow_mae_std",
         ]
-        phase4_mae_path = PHASE4_MAE_CSV
+        phase4_mae_path = phase4_mae_csv
         try:
             with phase4_mae_path.open("w", newline="") as f:
                 writer = csv.DictWriter(f, fieldnames=phase4_fields)
@@ -248,8 +265,8 @@ def main():
                 for row in phase4_mae_rows:
                     writer.writerow(row)
         except PermissionError:
-            phase4_mae_path = PHASE4_MAE_CSV.with_name(
-                f"{PHASE4_MAE_CSV.stem}.new{PHASE4_MAE_CSV.suffix}"
+            phase4_mae_path = phase4_mae_csv.with_name(
+                f"{phase4_mae_csv.stem}.new{phase4_mae_csv.suffix}"
             )
             with phase4_mae_path.open("w", newline="") as f:
                 writer = csv.DictWriter(f, fieldnames=phase4_fields)
@@ -257,6 +274,13 @@ def main():
                 for row in phase4_mae_rows:
                     writer.writerow(row)
         print(f"Wrote: {phase4_mae_path}")
+        print("Phase 4 MAE (avg ± std):")
+        for row in phase4_mae_rows:
+            print(
+                f"- {row['dataset']} (n={row['n']}): "
+                f"inflow {row['inflow_mae_mean']:.4f} ± {row['inflow_mae_std']:.4f}, "
+                f"outflow {row['outflow_mae_mean']:.4f} ± {row['outflow_mae_std']:.4f}"
+            )
 
     if phase4_eee_rows:
         phase4_eee_fields = [
@@ -267,7 +291,7 @@ def main():
             "outflow_eee_mean",
             "outflow_eee_std",
         ]
-        phase4_eee_path = PHASE4_EEE_CSV
+        phase4_eee_path = phase4_eee_csv
         try:
             with phase4_eee_path.open("w", newline="") as f:
                 writer = csv.DictWriter(f, fieldnames=phase4_eee_fields)
@@ -275,8 +299,8 @@ def main():
                 for row in phase4_eee_rows:
                     writer.writerow(row)
         except PermissionError:
-            phase4_eee_path = PHASE4_EEE_CSV.with_name(
-                f"{PHASE4_EEE_CSV.stem}.new{PHASE4_EEE_CSV.suffix}"
+            phase4_eee_path = phase4_eee_csv.with_name(
+                f"{phase4_eee_csv.stem}.new{phase4_eee_csv.suffix}"
             )
             with phase4_eee_path.open("w", newline="") as f:
                 writer = csv.DictWriter(f, fieldnames=phase4_eee_fields)
@@ -284,6 +308,48 @@ def main():
                 for row in phase4_eee_rows:
                     writer.writerow(row)
         print(f"Wrote: {phase4_eee_path}")
+        print("Phase 4 EEE (avg ± std):")
+        for row in phase4_eee_rows:
+            print(
+                f"- {row['dataset']} (n={row['n']}): "
+                f"inflow {row['inflow_eee_mean']:.4f} ± {row['inflow_eee_std']:.4f}, "
+                f"outflow {row['outflow_eee_mean']:.4f} ± {row['outflow_eee_std']:.4f}"
+            )
+
+    if summary_rows:
+        summary_by_dataset = {}
+        for row in summary_rows:
+            if row["seed"] != "avg":
+                continue
+            summary_by_dataset.setdefault(row["dataset"], {})[row["phase"]] = row
+
+        print("Phase-wise averages with delta vs previous phase:")
+        for dataset in sorted(summary_by_dataset.keys()):
+            phases = summary_by_dataset[dataset]
+            print(f"- {dataset}")
+            for phase_idx in sorted(phases.keys()):
+                row = phases[phase_idx]
+                prev = phases.get(phase_idx - 1)
+                if prev:
+                    mae_in_delta = row["inflow_mae"] - prev["inflow_mae"]
+                    mae_out_delta = row["outflow_mae"] - prev["outflow_mae"]
+                    eee_in_delta = row["inflow_eee"] - prev["inflow_eee"]
+                    eee_out_delta = row["outflow_eee"] - prev["outflow_eee"]
+                    mae_in_text = f"{row['inflow_mae']:.4f} ({mae_in_delta:+.4f})"
+                    mae_out_text = f"{row['outflow_mae']:.4f} ({mae_out_delta:+.4f})"
+                    eee_in_text = f"{row['inflow_eee']:.4f} ({eee_in_delta:+.4f})"
+                    eee_out_text = f"{row['outflow_eee']:.4f} ({eee_out_delta:+.4f})"
+                else:
+                    mae_in_text = f"{row['inflow_mae']:.4f} (n/a)"
+                    mae_out_text = f"{row['outflow_mae']:.4f} (n/a)"
+                    eee_in_text = f"{row['inflow_eee']:.4f} (n/a)"
+                    eee_out_text = f"{row['outflow_eee']:.4f} (n/a)"
+
+                print(
+                    f"  Phase {phase_idx}: "
+                    f"MAE inflow {mae_in_text}, outflow {mae_out_text}; "
+                    f"EEE inflow {eee_in_text}, outflow {eee_out_text}"
+                )
 
 
 if __name__ == "__main__":

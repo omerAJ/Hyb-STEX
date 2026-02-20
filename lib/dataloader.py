@@ -100,8 +100,16 @@ def normalize_data(data, scalar_type='Standard'):
     # time.sleep(3)
     return scalar
 
-def get_dataloader(data_dir, dataset, batch_size, test_batch_size, scalar_type='Standard',
-                   evs_key='evs_95', threshold_key='threshold_95'):
+def get_dataloader(
+    data_dir,
+    dataset,
+    batch_size,
+    test_batch_size,
+    scalar_type='Standard',
+    evs_key='evs_95',
+    threshold_key='threshold_95',
+    share_train_thresholds=True,
+):
     data = {}
     
     # print("input_dataset_context: ", input_dataset_context, input_sequence_type)
@@ -143,6 +151,17 @@ def get_dataloader(data_dir, dataset, batch_size, test_batch_size, scalar_type='
             )
 
         # print("using 90percent evs")
+
+    # Avoid test/val leakage: use train thresholds for all splits.
+    # Thresholds are used as an input to the model (bias correction / exceedances),
+    # so computing them on val/test would leak forward information.
+    if share_train_thresholds:
+        train_bias = data.get('bias_train')
+        if train_bias is None:
+            raise KeyError("bias_train is missing; cannot share train thresholds")
+        for category in ['val', 'test']:
+            data['bias_' + category] = train_bias
+
     scaler = normalize_data(np.concatenate([data['x_train'], data['x_val']], axis=0), scalar_type)
     # print("skip: ", skip)
     # Data format
