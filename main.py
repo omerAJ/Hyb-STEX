@@ -40,7 +40,6 @@ def model_supervisor(args):
         scalar_type='Standard',
         evs_key=getattr(args, "evs_key", "evs_95"),
         threshold_key=getattr(args, "threshold_key", "threshold_95"),
-        share_train_thresholds=getattr(args, "share_train_thresholds", True),
     )
     graph = load_graph(args.graph_file, device=args.device)
     args.num_nodes = len(graph)
