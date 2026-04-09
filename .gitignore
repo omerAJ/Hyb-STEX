@@ -1,6 +1,8 @@
 /experiments/*
+/experiments
 !/experiments/*.csv
 /data
+/data_with_EVs
 /logs
 /preprocessed_data
 /preprocessed_data.zip

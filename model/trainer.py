@@ -17,22 +17,10 @@ from lib.utils import (
     dwa,  
 )
 from lib.metrics import test_metrics
+from model.parameter_groups import format_param_group_counts, get_model_params_grouped
 
 def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
-
-def get_model_params_grouped(model):
-    pred_params = []
-    classifier_params = []
-    bias_params = []
-    for name, param in model.named_parameters():
-        if 'cls' in name:
-            classifier_params.append(param)
-        elif "bias" in name:    
-            bias_params.append(param)
-        else:
-            pred_params.append(param)
-    return pred_params, classifier_params, bias_params
 
 class Trainer(object):
     def __init__(self, model, optimizer, dataloader, graph, args):
@@ -99,6 +87,7 @@ class Trainer(object):
         self.logger.info('Experiment log path in: {}'.format(args.log_dir))
         self.logger.info('Experiment configs are: {}'.format(args))
         self.logger.info('\nModel has {} M trainable parameters'.format(self.num_params/(1e6)))
+        self.logger.info(format_param_group_counts(self.model))
 
         ema = [0.996, 1.0]
         ipe = args.ipe

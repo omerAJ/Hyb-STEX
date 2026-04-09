@@ -11,6 +11,7 @@ import time
 import torch
 
 from model.trainer import Trainer
+from model.parameter_groups import format_param_group_counts, get_model_params_grouped
 from lib.dataloader import get_dataloader
 from lib.utils import (
     init_seed,
@@ -45,21 +46,9 @@ def model_supervisor(args):
     args.ipe = len(dataloader['train'])
     ## init model and set optimizer
     model = STSSL(args).to(args.device)
-    
-    def get_model_params(model):
-        pred_params = []
-        classifier_params = []
-        bias_params = []
-        for name, param in model.named_parameters():
-            if 'cls' in name:
-                classifier_params.append(param)
-            elif "bias" in name:    
-                bias_params.append(param)
-            else:
-                pred_params.append(param)
-        return pred_params, classifier_params, bias_params
-    
-    pred_params, classifier_params, bias_params = get_model_params(model)
+    print(format_param_group_counts(model))
+
+    pred_params, classifier_params, bias_params = get_model_params_grouped(model)
     optimizer = torch.optim.Adam([
         {"params":pred_params, 
         "lr":args.lr_init, 
