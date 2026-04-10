@@ -86,6 +86,18 @@ def normalize_data(data, scalar_type='Standard'):
     # time.sleep(3)
     return scalar
 
+
+def _get_extreme_value_tensor(cat_data, dataset_path):
+    for key in ("evs_90", "evs_95"):
+        if key in cat_data.files:
+            return cat_data[key], key
+
+    available_keys = ", ".join(cat_data.files)
+    raise KeyError(
+        f"No extreme-value tensor found in {dataset_path}. "
+        f"Expected one of ['evs_90', 'evs_95'], found [{available_keys}]"
+    )
+
 def get_dataloader(data_dir, dataset, batch_size, test_batch_size, scalar_type='Standard'):
     data = {}
     
@@ -99,7 +111,8 @@ def get_dataloader(data_dir, dataset, batch_size, test_batch_size, scalar_type='
     #     input_sequence = input_sequence_dict[input_sequence_type]
 
     for category in ['train', 'val', 'test']:
-        cat_data = np.load(os.path.join(data_dir, dataset, category + '.npz'))
+        dataset_path = os.path.join(data_dir, dataset, category + '.npz')
+        cat_data = np.load(dataset_path)
         # skip = cat_data['x'].shape[1] - input_length
         # print(f"cat_data['x'].shape: {cat_data['x'].shape}, cat_data['y'].shape: {cat_data['y'].shape}, cat_data['evs_90'].shape: {cat_data['evs_90'].shape}")
         
@@ -111,11 +124,12 @@ def get_dataloader(data_dir, dataset, batch_size, test_batch_size, scalar_type='
         # print("indexing")
 
         # print("not indexing")
+        evs_tensor, evs_key = _get_extreme_value_tensor(cat_data, dataset_path)
         data['x_' + category] = cat_data['x']
         data['y_' + category] = cat_data['y']
-        data['evs_' + category] = cat_data['evs_90']
-        data['bias_' + category] = cat_data['evs_90']  ## This is a placeholder for the bias, which is not used in the current implementation.
-        # print("using 90percent evs")
+        data['evs_' + category] = evs_tensor
+        data['bias_' + category] = evs_tensor  ## This is a placeholder for the bias, which is not used in the current implementation.
+        print(f"Loaded {category} EV labels from {dataset_path} using key '{evs_key}'")
     scaler = normalize_data(np.concatenate([data['x_train'], data['x_val']], axis=0), scalar_type)
     # print("skip: ", skip)
     # Data format

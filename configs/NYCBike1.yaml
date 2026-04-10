@@ -1,16 +1,16 @@
 ## global
 seed: 1
 device: cuda
-mode: test
+mode: train
 best_path: E:\estudy\hybstex-code\Hyb-STEX\saved_weights\NYCBike1-p4.pth
-debug: False  
+debug: False
 experimentName: pred+T+S
 S_Loss: 0
 T_Loss: 0
 
-## data 
-data_dir: data
-dataset: NYCBike1  
+## data
+data_dir: data_with_EVs
+dataset: NYCBike1
 input_length: 9 # 4+5*3
 batch_size: 32
 test_batch_size: 32
@@ -18,15 +18,15 @@ graph_file: data/NYCBike1/adj_mx.npz # 128 x 128
 num_nodes: 128
 row: 16
 col: 8
-## model 
-d_input: 2                  # means inflow and outflow
-d_output: 2                 # means inflow and outflow
+## model
+d_input: 2 # means inflow and outflow
+d_output: 2 # means inflow and outflow
 d_model: 64
 dropout: 0.2
-percent: 0.1                # augumentation percentage  
-shm_temp: 0.5               # temperature for loss of spatial heterogeneity modeling  , 0.5 is best for NYCBike
-nmb_prototype: 6            # number of cluster 
-yita: 0.6                   # balance for inflow loss and outflow loss, $yita * inflow + (1 - yita) * outflow$
+percent: 0.1 # augumentation percentage
+shm_temp: 0.5 # temperature for loss of spatial heterogeneity modeling  , 0.5 is best for NYCBike
+nmb_prototype: 6 # number of cluster
+yita: 0.6 # balance for inflow loss and outflow loss, $yita * inflow + (1 - yita) * outflow$
 
 ## train
 start_epoch: 0
@@ -37,5 +37,5 @@ early_stop: True
 early_stop_patience: 30
 grad_norm: True
 max_grad_norm: 5
-use_dwa: True         # whether to use dwa for loss balance
-temp: 4               # tempurature parameter in dwa, a larger T means more similer weights
+use_dwa: True # whether to use dwa for loss balance
+temp: 4 # tempurature parameter in dwa, a larger T means more similer weights
