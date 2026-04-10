@@ -165,6 +165,11 @@ class Trainer(object):
             "invalid_support_count": 0,
         }
 
+    def _get_phase_loss_weights(self, epoch, phase):
+        if phase != "tail":
+            return None
+        return self.model.get_tail_loss_weights(epoch=epoch, total_epochs=self.args.epochs)
+
     def _finalize_epoch_stats(self, totals, num_batches):
         stats = {
             "loss": totals["loss"] / num_batches,
@@ -183,7 +188,7 @@ class Trainer(object):
         )
         return stats
 
-    def _log_epoch_stats(self, split, epoch, phase, stats):
+    def _log_epoch_stats(self, split, epoch, phase, stats, loss_weights=None):
         message = (
             f"*******{split} Epoch {epoch} [{phase}]: "
             f"loss={stats['loss']:.5f}, "
@@ -198,9 +203,15 @@ class Trainer(object):
                 f"invalid_support={stats['invalid_support_count']}, "
                 f"invalid_rate={stats['invalid_support_rate']:.5f}"
             )
+            if loss_weights is not None:
+                message += (
+                    f", lambda_cls={loss_weights['lambda_cls']:.5f}, "
+                    f"lambda_gpd={loss_weights['lambda_gpd']:.5f}, "
+                    f"schedule={loss_weights['schedule']}"
+                )
         self.logger.info(message)
 
-    def train_epoch(self, epoch, phase):
+    def train_epoch(self, epoch, phase, loss_weights=None):
         self.model.train()
         totals = self._empty_metric_totals()
 
@@ -213,7 +224,7 @@ class Trainer(object):
                 evs,
                 target,
                 self.scaler,
-                None,
+                loss_weights,
                 phase,
             )
             if not torch.isfinite(loss):
@@ -237,10 +248,10 @@ class Trainer(object):
             totals["invalid_support_count"] += metrics["invalid_support_count"]
 
         stats = self._finalize_epoch_stats(totals, self.train_per_epoch)
-        self._log_epoch_stats("Train", epoch, phase, stats)
+        self._log_epoch_stats("Train", epoch, phase, stats, loss_weights=loss_weights)
         return stats
 
-    def val_epoch(self, epoch, phase):
+    def val_epoch(self, epoch, phase, loss_weights=None):
         self.model.eval()
         totals = self._empty_metric_totals()
         val_dataloader = self.val_loader if self.val_loader is not None else self.test_loader
@@ -254,7 +265,7 @@ class Trainer(object):
                     evs,
                     target,
                     self.scaler,
-                    None,
+                    loss_weights,
                     phase,
                     val=True,
                 )
@@ -269,7 +280,7 @@ class Trainer(object):
                     totals["invalid_support_count"] += metrics["invalid_support_count"]
 
         stats = self._finalize_epoch_stats(totals, len(val_dataloader))
-        self._log_epoch_stats("Val", epoch, phase, stats)
+        self._log_epoch_stats("Val", epoch, phase, stats, loss_weights=loss_weights)
         return stats
 
     def train_component(self, params_to_train, params_to_freeze, phase, esp):
@@ -292,8 +303,9 @@ class Trainer(object):
         start_time = time.time()
 
         for epoch in range(1, self.args.epochs + 1):
-            train_stats = self.train_epoch(epoch, phase)
-            val_stats = self.val_epoch(epoch, phase)
+            loss_weights = self._get_phase_loss_weights(epoch, phase)
+            train_stats = self.train_epoch(epoch, phase, loss_weights=loss_weights)
+            val_stats = self.val_epoch(epoch, phase, loss_weights=loss_weights)
 
             history["train_loss"].append(train_stats["loss"])
             history["val_loss"].append(val_stats["loss"])
@@ -366,6 +378,7 @@ class Trainer(object):
             "best_val_metric": best_metric,
             "best_val_epoch": best_epoch,
             "test_results": test_results,
+            "test_metrics": self.format_test_results(test_results),
         }
         self.plot_losses(history, phase)
         return results
@@ -416,6 +429,21 @@ class Trainer(object):
         plt.legend()
         plt.savefig(os.path.join(self.args.log_dir, f"losses_{phase}.png"))
         plt.close()
+
+    @staticmethod
+    def format_test_results(test_results):
+        if test_results is None:
+            return None
+        return {
+            "inflow": {
+                "mae": float(test_results[0][0]),
+                "eee": float(test_results[0][1]),
+            },
+            "outflow": {
+                "mae": float(test_results[1][0]),
+                "eee": float(test_results[1][1]),
+            },
+        }
 
     @staticmethod
     def test(model, dataloader, scaler, graph, logger, args, phase):

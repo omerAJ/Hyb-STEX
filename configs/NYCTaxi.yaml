@@ -29,6 +29,7 @@ yita: 0.5 # balance for inflow loss and outflow loss, $yita * inflow + (1 - yita
 tail_threshold_q: 0.90
 tail_lambda_cls: 1.0
 tail_lambda_gpd: 1.0
+tail_schedule: static
 tail_xi_min: -0.5
 tail_xi_max: -0.02
 tail_eps: 1.0e-6

@@ -127,6 +127,7 @@ class STSSL(nn.Module):
         self.tail_xi_min = getattr(args, "tail_xi_min", -0.5)
         self.tail_xi_max = getattr(args, "tail_xi_max", -0.02)
         self.tail_eps = getattr(args, "tail_eps", 1.0e-6)
+        self.tail_schedule = getattr(args, "tail_schedule", "static")
         self.register_buffer("tail_u", torch.zeros(1, 1, args.num_nodes, args.d_output))
 
         
@@ -312,6 +313,74 @@ class STSSL(nn.Module):
         return self.args.yita * loss_fn(y_pred[..., 0], y_true[..., 0]) + \
             (1 - self.args.yita) * loss_fn(y_pred[..., 1], y_true[..., 1])
 
+    @staticmethod
+    def _interpolate_segment(progress, start_progress, end_progress, start_value, end_value):
+        if end_progress <= start_progress:
+            return end_value
+        scaled_progress = (progress - start_progress) / (end_progress - start_progress)
+        scaled_progress = min(max(scaled_progress, 0.0), 1.0)
+        return start_value + (end_value - start_value) * scaled_progress
+
+    def get_tail_loss_weights(self, epoch=None, total_epochs=None):
+        base_lambda_cls = float(self.tail_lambda_cls)
+        base_lambda_gpd = float(self.tail_lambda_gpd)
+        schedule = self.tail_schedule
+
+        if schedule == "static" or epoch is None or total_epochs is None:
+            return {
+                "schedule": schedule,
+                "lambda_cls": base_lambda_cls,
+                "lambda_gpd": base_lambda_gpd,
+            }
+
+        if total_epochs <= 1:
+            progress = 1.0
+        else:
+            progress = (epoch - 1) / float(total_epochs - 1)
+
+        schedule_boundaries = {
+            "soft_ramp_fast": (0.15, 0.60, 1.0, 0.3, 0.3, 0.0),
+            "soft_ramp_balanced": (0.25, 0.70, 1.0, 0.5, 0.5, 0.0),
+            "soft_ramp_long": (0.35, 0.80, 1.0, 0.2, 0.2, 0.0),
+        }
+        if schedule not in schedule_boundaries:
+            raise ValueError(f"Unsupported tail schedule: {schedule}")
+
+        warmup_end, mixed_end, final_end, mixed_cls_end, final_cls_start, final_cls_end = schedule_boundaries[schedule]
+        if progress < warmup_end:
+            cls_multiplier = 1.0
+            gpd_multiplier = 0.0
+        elif progress < mixed_end:
+            cls_multiplier = self._interpolate_segment(
+                progress,
+                warmup_end,
+                mixed_end,
+                1.0,
+                mixed_cls_end,
+            )
+            gpd_multiplier = self._interpolate_segment(
+                progress,
+                warmup_end,
+                mixed_end,
+                0.0,
+                1.0,
+            )
+        else:
+            cls_multiplier = self._interpolate_segment(
+                progress,
+                mixed_end,
+                final_end,
+                final_cls_start,
+                final_cls_end,
+            )
+            gpd_multiplier = 1.0
+
+        return {
+            "schedule": schedule,
+            "lambda_cls": base_lambda_cls * cls_multiplier,
+            "lambda_gpd": base_lambda_gpd * gpd_multiplier,
+        }
+
     def classification_loss(self, logit_q, indicator):
         return F.binary_cross_entropy_with_logits(logit_q, indicator)
 
@@ -346,7 +415,7 @@ class STSSL(nn.Module):
         }
 
     def loss(self, z1, z1_cls, evs, y_true, scaler, loss_weights, phase, val=False):
-        del evs, loss_weights
+        del evs
         y_true_orig = scaler.inverse_transform(y_true)
 
         if phase == "pred":
@@ -367,11 +436,12 @@ class STSSL(nn.Module):
         if phase != "tail":
             raise ValueError("phase not recognized")
 
+        tail_loss_weights = loss_weights or self.get_tail_loss_weights()
         components = self.get_tail_prediction_components(z1, scaler)
         indicator, exceedance, _ = self.build_tail_targets(components["y_hat_orig"].detach(), y_true_orig)
         cls_loss = self.classification_loss(components["logit_q"], indicator)
         gpd_loss, gpd_stats = self.gpd_loss(exceedance, indicator, components["xi"], components["sigma"])
-        tail_loss = self.tail_lambda_cls * cls_loss + self.tail_lambda_gpd * gpd_loss
+        tail_loss = tail_loss_weights["lambda_cls"] * cls_loss + tail_loss_weights["lambda_gpd"] * gpd_loss
         corrected_mae = self.weighted_reconstruction_loss(components["y_corr"], y_true_orig, val=val)
         metrics = {
             "pred_mae": corrected_mae.item(),
@@ -381,6 +451,9 @@ class STSSL(nn.Module):
             "exceedance_count": gpd_stats["exceedance_count"],
             "valid_exceedance_count": gpd_stats["valid_exceedance_count"],
             "invalid_support_count": gpd_stats["invalid_support_count"],
+            "lambda_cls": float(tail_loss_weights["lambda_cls"]),
+            "lambda_gpd": float(tail_loss_weights["lambda_gpd"]),
+            "tail_schedule": tail_loss_weights["schedule"],
         }
         return tail_loss, metrics
     

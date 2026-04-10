@@ -9,6 +9,7 @@ import argparse
 import traceback
 import time
 import torch
+import json
 
 from model.trainer import Trainer
 from model.parameter_groups import format_param_group_counts, get_model_params_grouped
@@ -19,6 +20,66 @@ from lib.utils import (
     load_graph, 
 )
 import os
+
+
+def _to_jsonable(value):
+    if isinstance(value, argparse.Namespace):
+        return {key: _to_jsonable(val) for key, val in vars(value).items()}
+    if isinstance(value, dict):
+        return {str(key): _to_jsonable(val) for key, val in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_to_jsonable(item) for item in value]
+    if isinstance(value, torch.Tensor):
+        return value.detach().cpu().tolist()
+    if hasattr(value, "tolist"):
+        try:
+            return value.tolist()
+        except TypeError:
+            pass
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return str(value)
+
+
+def _build_results_payload(args, results):
+    payload = {
+        "dataset": args.dataset,
+        "mode": args.mode,
+        "seed": args.seed,
+        "comment": args.comment,
+        "experiment_dir": getattr(args, "log_dir", None),
+        "base_checkpoint_path": args.load_path,
+        "hyperparameters": {
+            "lr_init": args.lr_init,
+            "epochs": args.epochs,
+            "early_stop": args.early_stop,
+            "early_stop_patience": args.early_stop_patience,
+            "tail_threshold_q": getattr(args, "tail_threshold_q", None),
+            "tail_lambda_cls": getattr(args, "tail_lambda_cls", None),
+            "tail_lambda_gpd": getattr(args, "tail_lambda_gpd", None),
+            "tail_schedule": getattr(args, "tail_schedule", "static"),
+            "tail_xi_min": getattr(args, "tail_xi_min", None),
+            "tail_xi_max": getattr(args, "tail_xi_max", None),
+            "tail_eps": getattr(args, "tail_eps", None),
+        },
+        "results": _to_jsonable(results),
+    }
+    if isinstance(results, dict) and "tail" in results and results["tail"] is not None:
+        payload["tail"] = _to_jsonable(results["tail"])
+    elif args.mode == "test" and results is not None:
+        payload["tail"] = {
+            "test_metrics": _to_jsonable(Trainer.format_test_results(results)),
+        }
+    return payload
+
+
+def _write_results_file(args, results):
+    if not hasattr(args, "log_dir") or args.log_dir is None or results is None:
+        return
+    os.makedirs(args.log_dir, exist_ok=True)
+    results_path = os.path.join(args.log_dir, "results.json")
+    with open(results_path, "w", encoding="utf-8") as results_file:
+        json.dump(_build_results_payload(args, results), results_file, indent=2)
 
 def model_supervisor(args):
     init_seed(args.seed)
@@ -100,6 +161,8 @@ def model_supervisor(args):
             raise ValueError
     except:
         trainer.logger.info(traceback.format_exc())
+    if results is not None:
+        _write_results_file(trainer.args, results)
     return results
 
 if __name__=='__main__':
