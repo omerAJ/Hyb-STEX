@@ -9,8 +9,9 @@ S_Loss: 0
 T_Loss: 0
 
 ## data
-data_dir: data_with_EVs
+data_dir: data
 dataset: NYCBike1
+evs_key: evs_90
 input_length: 9 # 4+5*3
 batch_size: 32
 test_batch_size: 32

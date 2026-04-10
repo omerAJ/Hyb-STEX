@@ -24,6 +24,9 @@ def model_supervisor(args):
     init_seed(args.seed)
     if not torch.cuda.is_available():
         args.device = 'cpu'
+
+    if not hasattr(args, 'evs_key') or not args.evs_key:
+        raise KeyError("Config is missing required 'evs_key'. Add it to the dataset YAML.")
     
     # if args.load_path is None:
     from model.models import STSSL
@@ -38,6 +41,7 @@ def model_supervisor(args):
         dataset=args.dataset, 
         batch_size=args.batch_size, 
         test_batch_size=args.test_batch_size,
+        evs_key=args.evs_key,
         scalar_type='Standard'
     )
     graph = load_graph(args.graph_file, device=args.device)
@@ -166,6 +170,9 @@ if __name__=='__main__':
     configs['loss'] = args.loss
     configs['load_path'] = args.load_path
     configs['variant'] = args.variant
+
+    if 'evs_key' not in configs or not configs['evs_key']:
+        raise KeyError("Config file must define a non-empty 'evs_key'.")
     
     # configs['input_length'] = args.input_length
     # experimentName = "pred_" + str(args.input_length) + "_"

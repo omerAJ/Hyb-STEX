@@ -6,10 +6,11 @@ best_path: E:\estudy\hybstex-code\Hyb-STEX\saved_weights\NYCTaxi-p4.pth
 debug: False
 
 ## data
-data_dir: data_with_EVs
+data_dir: data
 dataset: NYCTaxi
+evs_key: evs_90
 input_length: 17
-batch_size: 32
+batch_size: 64
 test_batch_size: 32
 graph_file: data/NYCTaxi/adj_mx.npz # num_nodes 200 (20 x 10)
 num_nodes: 200

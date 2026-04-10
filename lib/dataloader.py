@@ -87,18 +87,20 @@ def normalize_data(data, scalar_type='Standard'):
     return scalar
 
 
-def _get_extreme_value_tensor(cat_data, dataset_path):
-    for key in ("evs_90", "evs_95"):
-        if key in cat_data.files:
-            return cat_data[key], key
+def _get_extreme_value_tensor(cat_data, dataset_path, evs_key):
+    if not evs_key:
+        raise ValueError("evs_key must be provided in the dataset config.")
 
-    available_keys = ", ".join(cat_data.files)
-    raise KeyError(
-        f"No extreme-value tensor found in {dataset_path}. "
-        f"Expected one of ['evs_90', 'evs_95'], found [{available_keys}]"
-    )
+    if evs_key not in cat_data.files:
+        available_keys = ", ".join(cat_data.files)
+        raise KeyError(
+            f"Requested EV tensor '{evs_key}' not found in {dataset_path}. "
+            f"Available keys: [{available_keys}]"
+        )
 
-def get_dataloader(data_dir, dataset, batch_size, test_batch_size, scalar_type='Standard'):
+    return cat_data[evs_key]
+
+def get_dataloader(data_dir, dataset, batch_size, test_batch_size, evs_key, scalar_type='Standard'):
     data = {}
     
     # print("input_dataset_context: ", input_dataset_context, input_sequence_type)
@@ -124,7 +126,7 @@ def get_dataloader(data_dir, dataset, batch_size, test_batch_size, scalar_type='
         # print("indexing")
 
         # print("not indexing")
-        evs_tensor, evs_key = _get_extreme_value_tensor(cat_data, dataset_path)
+        evs_tensor = _get_extreme_value_tensor(cat_data, dataset_path, evs_key)
         data['x_' + category] = cat_data['x']
         data['y_' + category] = cat_data['y']
         data['evs_' + category] = evs_tensor
@@ -169,6 +171,6 @@ def get_dataloader(data_dir, dataset, batch_size, test_batch_size, scalar_type='
     return dataloader
 
 if __name__ == '__main__':
-    loader = get_dataloader('../data/', 'NYCBike1', batch_size=64, test_batch_size=64)
+    loader = get_dataloader('../data/', 'NYCBike1', batch_size=64, test_batch_size=64, evs_key='evs_90')
     for key in loader.keys():
         print(key)
