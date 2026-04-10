@@ -11,7 +11,7 @@ T_Loss: 0
 ## data
 data_dir: data
 dataset: NYCBike1
-evs_key: evs_90
+evs_key: evs_90 # evaluation-only extreme-event labels for EEE
 input_length: 9 # 4+5*3
 batch_size: 32
 test_batch_size: 32
@@ -28,6 +28,12 @@ percent: 0.1 # augumentation percentage
 shm_temp: 0.5 # temperature for loss of spatial heterogeneity modeling  , 0.5 is best for NYCBike
 nmb_prototype: 6 # number of cluster
 yita: 0.6 # balance for inflow loss and outflow loss, $yita * inflow + (1 - yita) * outflow$
+tail_threshold_q: 0.90
+tail_lambda_cls: 1.0
+tail_lambda_gpd: 1.0
+tail_xi_min: -0.5
+tail_xi_max: -0.02
+tail_eps: 1.0e-6
 
 ## train
 start_epoch: 0

@@ -8,7 +8,7 @@ debug: False # true means no log in file
 ## data
 data_dir: data
 dataset: BJTaxi
-evs_key: evs_90
+evs_key: evs_90 # evaluation-only extreme-event labels for EEE
 # input_length: 17 # 8+9*3
 input_length: 35 # 8+9*3
 batch_size: 20
@@ -27,6 +27,12 @@ percent: 0.1 # augumentation percentage
 shm_temp: 0.5 # temperature for loss of spatial heterogeneity modeling
 nmb_prototype: 50 # number of cluster
 yita: 0.5 # balance for inflow loss and outflow loss, $yita * inflow + (1 - yita) * outflow$
+tail_threshold_q: 0.90
+tail_lambda_cls: 1.0
+tail_lambda_gpd: 1.0
+tail_xi_min: -0.5
+tail_xi_max: -0.02
+tail_eps: 1.0e-6
 
 ## train
 start_epoch: 0

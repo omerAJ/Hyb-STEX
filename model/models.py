@@ -50,7 +50,6 @@ class STSSL(nn.Module):
         # self.attention2 = self_Attention(int((2)*args.d_model), 4)
         
         self.attentive_fuse = attentive_fusion(int((2)*args.d_model), n_heads=4, ln=False)
-        self.attentive_fuse_cls = attentive_fusion(int((2)*args.d_model), n_heads=4, ln=False)
 
         self.ff = PositionwiseFeedForward(d_model=128, d_ff=64*4)
         self.mlp = MLP(int((2)*args.d_model), args.d_output)
@@ -116,17 +115,19 @@ class STSSL(nn.Module):
         
         self.add_x_encoder = args.add_x_encoder
 
-        T = 8
-        N = 200
+        N = args.num_nodes
         self.weights = nn.Parameter(torch.ones(N) / N)
-        # self.key_projection = nn.Linear(int((2)*args.d_model), int((2)*args.d_model))
-        self.ff_key_projection_bias = PositionwiseFeedForward(d_model=128, d_ff=64*4)
-        # self.project_to_classify = nn.Linear(int((2)*args.d_model), int((2)*args.d_model))
         self.ff_to_cls = PositionwiseFeedForward(d_model=128, d_ff=128*4)
-        # self.learnable_vectors_bias = nn.Parameter(torch.zeros(1, 1, args.num_nodes, 128, 2), requires_grad=True)
-        self.learnable_vectors_bias = nn.Parameter(torch.zeros(1, 1, 128, 2), requires_grad=True)
-        # self.learnable_bias_bias = nn.Parameter(torch.zeros(1, 1, args.num_nodes, 2), requires_grad=True)
-        # self.xavier_uniform_init(self.learnable_vectors) 
+        self.ff_to_gpd = PositionwiseFeedForward(d_model=128, d_ff=64*4)
+        self.learnable_vectors_gpd = nn.Parameter(torch.zeros(1, 1, 128, 4), requires_grad=True)
+
+        self.tail_lambda_cls = getattr(args, "tail_lambda_cls", 1.0)
+        self.tail_lambda_gpd = getattr(args, "tail_lambda_gpd", 1.0)
+        self.tail_threshold_q = getattr(args, "tail_threshold_q", 0.90)
+        self.tail_xi_min = getattr(args, "tail_xi_min", -0.5)
+        self.tail_xi_max = getattr(args, "tail_xi_max", -0.02)
+        self.tail_eps = getattr(args, "tail_eps", 1.0e-6)
+        self.register_buffer("tail_u", torch.zeros(1, 1, args.num_nodes, args.d_output))
 
         
 
@@ -217,16 +218,7 @@ class STSSL(nn.Module):
         
         if self.self_attention_flag:
             combined_repr = self.attentive_fuse(combined_repr)
-        
-        # o_tilde = self.predict_o_tilde(combined_repr)
 
-        # view1A = torch.cat((view1A, o_tilde), dim=1)
-        # repr1A_cls = self.encoderA_cls(view1A, learnable_graph) # view1: n,l,v,c; graph: v,v 
-        # repr1B_cls = self.encoderB_cls(view1B, learnable_graph) # view1: n,l,v,c; graph: v,v 
-        # combined_repr_cls = torch.cat((repr1A_cls, repr1B_cls), dim=3)            ## combine along the channel dimension d_model
-        # combined_repr_cls = self.attentive_fuse_cls(combined_repr_cls)
-        # # print(f"combined_repr_cls.shape: {combined_repr_cls.shape}, combined_repr.shape: {combined_repr.shape}")
-        repr2 = None
         combined_repr_cls = None
         return combined_repr, combined_repr_cls
 
@@ -242,143 +234,155 @@ class STSSL(nn.Module):
     def fetch_temporal_sim(self):
         return self.encoder.t_sim_mx.cpu()
 
-    def get_bias(self, z1):
-        """
-        get the bias for each node and timestep 
-        """
-        ## z1.shape: torch.Size([32, 1, 200, 128])
-        k = self.ff_key_projection_bias(z1)
-        # k = k.unsqueeze(-2)  ## z1.shape: torch.Size([32, 1, 200, 1, 128])
-        # print(f"k.shape: {k.shape}, learnable_vectors_bias.shape: {self.learnable_vectors_bias.shape}")  ## learnable_vectors_bias.shape: torch.Size([1, 1, 200, 128, 2])
-        
-        bias = torch.matmul(k, self.learnable_vectors_bias)
-        # bias = self.learnable_bias_bias
-        # print(f"bias.shape: {bias.shape}")  ## bias.shape: torch.Size([32, 1, 200, 1, 2])
-        # bias = bias.squeeze(-2)
-        # bias = self.mlp_bias(k)
-        return bias
+    def set_tail_thresholds(self, thresholds):
+        if thresholds.dim() == 2:
+            thresholds = thresholds.unsqueeze(0).unsqueeze(0)
+        self.tail_u.copy_(thresholds.to(device=self.tail_u.device, dtype=self.tail_u.dtype))
 
-    def classify_evs(self, z1, z1_cls):
-        """
-        classify each next prediction as EV or not
-        use separate backbone, and prediction as input. 
-        """
-        evs = self.get_evs(z1)
-        # threshold evs at 0.5
-        # evs = (evs > 0.5).float()
-        return evs
+    def predict_base(self, z1):
+        return self.mlp(z1)
 
-
-    def get_evs(self, z1):
-        """
-        classify each next prediction as EV or not
-        """
-        return torch.sigmoid(self.mlp_cls(self.ff_to_cls(z1)))
-
-    def predict(self, z1, z1_cls, phase, t=None):
-        '''Predicting future traffic flow.
-        :param z1, z2 (tensor): shape nvc
-        :return: nlvc, l=1, c=2
-        '''
-        # print("z1.shape: ", z1.shape)
-        o_tilde = self.mlp(z1)
-        bias = self.get_bias(z1)
-        # o_tilde = scaler.inverse_transform(o_tilde)
-        # bias = scaler.inverse_transform(bias)
-        # evs = self.classify_evs(z1, z1_cls).detach()
-        evs = self.classify_evs(z1, z1_cls)
-        if t is not None:
-            evs = (evs > t).float()
-        ## which repr to use to calculate the bias, maybe both
-        if phase == "pred":
-            return o_tilde
-        elif phase == "cls":
-            return o_tilde
-        elif phase == "bias" or phase == "pred_2":
-            return o_tilde + bias * evs
-        else:
-            raise ValueError("phase not recognized")
-     
-    
     def predict_o_tilde(self, z1):
-        '''Predicting future traffic flow.
-        :param z1, z2 (tensor): shape nvc
-        :return: nlvc, l=1, c=2
-        '''
-        # print("z1.shape: ", z1.shape)
-        o_tilde = self.mlp(z1)
-        return o_tilde.detach()
-    
-    # def classification_loss(self, z1, z1_cls, evs_gt):
-    #     evs = self.classify_evs(z1, z1_cls)
-    #     return self.focal_loss(evs, evs_gt)
-    
-    def classification_loss(self, z1, z1_cls, evs_gt, y_true):
-        evs = self.classify_evs(z1, z1_cls)
-        return F.binary_cross_entropy(evs, evs_gt)
-    
-    # def classification_loss(self, z1, z1_cls, evs_gt, y_true):
-    #     evs = self.classify_evs(z1, z1_cls)
-    #     return self.masked_bce(evs, evs_gt, y_true, mask_value=5.0)
-    
-    # def masked_bce(self, evs, evs_gt, true, mask_value=None):
-    #     if mask_value is not None:
-    #         mask = torch.gt(true, mask_value)
-    #         evs_masked = torch.masked_select(evs, mask)
-    #         evs_gt_masked = torch.masked_select(evs_gt, mask)
-    #     # Ensure no empty tensors
-    #     if evs.numel() == 0 or evs_gt.numel() == 0:
-    #         print("\nWarning: Empty tensor after masking")
-    #         return F.binary_cross_entropy(evs, evs_gt)
+        return self.predict_base(z1).detach()
 
-    #     # Check for NaNs in input tensors
-    #     if torch.isnan(evs).any() or torch.isnan(evs_gt).any():
-    #         print("\nWarning: NaNs in input tensors")
-    #         return F.binary_cross_entropy(evs, evs_gt)
-            
-    #     return F.binary_cross_entropy(evs_masked, evs_gt_masked)
-    
-    def pred_loss(self, z1, z1_cls, evs_gt, y_true, scaler, phase, val=False):
-        preds = self.predict(z1, z1_cls, phase)
-        y_pred = scaler.inverse_transform(preds)
-        y_true = scaler.inverse_transform(y_true)
+    def get_classifier_logits(self, z1):
+        return self.mlp_cls(self.ff_to_cls(z1))
 
-        if val:
-            pred_loss = self.args.yita * self.loss_fun_val(y_pred[..., 0], y_true[..., 0]) + \
-                    (1 - self.args.yita) * self.loss_fun_val(y_pred[..., 1], y_true[..., 1])
-        else:
-            pred_loss = self.args.yita * self.loss_fun(y_pred[..., 0], y_true[..., 0]) + \
-                    (1 - self.args.yita) * self.loss_fun(y_pred[..., 1], y_true[..., 1])
+    def classify_evs(self, z1, z1_cls=None):
+        return torch.sigmoid(self.get_classifier_logits(z1))
 
-        loss = pred_loss
-        return loss
-    
-    
+    def get_tail_raw_params(self, z1):
+        projected = self.ff_to_gpd(z1)
+        params = torch.matmul(projected, self.learnable_vectors_gpd)
+        raw_sigma = params[..., :self.args.d_output]
+        raw_xi = params[..., self.args.d_output:]
+        return raw_sigma, raw_xi
+
+    def get_tail_params(self, z1):
+        raw_sigma, raw_xi = self.get_tail_raw_params(z1)
+        sigma = F.softplus(raw_sigma) + 1.0e-4
+        xi = self.tail_xi_min + (self.tail_xi_max - self.tail_xi_min) * torch.sigmoid(raw_xi)
+        return raw_sigma, raw_xi, sigma, xi
+
+    def get_tail_prediction_components(self, z1, scaler):
+        y_hat = self.predict_base(z1)
+        y_hat_orig = scaler.inverse_transform(y_hat)
+        logit_q = self.get_classifier_logits(z1)
+        q = torch.sigmoid(logit_q)
+        raw_sigma, raw_xi, sigma, xi = self.get_tail_params(z1)
+        delta = q * (self.tail_u + sigma / torch.clamp(1 - xi, min=self.tail_eps))
+        y_corr = torch.clamp_min(y_hat_orig + delta, 0.0)
+        return {
+            "y_hat": y_hat,
+            "y_hat_orig": y_hat_orig,
+            "logit_q": logit_q,
+            "q": q,
+            "raw_sigma": raw_sigma,
+            "raw_xi": raw_xi,
+            "sigma": sigma,
+            "xi": xi,
+            "delta": delta,
+            "y_corr": y_corr,
+        }
+
+    def build_tail_targets(self, y_hat_orig, y_true_orig):
+        residual = y_true_orig - y_hat_orig
+        positive_residual = torch.clamp(residual, min=0.0)
+        indicator = (positive_residual > self.tail_u).float()
+        exceedance = torch.clamp(positive_residual - self.tail_u, min=0.0)
+        exceedance = exceedance * indicator
+        return indicator, exceedance, positive_residual
+
+    def predict(self, z1, z1_cls, phase, scaler=None, t=None):
+        if phase == "pred":
+            return self.predict_base(z1)
+        if phase == "tail":
+            if scaler is None:
+                raise ValueError("scaler is required for tail prediction.")
+            components = self.get_tail_prediction_components(z1, scaler)
+            if t is not None:
+                gate = (components["q"] > t).float()
+                delta = gate * (self.tail_u + components["sigma"] / torch.clamp(1 - components["xi"], min=self.tail_eps))
+                return torch.clamp_min(components["y_hat_orig"] + delta, 0.0)
+            return components["y_corr"]
+        raise ValueError("phase not recognized")
+
+    def weighted_reconstruction_loss(self, y_pred, y_true, val=False):
+        loss_fn = self.loss_fun_val if val else self.loss_fun
+        return self.args.yita * loss_fn(y_pred[..., 0], y_true[..., 0]) + \
+            (1 - self.args.yita) * loss_fn(y_pred[..., 1], y_true[..., 1])
+
+    def classification_loss(self, logit_q, indicator):
+        return F.binary_cross_entropy_with_logits(logit_q, indicator)
+
+    def gpd_loss(self, exceedance, indicator, xi, sigma):
+        exceedance_mask = indicator > 0.5
+        exceedance_count = int(exceedance_mask.sum().item())
+        zero = sigma.new_zeros(())
+        if exceedance_count == 0:
+            return zero, {
+                "exceedance_count": 0,
+                "valid_exceedance_count": 0,
+                "invalid_support_count": 0,
+            }
+
+        safe_sigma = torch.clamp(sigma, min=self.tail_eps)
+        term = 1 + xi * exceedance / safe_sigma
+        valid_mask = exceedance_mask & (term > self.tail_eps)
+        valid_exceedance_count = int(valid_mask.sum().item())
+        invalid_support_count = exceedance_count - valid_exceedance_count
+        if valid_exceedance_count == 0:
+            return zero, {
+                "exceedance_count": exceedance_count,
+                "valid_exceedance_count": 0,
+                "invalid_support_count": invalid_support_count,
+            }
+
+        loss = torch.log(safe_sigma[valid_mask]) + (1 / xi[valid_mask] + 1) * torch.log(torch.clamp(term[valid_mask], min=self.tail_eps))
+        return loss.mean(), {
+            "exceedance_count": exceedance_count,
+            "valid_exceedance_count": valid_exceedance_count,
+            "invalid_support_count": invalid_support_count,
+        }
 
     def loss(self, z1, z1_cls, evs, y_true, scaler, loss_weights, phase, val=False):
-        l_pred = self.pred_loss(z1, z1_cls, evs, y_true, scaler, phase, val=val)
-        
-        l_class = self.classification_loss(z1, z1_cls, evs, y_true)
-        # total_loss = l_pred + l_class
-        # pred_weight = l_class / total_loss
-        # cls_weight = l_pred / total_loss
+        del evs, loss_weights
+        y_true_orig = scaler.inverse_transform(y_true)
 
-        # Normalize weights to keep the sum constant, e.g., sum to 2
-        # weight_sum = pred_weight + cls_weight
-        # pred_weight = 2 * (pred_weight / weight_sum)
-        # cls_weight = 2 * (cls_weight / weight_sum)
-
-        # loss_weights = [pred_weight.item(), cls_weight.item()]
-        # loss_weights = [1.0, 1.0]
         if phase == "pred":
-            loss = loss_weights[0]*l_pred
-        else:
-            loss = loss_weights[0]*l_pred + loss_weights[1]*l_class
-        # loss = loss_weights[0]*l_pred
+            y_hat = self.predict_base(z1)
+            y_hat_orig = scaler.inverse_transform(y_hat)
+            pred_mae = self.weighted_reconstruction_loss(y_hat_orig, y_true_orig, val=val)
+            metrics = {
+                "pred_mae": pred_mae.item(),
+                "cls_loss": 0.0,
+                "gpd_loss": 0.0,
+                "selection_mae": pred_mae.item(),
+                "exceedance_count": 0,
+                "valid_exceedance_count": 0,
+                "invalid_support_count": 0,
+            }
+            return pred_mae, metrics
 
-        l_pred=l_pred.item()
-        l_class=l_class.item()
-        return loss, l_pred, l_class, loss_weights
+        if phase != "tail":
+            raise ValueError("phase not recognized")
+
+        components = self.get_tail_prediction_components(z1, scaler)
+        indicator, exceedance, _ = self.build_tail_targets(components["y_hat_orig"].detach(), y_true_orig)
+        cls_loss = self.classification_loss(components["logit_q"], indicator)
+        gpd_loss, gpd_stats = self.gpd_loss(exceedance, indicator, components["xi"], components["sigma"])
+        tail_loss = self.tail_lambda_cls * cls_loss + self.tail_lambda_gpd * gpd_loss
+        corrected_mae = self.weighted_reconstruction_loss(components["y_corr"], y_true_orig, val=val)
+        metrics = {
+            "pred_mae": corrected_mae.item(),
+            "cls_loss": cls_loss.item(),
+            "gpd_loss": gpd_loss.item(),
+            "selection_mae": corrected_mae.item(),
+            "exceedance_count": gpd_stats["exceedance_count"],
+            "valid_exceedance_count": gpd_stats["valid_exceedance_count"],
+            "invalid_support_count": gpd_stats["invalid_support_count"],
+        }
+        return tail_loss, metrics
     
     """
     # def classification_loss(self, z1, evs_gt):

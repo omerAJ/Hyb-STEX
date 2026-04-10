@@ -52,7 +52,7 @@ def model_supervisor(args):
     model = STSSL(args).to(args.device)
     print(format_param_group_counts(model))
 
-    pred_params, classifier_params, bias_params = get_model_params_grouped(model)
+    pred_params, classifier_params, gpd_params = get_model_params_grouped(model)
     optimizer = torch.optim.Adam([
         {"params":pred_params, 
         "lr":args.lr_init, 
@@ -66,7 +66,7 @@ def model_supervisor(args):
         'weight_decay':0, 
         "amsgrad":True},
 
-        {"params":bias_params, 
+        {"params":gpd_params, 
         "lr":args.lr_init, 
         "eps":1.0e-8, 
         'weight_decay':1.0e-8, 
@@ -95,7 +95,7 @@ def model_supervisor(args):
             model.load_state_dict(state_dict['model'])
             print("Load saved model")
             results = trainer.test(model, dataloader['test'], dataloader['scaler'],
-                        graph, trainer.logger, trainer.args, 'bias')
+                        graph, trainer.logger, trainer.args, 'tail')
         else:
             raise ValueError
     except:
@@ -135,7 +135,7 @@ if __name__=='__main__':
     parser.add_argument('--affinity_conv', "-afc", default=False, type=bool, help='wether to affinity conv')
     parser.add_argument('--loss', "-l", default="mae", type=str, help='mae/mse')
     parser.add_argument('--load_path', "-lp", default=None, type=str, help='path to load pretrained model from')
-    parser.add_argument('--variant', "-v", default=None, type=str, help='which variant of model to use. pred/cls/bias')
+    parser.add_argument('--variant', "-v", default=None, type=str, help='which variant of model to use. pred/tail')
 
     # parser.add_argument('--input_length', default=0, type=int, help='# of samples to use for context')
     args = parser.parse_args()

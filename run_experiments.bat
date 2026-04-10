@@ -2,33 +2,31 @@
 setlocal enabledelayedexpansion
 
 call "C:\ProgramData\Anaconda3\Scripts\activate.bat" sds-venv
-TIMEOUT 3
+TIMEOUT /T 3 /NOBREAK
 
-@REM REM Loop through values 1 to 5 for the -s parameter
-@REM FOR /L %%G IN (1,1,3) DO (
-@REM     python main.py -c "fix phase-wise training" -s %%G -cf configs/NYCBike1.yaml 
-@REM     echo Experiment completed: Ks = %%G
-@REM     TIMEOUT /T 3 /NOBREAK
-@REM )
+set "EXP_COMMENT=nodewise soft-gpd tail correction"
 
-
-REM Loop through values 1 to 5 for the -s parameter
-FOR /L %%G IN (1,1,5) DO (
-    python main.py -c "fix phase-wise training evs_90" -s %%G -cf configs/NYCTaxi.yaml 
-    echo Experiment completed: Ks = %%G
-    TIMEOUT /T 3 /NOBREAK
-)
-
-
-
-@REM REM Loop through values 1 to 5 for the -s parameter
-@REM FOR /L %%G IN (1,1,3) DO (
-@REM     python main.py -c "fix phase-wise training" -s %%G -cf configs/NYCBike2.yaml 
-@REM     echo Experiment completed: Ks = %%G
-@REM     TIMEOUT /T 3 /NOBREAK
-@REM )
+call :run_dataset "configs/NYCTaxi.yaml" "NYCTaxi"
+call :run_dataset "configs/NYCBike1.yaml" "NYCBike1"
+call :run_dataset "configs/NYCBike2.yaml" "NYCBike2"
+call :run_dataset "configs/BJTaxi.yaml" "BJTaxi"
 
 echo All experiments completed.
 TIMEOUT 99999
 
 cmd /k
+goto :eof
+
+:run_dataset
+set "CONFIG=%~1"
+set "DATASET=%~2"
+echo Starting experiments for !DATASET! using !CONFIG!
+
+FOR /L %%G IN (1,1,5) DO (
+    echo Running !DATASET! seed %%G
+    python main.py -c "%EXP_COMMENT%" -s %%G -cf !CONFIG!
+    echo Completed !DATASET! seed %%G
+    TIMEOUT /T 3 /NOBREAK
+)
+
+goto :eof
