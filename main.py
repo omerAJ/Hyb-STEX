@@ -47,6 +47,7 @@ def _build_results_payload(args, results):
         "mode": args.mode,
         "seed": args.seed,
         "comment": args.comment,
+        "training_recipe": getattr(args, "training_recipe", "full"),
         "experiment_dir": getattr(args, "log_dir", None),
         "base_checkpoint_path": args.load_path,
         "hyperparameters": {
@@ -54,20 +55,39 @@ def _build_results_payload(args, results):
             "epochs": args.epochs,
             "early_stop": args.early_stop,
             "early_stop_patience": args.early_stop_patience,
+            "training_recipe": getattr(args, "training_recipe", "full"),
             "tail_threshold_q": getattr(args, "tail_threshold_q", None),
             "tail_lambda_cls": getattr(args, "tail_lambda_cls", None),
             "tail_lambda_gpd": getattr(args, "tail_lambda_gpd", None),
+            "tail_mae_weight": getattr(args, "tail_mae_weight", None),
             "tail_schedule": getattr(args, "tail_schedule", "static"),
+            "tail_classifier_loss_type": getattr(args, "tail_classifier_loss_type", "bce"),
+            "tail_pos_weight_multiplier": getattr(args, "tail_pos_weight_multiplier", None),
+            "tail_focal_gamma": getattr(args, "tail_focal_gamma", None),
+            "tail_focal_alpha_pos": getattr(args, "tail_focal_alpha_pos", None),
             "tail_xi_min": getattr(args, "tail_xi_min", None),
             "tail_xi_max": getattr(args, "tail_xi_max", None),
             "tail_eps": getattr(args, "tail_eps", None),
+            "joint_refine_epochs": getattr(args, "joint_refine_epochs", None),
+            "joint_refine_early_stop_patience": getattr(args, "joint_refine_early_stop_patience", None),
+            "joint_refine_pred_lr_scale": getattr(args, "joint_refine_pred_lr_scale", None),
+            "joint_refine_classifier_lr_scale": getattr(args, "joint_refine_classifier_lr_scale", None),
+            "joint_refine_gpd_lr_scale": getattr(args, "joint_refine_gpd_lr_scale", None),
+            "joint_refine_lambda_cls": getattr(args, "joint_refine_lambda_cls", None),
+            "joint_refine_lambda_gpd": getattr(args, "joint_refine_lambda_gpd", None),
+            "joint_refine_lambda_mae": getattr(args, "joint_refine_lambda_mae", None),
+            "joint_refine_recompute_tail_u": getattr(args, "joint_refine_recompute_tail_u", None),
         },
         "results": _to_jsonable(results),
     }
-    if isinstance(results, dict) and "tail" in results and results["tail"] is not None:
-        payload["tail"] = _to_jsonable(results["tail"])
+    if isinstance(results, dict):
+        if "pred" in results and results["pred"] is not None:
+            payload["pred"] = _to_jsonable(results["pred"])
+        if "tail" in results and results["tail"] is not None:
+            payload["tail"] = _to_jsonable(results["tail"])
     elif args.mode == "test" and results is not None:
-        payload["tail"] = {
+        phase = "pred" if getattr(args, "training_recipe", "full") == "pred_only" else "tail"
+        payload[phase] = {
             "test_metrics": _to_jsonable(Trainer.format_test_results(results)),
         }
     return payload
@@ -155,8 +175,9 @@ def model_supervisor(args):
             )
             model.load_state_dict(state_dict['model'])
             print("Load saved model")
+            test_phase = 'pred' if getattr(args, 'training_recipe', 'full') == 'pred_only' else 'tail'
             results = trainer.test(model, dataloader['test'], dataloader['scaler'],
-                        graph, trainer.logger, trainer.args, 'tail')
+                        graph, trainer.logger, trainer.args, test_phase)
         else:
             raise ValueError
     except:

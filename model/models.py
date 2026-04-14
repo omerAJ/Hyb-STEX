@@ -123,11 +123,21 @@ class STSSL(nn.Module):
 
         self.tail_lambda_cls = getattr(args, "tail_lambda_cls", 1.0)
         self.tail_lambda_gpd = getattr(args, "tail_lambda_gpd", 1.0)
+        self.tail_mae_weight = getattr(args, "tail_mae_weight", 0.0)
         self.tail_threshold_q = getattr(args, "tail_threshold_q", 0.90)
         self.tail_xi_min = getattr(args, "tail_xi_min", -0.5)
         self.tail_xi_max = getattr(args, "tail_xi_max", -0.02)
         self.tail_eps = getattr(args, "tail_eps", 1.0e-6)
         self.tail_schedule = getattr(args, "tail_schedule", "static")
+        self.tail_classifier_loss_type = getattr(args, "tail_classifier_loss_type", "bce")
+        self.tail_pos_weight_multiplier = getattr(args, "tail_pos_weight_multiplier", 1.0)
+        self.tail_focal_gamma = getattr(args, "tail_focal_gamma", 2.0)
+        self.tail_focal_alpha_pos = getattr(args, "tail_focal_alpha_pos", 0.75)
+        self.tail_base_pos_weight = 1.0
+        self.tail_effective_pos_weight = 1.0
+        self.tail_exceedance_rate = 0.0
+        self.tail_positive_count = 0
+        self.tail_negative_count = 0
         self.register_buffer("tail_u", torch.zeros(1, 1, args.num_nodes, args.d_output))
 
         
@@ -240,6 +250,13 @@ class STSSL(nn.Module):
             thresholds = thresholds.unsqueeze(0).unsqueeze(0)
         self.tail_u.copy_(thresholds.to(device=self.tail_u.device, dtype=self.tail_u.dtype))
 
+    def set_tail_classifier_stats(self, stats):
+        self.tail_base_pos_weight = float(stats.get("base_pos_weight", 1.0))
+        self.tail_effective_pos_weight = float(stats.get("effective_pos_weight", 1.0))
+        self.tail_exceedance_rate = float(stats.get("exceedance_rate", 0.0))
+        self.tail_positive_count = int(stats.get("positive_count", 0))
+        self.tail_negative_count = int(stats.get("negative_count", 0))
+
     def predict_base(self, z1):
         return self.mlp(z1)
 
@@ -325,13 +342,17 @@ class STSSL(nn.Module):
         base_lambda_cls = float(self.tail_lambda_cls)
         base_lambda_gpd = float(self.tail_lambda_gpd)
         schedule = self.tail_schedule
+        if schedule.endswith("_then_joint"):
+            schedule = schedule[: -len("_then_joint")]
 
-        if schedule == "static" or epoch is None or total_epochs is None:
+        if schedule == "static":
             return {
                 "schedule": schedule,
                 "lambda_cls": base_lambda_cls,
                 "lambda_gpd": base_lambda_gpd,
             }
+        if epoch is None or total_epochs is None:
+            raise ValueError(f"Epoch-aware tail schedule requires epoch and total_epochs: {schedule}")
 
         if total_epochs <= 1:
             progress = 1.0
@@ -381,8 +402,42 @@ class STSSL(nn.Module):
             "lambda_gpd": base_lambda_gpd * gpd_multiplier,
         }
 
-    def classification_loss(self, logit_q, indicator):
-        return F.binary_cross_entropy_with_logits(logit_q, indicator)
+    def get_default_tail_objective(self, epoch=None, total_epochs=None):
+        tail_loss_weights = self.get_tail_loss_weights(epoch=epoch, total_epochs=total_epochs)
+        return {
+            "schedule": tail_loss_weights["schedule"],
+            "lambda_cls": tail_loss_weights["lambda_cls"],
+            "lambda_gpd": tail_loss_weights["lambda_gpd"],
+            "lambda_mae": float(self.tail_mae_weight),
+            "selection_metric_name": "corrected_mae",
+            "classifier_loss_type": self.tail_classifier_loss_type,
+            "effective_pos_weight": float(self.tail_effective_pos_weight),
+            "focal_gamma": float(self.tail_focal_gamma),
+            "focal_alpha_pos": float(self.tail_focal_alpha_pos),
+        }
+
+    def focal_loss_with_logits(self, logit_q, indicator, gamma, alpha_pos):
+        bce_loss = F.binary_cross_entropy_with_logits(logit_q, indicator, reduction="none")
+        probs = torch.sigmoid(logit_q)
+        p_t = indicator * probs + (1 - indicator) * (1 - probs)
+        alpha_t = indicator * alpha_pos + (1 - indicator) * (1 - alpha_pos)
+        focal_factor = (1 - p_t) ** gamma
+        return (alpha_t * focal_factor * bce_loss).mean()
+
+    def classification_loss(self, logit_q, indicator, objective_config=None):
+        objective_config = objective_config or {}
+        loss_type = objective_config.get("classifier_loss_type", self.tail_classifier_loss_type)
+        if loss_type == "bce":
+            return F.binary_cross_entropy_with_logits(logit_q, indicator)
+        if loss_type == "weighted_bce":
+            pos_weight = float(objective_config.get("effective_pos_weight", self.tail_effective_pos_weight))
+            pos_weight_tensor = logit_q.new_tensor(pos_weight)
+            return F.binary_cross_entropy_with_logits(logit_q, indicator, pos_weight=pos_weight_tensor)
+        if loss_type == "focal":
+            gamma = float(objective_config.get("focal_gamma", self.tail_focal_gamma))
+            alpha_pos = float(objective_config.get("focal_alpha_pos", self.tail_focal_alpha_pos))
+            return self.focal_loss_with_logits(logit_q, indicator, gamma=gamma, alpha_pos=alpha_pos)
+        raise ValueError(f"Unsupported classifier loss type: {loss_type}")
 
     def gpd_loss(self, exceedance, indicator, xi, sigma):
         exceedance_mask = indicator > 0.5
@@ -414,7 +469,7 @@ class STSSL(nn.Module):
             "invalid_support_count": invalid_support_count,
         }
 
-    def loss(self, z1, z1_cls, evs, y_true, scaler, loss_weights, phase, val=False):
+    def loss(self, z1, z1_cls, evs, y_true, scaler, objective_config, phase, val=False):
         del evs
         y_true_orig = scaler.inverse_transform(y_true)
 
@@ -426,82 +481,58 @@ class STSSL(nn.Module):
                 "pred_mae": pred_mae.item(),
                 "cls_loss": 0.0,
                 "gpd_loss": 0.0,
-                "selection_mae": pred_mae.item(),
+                "selection_metric": pred_mae.item(),
+                "selection_metric_name": "pred_mae",
                 "exceedance_count": 0,
                 "valid_exceedance_count": 0,
                 "invalid_support_count": 0,
+                "lambda_cls": 0.0,
+                "lambda_gpd": 0.0,
+                "lambda_mae": 0.0,
+                "tail_schedule": "pred",
+                "classifier_loss_type": "pred",
+                "effective_pos_weight": 1.0,
             }
             return pred_mae, metrics
 
         if phase != "tail":
             raise ValueError("phase not recognized")
 
-        tail_loss_weights = loss_weights or self.get_tail_loss_weights()
+        tail_objective = objective_config or self.get_default_tail_objective()
         components = self.get_tail_prediction_components(z1, scaler)
         indicator, exceedance, _ = self.build_tail_targets(components["y_hat_orig"].detach(), y_true_orig)
-        cls_loss = self.classification_loss(components["logit_q"], indicator)
+        cls_loss = self.classification_loss(components["logit_q"], indicator, tail_objective)
         gpd_loss, gpd_stats = self.gpd_loss(exceedance, indicator, components["xi"], components["sigma"])
-        tail_loss = tail_loss_weights["lambda_cls"] * cls_loss + tail_loss_weights["lambda_gpd"] * gpd_loss
         corrected_mae = self.weighted_reconstruction_loss(components["y_corr"], y_true_orig, val=val)
+        tail_loss = (
+            tail_objective["lambda_cls"] * cls_loss
+            + tail_objective["lambda_gpd"] * gpd_loss
+            + tail_objective.get("lambda_mae", 0.0) * corrected_mae
+        )
+        selection_metric_name = tail_objective.get("selection_metric_name", "corrected_mae")
+        selection_metric_map = {
+            "corrected_mae": corrected_mae.item(),
+            "cls_loss": cls_loss.item(),
+        }
+        if selection_metric_name not in selection_metric_map:
+            raise ValueError(f"Unsupported selection metric: {selection_metric_name}")
         metrics = {
             "pred_mae": corrected_mae.item(),
             "cls_loss": cls_loss.item(),
             "gpd_loss": gpd_loss.item(),
-            "selection_mae": corrected_mae.item(),
+            "selection_metric": selection_metric_map[selection_metric_name],
+            "selection_metric_name": selection_metric_name,
             "exceedance_count": gpd_stats["exceedance_count"],
             "valid_exceedance_count": gpd_stats["valid_exceedance_count"],
             "invalid_support_count": gpd_stats["invalid_support_count"],
-            "lambda_cls": float(tail_loss_weights["lambda_cls"]),
-            "lambda_gpd": float(tail_loss_weights["lambda_gpd"]),
-            "tail_schedule": tail_loss_weights["schedule"],
+            "lambda_cls": float(tail_objective["lambda_cls"]),
+            "lambda_gpd": float(tail_objective["lambda_gpd"]),
+            "lambda_mae": float(tail_objective.get("lambda_mae", 0.0)),
+            "tail_schedule": tail_objective["schedule"],
+            "classifier_loss_type": tail_objective.get("classifier_loss_type", self.tail_classifier_loss_type),
+            "effective_pos_weight": float(tail_objective.get("effective_pos_weight", self.tail_effective_pos_weight)),
         }
         return tail_loss, metrics
-    
-    """
-    # def classification_loss(self, z1, evs_gt):
-    #     evs = self.get_evs(z1)
-        
-    #     # Calculate the total number of elements and number of positives (extremes)
-    #     total_elements = evs_gt.numel()
-    #     num_extremes = evs_gt.sum()
-    #     num_non_extremes = total_elements - num_extremes
-
-    #     # Compute weights for each class
-    #     weight_for_1 = total_elements / (num_extremes + 1e-6)  # Adding a small constant to avoid division by zero
-    #     weight_for_0 = total_elements / (num_non_extremes + 1e-6)
-
-    #     # Create a tensor of weights that matches the shape of evs_gt
-    #     weights = evs_gt.float() * weight_for_1 + (1 - evs_gt.float()) * weight_for_0
-
-    #     # Calculate the weighted binary cross entropy loss
-    #     return F.binary_cross_entropy(evs, evs_gt, weight=weights)
-    """
-    
-    def focal_loss(self, inputs, targets):
-        """ Compute the focal loss given inputs and targets:
-        
-        inputs: tensor of predictions (probability of being the positive class)
-        targets: tensor of target labels {0, 1}
-        """
-        # First, compute the binary cross-entropy loss without reduction
-        alpha, gamma = 0.25, 2.0
-        bce_loss = F.binary_cross_entropy(inputs, targets, reduction='none')
-
-        # Here we calculate p_t
-        p_t = targets * inputs + (1 - targets) * (1 - inputs)
-
-        # Calculate the factor (1 - p_t)^gamma
-        loss_factor = (1 - p_t) ** gamma
-
-        # Calculate final focal loss
-        focal_loss = alpha * loss_factor * bce_loss
-
-        return focal_loss.mean()
-
-    # def classification_loss(self, z1, evs_gt):
-    #     z1_detached = z1.detach()
-    #     evs = self.get_evs(z1_detached)
-    #     return self.focal_loss(evs, evs_gt)
     
     
     def temporal_loss(self, z1, z2):
