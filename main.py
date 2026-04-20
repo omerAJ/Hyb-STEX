@@ -53,14 +53,22 @@ def _build_results_payload(args, results):
         "hyperparameters": {
             "lr_init": args.lr_init,
             "epochs": args.epochs,
+            "base_epochs": getattr(args, "base_epochs", None),
+            "base_early_stop_patience": getattr(args, "base_early_stop_patience", None),
+            "tail_stage1_epochs": getattr(args, "tail_stage1_epochs", None),
+            "tail_stage1_early_stop_patience": getattr(args, "tail_stage1_early_stop_patience", None),
             "early_stop": args.early_stop,
             "early_stop_patience": args.early_stop_patience,
             "training_recipe": getattr(args, "training_recipe", "full"),
+            "input_length": getattr(args, "input_length", None),
+            "output_length": getattr(args, "output_length", None),
             "tail_threshold_q": getattr(args, "tail_threshold_q", None),
             "tail_lambda_cls": getattr(args, "tail_lambda_cls", None),
             "tail_lambda_gpd": getattr(args, "tail_lambda_gpd", None),
             "tail_mae_weight": getattr(args, "tail_mae_weight", None),
+            "tail_phase_selection_metric": getattr(args, "tail_phase_selection_metric", None),
             "tail_schedule": getattr(args, "tail_schedule", "static"),
+            "tail_magnitude_mode": getattr(args, "tail_magnitude_mode", "gpd"),
             "tail_classifier_loss_type": getattr(args, "tail_classifier_loss_type", "bce"),
             "tail_pos_weight_multiplier": getattr(args, "tail_pos_weight_multiplier", None),
             "tail_focal_gamma": getattr(args, "tail_focal_gamma", None),
@@ -106,7 +114,7 @@ def model_supervisor(args):
     if not torch.cuda.is_available():
         args.device = 'cpu'
 
-    if not hasattr(args, 'evs_key') or not args.evs_key:
+    if args.dataset != 'PEMS04' and (not hasattr(args, 'evs_key') or not args.evs_key):
         raise KeyError("Config is missing required 'evs_key'. Add it to the dataset YAML.")
     
     # if args.load_path is None:
@@ -123,7 +131,8 @@ def model_supervisor(args):
         batch_size=args.batch_size, 
         test_batch_size=args.test_batch_size,
         evs_key=args.evs_key,
-        scalar_type='Standard'
+        scalar_type='Standard',
+        pems04_evs_quantile=float(getattr(args, 'pems04_evs_quantile', 0.95)),
     )
     graph = load_graph(args.graph_file, device=args.device)
     args.num_nodes = len(graph)
@@ -255,8 +264,9 @@ if __name__=='__main__':
     configs['load_path'] = args.load_path
     configs['variant'] = args.variant
 
-    if 'evs_key' not in configs or not configs['evs_key']:
-        raise KeyError("Config file must define a non-empty 'evs_key'.")
+    configs.setdefault('evs_key', None)
+    configs.setdefault('pems04_evs_quantile', 0.95)
+    configs.setdefault('output_length', 1)
     
     # configs['input_length'] = args.input_length
     # experimentName = "pred_" + str(args.input_length) + "_"

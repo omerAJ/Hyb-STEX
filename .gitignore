@@ -6,5 +6,6 @@
 /logs
 /preprocessed_data
 /preprocessed_data.zip
+/external/STLAformer-data/*
 # cache files
 __pycache__/

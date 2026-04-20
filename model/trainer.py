@@ -12,7 +12,7 @@ from lib.logger import (
     PD_Stats,
     get_logger,
 )
-from lib.metrics import test_metrics
+from lib.metrics import eee_torch, mae_torch, mape_torch, mse_torch
 from lib.utils import (
     get_log_dir,
     get_model_params,
@@ -142,6 +142,9 @@ class Trainer(object):
             "cls_then_gpd_light_cls_then_joint",
         }
 
+    def _uses_joint_only_tail(self):
+        return self.args.tail_schedule == "joint_only"
+
     def _get_full_train_loader(self):
         return DataLoader(
             self.train_loader.dataset,
@@ -161,11 +164,12 @@ class Trainer(object):
                 y_hat_orig = self.scaler.inverse_transform(y_hat)
                 y_true_orig = self.scaler.inverse_transform(target)
                 residual = torch.clamp(y_true_orig - y_hat_orig, min=0.0)
-                positive_residuals.append(residual.squeeze(1).cpu().numpy())
+                positive_residuals.append(residual.cpu().numpy())
 
         residual_array = np.concatenate(positive_residuals, axis=0)
         positive_only_residuals = np.where(residual_array > 0, residual_array, np.nan)
         thresholds = np.zeros(residual_array.shape[1:], dtype=np.float32)
+        mean_excess = np.zeros(residual_array.shape[1:], dtype=np.float32)
         for node_idx in range(positive_only_residuals.shape[1]):
             for flow_idx in range(positive_only_residuals.shape[2]):
                 values = positive_only_residuals[:, node_idx, flow_idx]
@@ -176,7 +180,18 @@ class Trainer(object):
         thresholds = torch.from_numpy(thresholds).float().to(self.args.device)
         zero_threshold_count = int((thresholds == 0).sum().item())
         self.model.set_tail_thresholds(thresholds)
-        exceedance_indicator = residual_array > thresholds.unsqueeze(0).cpu().numpy()
+        threshold_array = thresholds.unsqueeze(0).cpu().numpy()
+        exceedance_indicator = residual_array > threshold_array
+        exceedance_values = np.where(exceedance_indicator, residual_array - threshold_array, np.nan)
+        for node_idx in range(exceedance_values.shape[1]):
+            for flow_idx in range(exceedance_values.shape[2]):
+                values = exceedance_values[:, node_idx, flow_idx]
+                values = values[~np.isnan(values)]
+                if values.size > 0:
+                    mean_excess[node_idx, flow_idx] = values.mean()
+        mean_excess = np.nan_to_num(mean_excess, nan=0.0, posinf=0.0, neginf=0.0)
+        mean_excess = torch.from_numpy(mean_excess).float().to(self.args.device)
+        self.model.set_tail_mean_excess(mean_excess)
         positive_count = int(exceedance_indicator.sum())
         total_count = int(exceedance_indicator.size)
         negative_count = max(total_count - positive_count, 0)
@@ -192,14 +207,18 @@ class Trainer(object):
             "base_pos_weight": float(base_pos_weight),
             "effective_pos_weight": float(effective_pos_weight),
             "zero_threshold_count": zero_threshold_count,
+            "mean_excess_mean": float(mean_excess.mean().item()),
+            "mean_excess_max": float(mean_excess.max().item()),
         }
         self.model.set_tail_classifier_stats(self.tail_target_stats)
         self.logger.info(
-            "Computed tail_u from the full training split with q={:.2f}. shape={} min={:.4f} max={:.4f} zero_entries={} exceedance_rate={:.6f} base_pos_weight={:.4f} effective_pos_weight={:.4f}".format(
+            "Computed tail_u and tail_mean_excess from the full training split with q={:.2f}. shape={} min_u={:.4f} max_u={:.4f} mean_excess={:.4f} max_excess={:.4f} zero_entries={} exceedance_rate={:.6f} base_pos_weight={:.4f} effective_pos_weight={:.4f}".format(
                 self.args.tail_threshold_q,
                 tuple(self.model.tail_u.shape),
                 self.model.tail_u.min().item(),
                 self.model.tail_u.max().item(),
+                mean_excess.mean().item(),
+                mean_excess.max().item(),
                 zero_threshold_count,
                 exceedance_rate,
                 base_pos_weight,
@@ -226,7 +245,11 @@ class Trainer(object):
                 epoch=epoch,
                 total_epochs=self.args.epochs if total_epochs is None else total_epochs,
             )
-            objective["selection_metric_name"] = "corrected_mae"
+            objective["selection_metric_name"] = getattr(
+                self.args,
+                "tail_phase_selection_metric",
+                "corrected_mae",
+            )
             return objective
         if phase_label == "tail_stage1":
             return {
@@ -235,6 +258,7 @@ class Trainer(object):
                 "lambda_gpd": 0.0,
                 "lambda_mae": 0.0,
                 "selection_metric_name": "cls_loss",
+                "tail_magnitude_mode": self.args.tail_magnitude_mode,
                 "classifier_loss_type": self.args.tail_classifier_loss_type,
                 "effective_pos_weight": float(self.tail_target_stats["effective_pos_weight"]),
                 "focal_gamma": float(self.args.tail_focal_gamma),
@@ -247,6 +271,7 @@ class Trainer(object):
                 "lambda_gpd": float(self.args.tail_lambda_gpd),
                 "lambda_mae": float(self.args.tail_mae_weight),
                 "selection_metric_name": "corrected_mae",
+                "tail_magnitude_mode": self.args.tail_magnitude_mode,
                 "classifier_loss_type": self.args.tail_classifier_loss_type,
                 "effective_pos_weight": float(self.tail_target_stats["effective_pos_weight"]),
                 "focal_gamma": float(self.args.tail_focal_gamma),
@@ -259,6 +284,7 @@ class Trainer(object):
                 "lambda_gpd": float(self.args.tail_lambda_gpd),
                 "lambda_mae": float(self.args.tail_mae_weight),
                 "selection_metric_name": "corrected_mae",
+                "tail_magnitude_mode": self.args.tail_magnitude_mode,
                 "classifier_loss_type": self.args.tail_classifier_loss_type,
                 "effective_pos_weight": float(self.tail_target_stats["effective_pos_weight"]),
                 "focal_gamma": float(self.args.tail_focal_gamma),
@@ -271,6 +297,7 @@ class Trainer(object):
                 "lambda_gpd": float(getattr(self.args, "joint_refine_lambda_gpd", self.args.tail_lambda_gpd)),
                 "lambda_mae": float(getattr(self.args, "joint_refine_lambda_mae", self.args.tail_mae_weight)),
                 "selection_metric_name": "corrected_mae",
+                "tail_magnitude_mode": self.args.tail_magnitude_mode,
                 "classifier_loss_type": self.args.tail_classifier_loss_type,
                 "effective_pos_weight": float(self.tail_target_stats["effective_pos_weight"]),
                 "focal_gamma": float(self.args.tail_focal_gamma),
@@ -318,10 +345,86 @@ class Trainer(object):
                     f"lambda_gpd={objective_config['lambda_gpd']:.5f}, "
                     f"lambda_mae={objective_config.get('lambda_mae', 0.0):.5f}, "
                     f"schedule={objective_config['schedule']}, "
+                    f"magnitude={objective_config.get('tail_magnitude_mode', getattr(self.args, 'tail_magnitude_mode', 'gpd'))}, "
                     f"clf_loss={objective_config.get('classifier_loss_type', 'bce')}, "
                     f"selection={stats['selection_metric_name']}"
                 )
         self.logger.info(message)
+
+    @staticmethod
+    def _compute_forecast_metrics(pred, true, evs=None):
+        mae = mae_torch(pred, true, mask_value=5.0).item()
+        rmse = torch.sqrt(mse_torch(pred, true, mask_value=5.0)).item()
+        mape = mape_torch(pred, true, mask_value=5.0).item() * 100.0
+        eee = float("nan")
+        if evs is not None:
+            eee = eee_torch(pred, true, evs)
+        return {
+            "mae": mae,
+            "rmse": rmse,
+            "mape": mape,
+            "eee": eee,
+        }
+
+    @classmethod
+    def _summarize_single_target(cls, y_pred, y_true, evs_true=None):
+        overall = cls._compute_forecast_metrics(y_pred[..., 0], y_true[..., 0], None if evs_true is None else evs_true[..., 0])
+        per_horizon = []
+        for horizon_idx in range(y_pred.size(1)):
+            horizon_metrics = cls._compute_forecast_metrics(
+                y_pred[:, horizon_idx, :, 0],
+                y_true[:, horizon_idx, :, 0],
+                None if evs_true is None else evs_true[:, horizon_idx, :, 0],
+            )
+            horizon_metrics["horizon"] = horizon_idx + 1
+            per_horizon.append(horizon_metrics)
+        return {
+            "overall": overall,
+            "per_horizon": per_horizon,
+        }
+
+    @classmethod
+    def _metric_delta(cls, improved_metrics, baseline_metrics):
+        delta = {}
+        for key in ["mae", "rmse", "mape", "eee"]:
+            improved_value = improved_metrics.get(key)
+            baseline_value = baseline_metrics.get(key)
+            if improved_value is None or baseline_value is None:
+                continue
+            if np.isnan(improved_value) or np.isnan(baseline_value):
+                delta[key] = float("nan")
+            else:
+                delta[key] = improved_value - baseline_value
+        return delta
+
+    @classmethod
+    def _build_delta_report(cls, corrected_summary, base_summary):
+        delta_per_horizon = []
+        for corrected_metrics, base_metrics in zip(corrected_summary["per_horizon"], base_summary["per_horizon"]):
+            horizon_delta = cls._metric_delta(corrected_metrics, base_metrics)
+            horizon_delta["horizon"] = corrected_metrics["horizon"]
+            delta_per_horizon.append(horizon_delta)
+        return {
+            "overall": cls._metric_delta(corrected_summary["overall"], base_summary["overall"]),
+            "per_horizon": delta_per_horizon,
+        }
+
+    @staticmethod
+    def _log_forecast_summary(logger, label, summary):
+        overall = summary["overall"]
+        logger.info(
+            "{} overall | MAE: {:.4f}, RMSE: {:.4f}, MAPE: {:.4f}, EEE: {}".format(
+                label,
+                overall["mae"],
+                overall["rmse"],
+                overall["mape"],
+                "nan" if np.isnan(overall["eee"]) else f"{overall['eee']:.4f}",
+            )
+        )
+        horizon_message = ", ".join(
+            f"h{item['horizon']}={item['mae']:.4f}" for item in summary["per_horizon"]
+        )
+        logger.info(f"{label} per-horizon MAE | {horizon_message}")
 
     def train_epoch(self, epoch, model_phase, phase_label, objective_config=None):
         self.model.train()
@@ -507,10 +610,24 @@ class Trainer(object):
             "best_val_metric": best_metric,
             "best_val_epoch": best_epoch,
             "selection_metric_name": val_stats["selection_metric_name"],
+            "val_results": None,
+            "val_metrics": None,
             "test_results": None,
             "test_metrics": None,
         }
         if run_test:
+            self.logger.info("== Validation results.")
+            val_results = self.test(
+                self.model,
+                self.val_loader if self.val_loader is not None else self.test_loader,
+                self.scaler,
+                self.graph,
+                self.logger,
+                self.args,
+                test_phase or model_phase,
+            )
+            results["val_results"] = val_results
+            results["val_metrics"] = self.format_test_results(val_results)
             self.logger.info("== Test results.")
             test_results = self.test(
                 self.model,
@@ -541,9 +658,10 @@ class Trainer(object):
                 classifier_params + gpd_params,
                 "pred",
                 "pred",
-                esp=self.args.early_stop_patience,
+                esp=int(getattr(self.args, "base_early_stop_patience", self.args.early_stop_patience)),
                 run_test=True,
                 test_phase="pred",
+                max_epochs=int(getattr(self.args, "base_epochs", self.args.epochs)),
             )
             self._load_checkpoint(self.best_path, strict=False, checkpoint_label="best pred checkpoint")
             if training_recipe == "pred_only":
@@ -558,7 +676,9 @@ class Trainer(object):
 
         self.compute_tail_thresholds()
         pred_params, classifier_params, gpd_params = get_model_params_grouped(self.model)
-        if self._uses_two_stage_tail():
+        if self._uses_joint_only_tail():
+            tail_results = self.train_tail_joint_only(pred_params, classifier_params, gpd_params)
+        elif self._uses_two_stage_tail():
             tail_results = self.train_tail_two_stage(pred_params, classifier_params, gpd_params)
         elif self._uses_joint_refine_tail():
             tail_results = self.train_tail_static_then_joint(pred_params, classifier_params, gpd_params)
@@ -568,9 +688,10 @@ class Trainer(object):
                 pred_params,
                 "tail",
                 "tail",
-                esp=self.args.early_stop_patience,
+                esp=int(getattr(self.args, "tail_stage1_early_stop_patience", self.args.early_stop_patience)),
                 run_test=True,
                 test_phase="tail",
+                max_epochs=int(getattr(self.args, "tail_stage1_epochs", self.args.epochs)),
             )
             tail_results["stage1"] = None
             tail_results["stage2"] = None
@@ -578,15 +699,39 @@ class Trainer(object):
             tail_results["tail_target_stats"] = dict(self.tail_target_stats)
         return {"pred": pred_results, "tail": tail_results}
 
+    def train_tail_joint_only(self, pred_params, classifier_params, gpd_params):
+        stage3_results = self.train_component(
+            pred_params + classifier_params + gpd_params,
+            [],
+            "tail",
+            "tail_stage3_joint",
+            esp=int(getattr(self.args, "joint_refine_early_stop_patience", self.args.early_stop_patience)),
+            run_test=True,
+            test_phase="tail",
+            max_epochs=int(getattr(self.args, "joint_refine_epochs", self.args.epochs)),
+            lr_scales={
+                "pred": float(getattr(self.args, "joint_refine_pred_lr_scale", 0.1)),
+                "classifier": float(getattr(self.args, "joint_refine_classifier_lr_scale", 1.0)),
+                "gpd": float(getattr(self.args, "joint_refine_gpd_lr_scale", 1.0)),
+            },
+        )
+        tail_results = dict(stage3_results)
+        tail_results["stage1"] = None
+        tail_results["stage2"] = None
+        tail_results["stage3"] = stage3_results
+        tail_results["tail_target_stats"] = dict(self.tail_target_stats)
+        return tail_results
+
     def train_tail_two_stage(self, pred_params, classifier_params, gpd_params):
         stage1_results = self.train_component(
             classifier_params,
             pred_params + gpd_params,
             "tail",
             "tail_stage1",
-            esp=self.args.early_stop_patience,
+            esp=int(getattr(self.args, "tail_stage1_early_stop_patience", self.args.early_stop_patience)),
             run_test=False,
             test_phase="tail",
+            max_epochs=int(getattr(self.args, "tail_stage1_epochs", self.args.epochs)),
         )
         self._load_checkpoint(self.best_path, strict=False, checkpoint_label="best tail stage1 checkpoint")
         stage2_phase = "tail_stage2_freeze" if self.args.tail_schedule == "cls_then_gpd_freeze" else "tail_stage2_light_cls"
@@ -601,9 +746,10 @@ class Trainer(object):
             params_to_freeze,
             "tail",
             stage2_phase,
-            esp=self.args.early_stop_patience,
+            esp=int(getattr(self.args, "tail_stage1_early_stop_patience", self.args.early_stop_patience)),
             run_test=not self._uses_joint_refine_tail(),
             test_phase="tail",
+            max_epochs=int(getattr(self.args, "tail_stage1_epochs", self.args.epochs)),
         )
         tail_results = dict(stage2_results)
         stage3_results = None
@@ -622,9 +768,10 @@ class Trainer(object):
             pred_params,
             "tail",
             "tail",
-            esp=self.args.early_stop_patience,
+            esp=int(getattr(self.args, "tail_stage1_early_stop_patience", self.args.early_stop_patience)),
             run_test=False,
             test_phase="tail",
+            max_epochs=int(getattr(self.args, "tail_stage1_epochs", self.args.epochs)),
         )
         stage3_results = self.train_joint_refine_stage(pred_params, classifier_params, gpd_params)
         tail_results = dict(stage3_results)
@@ -662,8 +809,8 @@ class Trainer(object):
         if phase.startswith("tail"):
             plt.plot(history["train_cls_loss"], label="Train BCE")
             plt.plot(history["val_cls_loss"], label="Val BCE")
-            plt.plot(history["train_gpd_loss"], label="Train GPD")
-            plt.plot(history["val_gpd_loss"], label="Val GPD")
+            plt.plot(history["train_gpd_loss"], label="Train Magnitude")
+            plt.plot(history["val_gpd_loss"], label="Val Magnitude")
         plt.xlabel("Epochs")
         plt.ylabel("Loss")
         plt.title(f"Losses [{phase}]")
@@ -675,23 +822,34 @@ class Trainer(object):
     def format_test_results(test_results):
         if test_results is None:
             return None
+        if isinstance(test_results, dict):
+            return test_results
+        if test_results.shape[0] == 2:
+            return {
+                "inflow": {
+                    "mae": float(test_results[0][0]),
+                    "eee": float(test_results[0][1]),
+                },
+                "outflow": {
+                    "mae": float(test_results[1][0]),
+                    "eee": float(test_results[1][1]),
+                },
+            }
         return {
-            "inflow": {
-                "mae": float(test_results[0][0]),
-                "eee": float(test_results[0][1]),
-            },
-            "outflow": {
-                "mae": float(test_results[1][0]),
-                "eee": float(test_results[1][1]),
-            },
+            f"target_{channel_idx}": {
+                "mae": float(test_results[channel_idx][0]),
+                "eee": float(test_results[channel_idx][1]),
+            }
+            for channel_idx in range(test_results.shape[0])
         }
 
-    @staticmethod
-    def test(model, dataloader, scaler, graph, logger, args, phase):
+    @classmethod
+    def test(cls, model, dataloader, scaler, graph, logger, args, phase):
         model.eval()
         y_pred = []
         y_true = []
         evs_true = []
+        y_base = []
 
         with torch.no_grad():
             for data, target, evs, _ in dataloader:
@@ -699,6 +857,9 @@ class Trainer(object):
                 pred_output = model.predict(repr1, repr1_cls, phase, scaler=scaler if phase == "tail" else None)
                 if phase == "pred":
                     pred_output = scaler.inverse_transform(pred_output)
+                else:
+                    base_output = scaler.inverse_transform(model.predict(repr1, repr1_cls, "pred"))
+                    y_base.append(base_output)
                 y_true.append(scaler.inverse_transform(target))
                 y_pred.append(pred_output)
                 evs_true.append(evs)
@@ -706,15 +867,29 @@ class Trainer(object):
         y_true = torch.cat(y_true, dim=0).cpu()
         y_pred = torch.cat(y_pred, dim=0).cpu()
         evs_true = torch.cat(evs_true, dim=0).cpu()
+        corrected_summary = cls._summarize_single_target(y_pred, y_true, evs_true)
+        result_key = "corrected" if phase == "tail" else "base"
+        result = {result_key: corrected_summary}
+        cls._log_forecast_summary(logger, "Corrected" if phase == "tail" else "Base", corrected_summary)
 
-        test_results = []
-        mae, eee = test_metrics(y_pred[..., 0], y_true[..., 0], evs=evs_true[..., 0])
-        logger.info("INFLOW, MAE: {:.2f}, EEE: {:.4f}".format(mae, eee))
-        test_results.append([mae, eee])
-        mae, eee = test_metrics(y_pred[..., 1], y_true[..., 1], evs=evs_true[..., 1])
-        logger.info("OUTFLOW, MAE: {:.2f}, EEE: {:.4f}".format(mae, eee))
-        test_results.append([mae, eee])
-        return np.stack(test_results, axis=0)
+        if phase == "tail":
+            y_base = torch.cat(y_base, dim=0).cpu()
+            base_summary = cls._summarize_single_target(y_base, y_true, evs_true)
+            delta_summary = cls._build_delta_report(corrected_summary, base_summary)
+            result["base"] = base_summary
+            result["delta"] = delta_summary
+            cls._log_forecast_summary(logger, "Base", base_summary)
+            logger.info(
+                "Delta overall | MAE: {:.4f}, RMSE: {:.4f}, MAPE: {:.4f}, EEE: {}".format(
+                    delta_summary["overall"]["mae"],
+                    delta_summary["overall"]["rmse"],
+                    delta_summary["overall"]["mape"],
+                    "nan"
+                    if np.isnan(delta_summary["overall"]["eee"])
+                    else f"{delta_summary['overall']['eee']:.4f}",
+                )
+            )
+        return result
 
 
 def plot_cm(pred, true, gt=None):

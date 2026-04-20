@@ -1,125 +1,188 @@
-import torch.nn as nn
-import torch
-# import 
-from lib.utils import masked_mae_loss, masked_mse_loss, masked_gumbell_loss, masked_frechet_loss
-# from model.aug import (
-#     aug_topology, 
-#     aug_traffic, 
-# )
-import sys
-import os
-
-# Get the root directory where your running file is located
-root_dir = os.path.dirname(os.path.abspath(__file__))
-
-# Add the root directory to sys.path
-sys.path.append(root_dir)
-
-# Now, you can import the required components from layers.py
-from layers import (
-    STEncoder, 
-    MLP,
-    self_Attention,
-    PositionwiseFeedForward,
-    attentive_fusion,
-)
-
-
-# from model.vision_transformer_utils import apply_masks_targets
-import torch.nn.functional as F
 import numpy as np
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+from lib.utils import masked_frechet_loss, masked_gumbell_loss, masked_mae_loss, masked_mse_loss
+from model.layers import SpatioConvLayer
+
+
+class PEMS04TemporalConv(nn.Module):
+    """A same-padding gated temporal convolution with residual projection."""
+
+    def __init__(self, c_in, c_out, kernel_size=3):
+        super().__init__()
+        self.c_out = c_out
+        self.residual_proj = nn.Conv2d(c_in, c_out, kernel_size=1) if c_in != c_out else None
+        self.conv = nn.Conv2d(
+            c_in,
+            c_out * 2,
+            kernel_size=(kernel_size, 1),
+            padding=(kernel_size // 2, 0),
+        )
+
+    def forward(self, x):
+        residual = self.residual_proj(x) if self.residual_proj is not None else x
+        gated = self.conv(x)
+        return (gated[:, : self.c_out] + residual) * torch.sigmoid(gated[:, self.c_out :])
+
+
+class PEMS04STBlock(nn.Module):
+    """Two temporal convolutions around a Chebyshev spatial conv, without collapsing time."""
+
+    def __init__(self, d_model, cheb_order, dropout):
+        super().__init__()
+        self.temporal1 = PEMS04TemporalConv(d_model, d_model)
+        self.spatial = SpatioConvLayer(cheb_order, d_model, d_model)
+        self.spatial_mix = nn.Parameter(torch.tensor(1.0))
+        self.temporal2 = PEMS04TemporalConv(d_model, d_model)
+        self.norm1 = nn.LayerNorm(d_model)
+        self.norm2 = nn.LayerNorm(d_model)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x, cheb_laplacian):
+        h = x.permute(0, 3, 1, 2)
+        h = self.temporal1(h)
+
+        spatial_residual = h
+        h = self.spatial(h, cheb_laplacian)
+        mix = torch.sigmoid(self.spatial_mix)
+        h = mix * h + (1.0 - mix) * spatial_residual
+        x = self.dropout(self.norm1(h.permute(0, 2, 3, 1)))
+
+        h = self.temporal2(x.permute(0, 3, 1, 2))
+        return self.dropout(self.norm2(h.permute(0, 2, 3, 1)))
+
+
+class PEMS04Encoder(nn.Module):
+    """A PEMS04-specific spatio-temporal encoder that preserves the full 12-step history."""
+
+    def __init__(self, input_dim, d_model, input_length, num_nodes, cheb_order, dropout):
+        super().__init__()
+        del input_length
+        self.cheb_order = cheb_order
+        self.num_nodes = num_nodes
+        self.input_proj = nn.Linear(input_dim, d_model)
+        self.input_norm = nn.LayerNorm(d_model)
+        self.input_dropout = nn.Dropout(dropout)
+        self.blocks = nn.ModuleList(
+            [
+                PEMS04STBlock(d_model=d_model, cheb_order=cheb_order, dropout=dropout),
+                PEMS04STBlock(d_model=d_model, cheb_order=cheb_order, dropout=dropout),
+            ]
+        )
+        self.output_norm = nn.LayerNorm(d_model)
+
+    @staticmethod
+    def _cal_laplacian(graph):
+        identity = torch.eye(graph.size(0), device=graph.device, dtype=graph.dtype)
+        graph = graph + identity
+        degree = torch.diag(torch.sum(graph, dim=-1) ** (-0.5))
+        return identity - torch.mm(torch.mm(degree, graph), degree)
+
+    @staticmethod
+    def _cheb_polynomial(laplacian, order):
+        num_nodes = laplacian.size(0)
+        cheb = torch.zeros([order, num_nodes, num_nodes], device=laplacian.device, dtype=laplacian.dtype)
+        cheb[0] = torch.eye(num_nodes, device=laplacian.device, dtype=laplacian.dtype)
+        if order == 1:
+            return cheb
+        cheb[1] = laplacian
+        for idx in range(2, order):
+            cheb[idx] = 2 * torch.mm(laplacian, cheb[idx - 1]) - cheb[idx - 2]
+        return cheb
+
+    def forward(self, x, graph):
+        if graph.size(0) != self.num_nodes:
+            raise ValueError(f"Graph node count mismatch: expected {self.num_nodes}, got {graph.size(0)}")
+        cheb_laplacian = self._cheb_polynomial(self._cal_laplacian(graph), self.cheb_order)
+
+        h = self.input_dropout(self.input_norm(self.input_proj(x)))
+        for block in self.blocks:
+            h = block(h, cheb_laplacian)
+        return self.output_norm(h)
+
+
+class PEMS04HorizonProjection(nn.Module):
+    """Project the full temporal latent sequence for each node directly to the forecast horizon."""
+
+    def __init__(self, input_length, d_model, output_length, d_output, dropout, hidden_scale=1.0):
+        super().__init__()
+        input_dim = input_length * d_model
+        hidden_dim = max(int(input_dim * hidden_scale), output_length * d_output)
+        self.output_length = output_length
+        self.d_output = d_output
+        self.proj = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, output_length * d_output),
+        )
+
+    def forward(self, z):
+        batch_size, _, num_nodes, _ = z.shape
+        flattened = z.transpose(1, 2).reshape(batch_size, num_nodes, -1)
+        out = self.proj(flattened)
+        out = out.view(batch_size, num_nodes, self.output_length, self.d_output)
+        return out.transpose(1, 2)
+
+
 class STSSL(nn.Module):
     def __init__(self, args):
-        super(STSSL, self).__init__()
-        
-        # if args.load_path is not None:
-        #     import os
-        #     import sys
-        #     model_dir = os.path.dirname(args.load_path)
-        #     sys.path.append(model_dir)
-        #     from layers import (
-        #         STEncoder, 
-        #         MLP,
-        #         self_Attention,
-        #         PositionwiseFeedForward,
-        #         attentive_fusion,
-        #     )
+        super().__init__()
         self.args = args
+        self.dataset = args.dataset
+        self.output_length = int(getattr(args, "output_length", 1))
 
-        # self.attention1 = self_Attention(int((2)*args.d_model), 4)
-        # self.attention2 = self_Attention(int((2)*args.d_model), 4)
-        
-        self.attentive_fuse = attentive_fusion(int((2)*args.d_model), n_heads=4, ln=False)
-
-        self.ff = PositionwiseFeedForward(d_model=128, d_ff=64*4)
-        self.mlp = MLP(int((2)*args.d_model), args.d_output)
-        self.mlp_cls = MLP(int((2)*args.d_model), args.d_output)
-        # self.mlp_bias = MLP(int((2)*args.d_model), args.d_output)
-        # self.mlp_bias.fc1.linear.bias.data.fill_(+0.5)  ## bias it to predicting normal
-        # self.mlp_bias.fc2.linear.bias.data.fill_(+0.5)  ## bias it to predicting normal
-        # self.mlp_cls.fc1.linear.bias.data.fill_(+0.5)  ## bias it to predicting normal
-        # self.mlp_cls.fc2.linear.bias.data.fill_(+0.5)  ## bias it to predicting normal
-        # self.mlp_classifier.fc2.linear.bias.data.fill_(-1)  ## bias it to predicting normal
         self.loss_fun_val = masked_mae_loss(mask_value=5.0)
-        if args.loss == 'mae':
+        if args.loss == "mae":
             self.loss_fun = masked_mae_loss(mask_value=5.0)
-        elif args.loss == 'mse':
+        elif args.loss == "mse":
             self.loss_fun = masked_mse_loss(mask_value=5.0)
-        elif args.loss == 'gumbell':
+        elif args.loss == "gumbell":
             self.loss_fun = masked_gumbell_loss(mask_value=5.0)
-        elif args.loss == 'frechet':
+        elif args.loss == "frechet":
             self.loss_fun = masked_frechet_loss(mask_value=5.0)
-        self.args = args
-        graph_init = args.graph_init
-        ## attention flags
-        self.self_attention_flag = args.self_attention_flag
-        self.cross_attention_flag = args.cross_attention_flag
-        self.feedforward_flag = args.feedforward_flag
-        self.layer_norm_flag = args.layer_norm_flag
-        self.additional_sa_flag = args.additional_sa_flag
-        self.pos_emb_flag = args.pos_emb_flag
-        self.threshold_adj_mx = args.threshold_adj_mx
-        self.dataset = args.dataset
-        
-        ## A: 2->32->64->64->32->64 
-        ## B: 2->16->32->32->16->32 
-        self.encoderA = STEncoder(Kt=3, Ks=args.cheb_order, blocks=[[2, int(args.d_model//2), args.d_model], [args.d_model, int(args.d_model//2), args.d_model]], 
-                        input_length=args.input_length, num_nodes=args.num_nodes, droprate=args.dropout, graph_init=graph_init, learnable_flag=args.learnable_flag, row=args.row, col=args.col, threshold_adj_mx=args.threshold_adj_mx, do_affinity=args.affinity_conv)
-        self.encoderB = STEncoder(Kt=3, Ks=args.cheb_order, blocks=[[2, int(args.d_model//2), args.d_model], [args.d_model, int(args.d_model//2), args.d_model]], 
-                        input_length=args.input_length, num_nodes=args.num_nodes, droprate=args.dropout, graph_init=graph_init, learnable_flag=args.learnable_flag, row=args.row, col=args.col, threshold_adj_mx=args.threshold_adj_mx, do_affinity=args.affinity_conv)         
-        
-        # self.encoderA_cls = STEncoder(Kt=3, Ks=args.cheb_order, blocks=[[2, int(args.d_model//2), args.d_model], [args.d_model, int(args.d_model//2), args.d_model]], 
-        #                 input_length=args.input_length, num_nodes=args.num_nodes, droprate=args.dropout, graph_init=graph_init, learnable_flag=args.learnable_flag, row=args.row, col=args.col, threshold_adj_mx=args.threshold_adj_mx, do_affinity=args.affinity_conv)
-        # self.encoderB_cls = STEncoder(Kt=3, Ks=args.cheb_order, blocks=[[2, int(args.d_model//2), args.d_model], [args.d_model, int(args.d_model//2), args.d_model]], 
-        #                 input_length=args.input_length, num_nodes=args.num_nodes, droprate=args.dropout, graph_init=graph_init, learnable_flag=args.learnable_flag, row=args.row, col=args.col, threshold_adj_mx=args.threshold_adj_mx, do_affinity=args.affinity_conv)         
-        
-        # ## norms
-        self.layernorm1 = nn.LayerNorm(int((2)*args.d_model))
-        self.layernorm2 = nn.LayerNorm(int((2)*args.d_model))
-        self.layernorm3 = nn.LayerNorm(int((2)*args.d_model))
-        
+        else:
+            raise ValueError(f"Unsupported loss type: {args.loss}")
 
-        self.dataset = args.dataset
-        self.row = args.row
-        self.col = args.col
-        self.add_8_neighbours = args.add_8
-        self.add_eye = args.add_eye
+        if self.dataset != "PEMS04":
+            raise ValueError("This branch is specialized for PEMS04 only.")
 
-        neighbours = args.graph_file
-        neighbours = np.load(neighbours)["adj_mx"]
-        # self.neighbours = nn.Parameter(torch.from_numpy(neighbours).float(), requires_grad=False).to(self.args.device)
-
-        self.neighbours = torch.from_numpy(neighbours).float().to(self.args.device)
-
-        self.eye = torch.eye(args.num_nodes).to(self.args.device)
-        
-        self.add_x_encoder = args.add_x_encoder
-
-        N = args.num_nodes
-        self.weights = nn.Parameter(torch.ones(N) / N)
-        self.ff_to_cls = PositionwiseFeedForward(d_model=128, d_ff=128*4)
-        self.ff_to_gpd = PositionwiseFeedForward(d_model=128, d_ff=64*4)
-        self.learnable_vectors_gpd = nn.Parameter(torch.zeros(1, 1, 128, 4), requires_grad=True)
+        adjacency = np.load(args.graph_file)["adj_mx"].astype(np.float32)
+        self.register_buffer("neighbours", torch.from_numpy(adjacency))
+        self.encoder = PEMS04Encoder(
+            input_dim=args.d_input,
+            d_model=args.d_model,
+            input_length=args.input_length,
+            num_nodes=args.num_nodes,
+            cheb_order=args.cheb_order,
+            dropout=args.dropout,
+        )
+        self.mlp = PEMS04HorizonProjection(
+            input_length=args.input_length,
+            d_model=args.d_model,
+            output_length=self.output_length,
+            d_output=args.d_output,
+            dropout=args.dropout,
+            hidden_scale=1.0,
+        )
+        self.mlp_cls = PEMS04HorizonProjection(
+            input_length=args.input_length,
+            d_model=args.d_model,
+            output_length=self.output_length,
+            d_output=args.d_output,
+            dropout=args.dropout,
+            hidden_scale=0.5,
+        )
+        self.ff_to_gpd = PEMS04HorizonProjection(
+            input_length=args.input_length,
+            d_model=args.d_model,
+            output_length=self.output_length,
+            d_output=args.d_output,
+            dropout=args.dropout,
+            hidden_scale=0.5,
+        )
 
         self.tail_lambda_cls = getattr(args, "tail_lambda_cls", 1.0)
         self.tail_lambda_gpd = getattr(args, "tail_lambda_gpd", 1.0)
@@ -129,6 +192,7 @@ class STSSL(nn.Module):
         self.tail_xi_max = getattr(args, "tail_xi_max", -0.02)
         self.tail_eps = getattr(args, "tail_eps", 1.0e-6)
         self.tail_schedule = getattr(args, "tail_schedule", "static")
+        self.tail_magnitude_mode = getattr(args, "tail_magnitude_mode", "point_excess")
         self.tail_classifier_loss_type = getattr(args, "tail_classifier_loss_type", "bce")
         self.tail_pos_weight_multiplier = getattr(args, "tail_pos_weight_multiplier", 1.0)
         self.tail_focal_gamma = getattr(args, "tail_focal_gamma", 2.0)
@@ -138,117 +202,42 @@ class STSSL(nn.Module):
         self.tail_exceedance_rate = 0.0
         self.tail_positive_count = 0
         self.tail_negative_count = 0
-        self.register_buffer("tail_u", torch.zeros(1, 1, args.num_nodes, args.d_output))
+        self.register_buffer(
+            "tail_u",
+            torch.zeros(1, self.output_length, args.num_nodes, args.d_output),
+        )
+        self.register_buffer(
+            "tail_mean_excess",
+            torch.zeros(1, self.output_length, args.num_nodes, args.d_output),
+        )
+        self._cached_last_flow = None
 
-        
-
-    def xavier_uniform_init(self, tensor):
-        fan_in, fan_out = nn.init._calculate_fan_in_and_fan_out(tensor)
-        std = np.sqrt(2.0 / (fan_in + fan_out))
-        nn.init.uniform_(tensor, -std, std) 
-
-    def threshold_top_values(self, tensor):
-        mask = torch.zeros_like(tensor).detach()
-        
-        for i in range(tensor.size(0)):
-            top_values, top_indices = tensor[i].topk(8, dim=1, largest=True, sorted=False)
-            mask[i].scatter_(1, top_indices, 1)
-        
-        return mask#*tensor
-    
-    def threshold_top_values_ste(self, tensor):
-        mask = torch.zeros_like(tensor).detach()
-        
-        for i in range(tensor.size(0)):
-            top_values, top_indices = tensor[i].topk(8, dim=1, largest=True, sorted=False)
-            mask[i].scatter_(1, top_indices, 1)
-        # Forward pass: hard thresholding
-        thresholded_tensor = mask
-
-        # Hook to modify the gradient during the backward pass: implement STE
-        thresholded_tensor = (thresholded_tensor - tensor).detach() + tensor
-        return thresholded_tensor
-    
-    def threshold_top_values_ste_PosNeg(self, tensor):
-        mask = torch.zeros_like(tensor).detach()
-        
-        for i in range(tensor.size(0)):
-            # Get the top 8 positive values
-            top_pos_values, top_pos_indices = tensor[i].topk(8, dim=1, largest=True, sorted=False)
-            mask[i].scatter_(1, top_pos_indices, 1)
-
-            # Get the top 8 negative values
-            top_neg_values, top_neg_indices = tensor[i].topk(8, dim=1, largest=False, sorted=False)
-            mask[i].scatter_(1, top_neg_indices, -1)
-
-        # Forward pass: hard thresholding
-        thresholded_tensor = mask
-
-        # Hook to modify the gradient during the backward pass: implement STE
-        thresholded_tensor = (thresholded_tensor - tensor).detach() + tensor
-        return thresholded_tensor
-    
-    torch.autograd.set_detect_anomaly(True)
-    
-    
     def forward(self, view1, graph):
-        # print(f"view1.shape: {view1.dtype}, {view1.device}")  
-
-        if self.dataset == "NYCBike1":  ## view1.shape: torch.Size([32, 9, 200, 2])
-            # view1B = view1[:, :5, :, :]
-            # view1A = view1[:, 5:9, :, :]
-            view1A = view1[:, -4:19, :, :]
-            view1B = view1[:, -9:-4, :, :]
-            # view1 = view1[:, -4:19, :, :]
-        elif self.dataset == "NYCBike2" or self.dataset == "NYCTaxi" or self.dataset == "BJTaxi":   ## view1.shape: torch.Size([32, 17, 200, 2])
-            ## when using input length = 35, these are C and D
-            # view1B = view1[:, :9, :, :]
-            # view1A = view1[:, 9:17, :, :]
-            ## these are A and B
-            view1A = view1[:, -8:35, :, :]
-            view1B = view1[:, -17:-8, :, :]
-            
-            
-            # view1 = view1[:, -8:35, :, :]
-        view1A = view1A.to(self.args.device)
-        view1B = view1B.to(self.args.device)
-        # print(f"view1.shape: {view1.shape}, view1A.shape: {view1A.shape}, view1B.shape: {view1B.shape}")  ## view1.shape: torch.Size([32, 17, 200, 2]), view1A.shape: torch.Size([32, 8, 200, 2]), view1B.shape: torch.Size([32, 9, 200, 2])
-        
-        B, T, N, D = view1.size()
-
-        learnable_graph = self.neighbours   ## make 1st channel dimension for einsum to properly message pass
-            
-        """ check einsum implementation for message passing, is running but probly wrong """
-        repr1A = self.encoderA(view1A, learnable_graph) # view1: n,l,v,c; graph: v,v 
-        repr1B = self.encoderB(view1B, learnable_graph) # view1: n,l,v,c; graph: v,v 
-        
-        # print(f"repr1A.shape: {repr1A.shape}, repr1B.shape: {repr1B.shape}")
-        
-        combined_repr = torch.cat((repr1A, repr1B), dim=3)            ## combine along the channel dimension d_model
-        
-        
-        if self.self_attention_flag:
-            combined_repr = self.attentive_fuse(combined_repr)
-
-        combined_repr_cls = None
-        return combined_repr, combined_repr_cls
-
+        del graph
+        view1 = view1.to(self.args.device)
+        self._cached_last_flow = view1[:, -1:, :, [0]]
+        repr1 = self.encoder(view1, self.neighbours)
+        return repr1, None
 
     def fetch_spatial_sim(self):
-        """
-        Fetch the region similarity matrix generated by region embedding.
-        Note this can be called only when spatial_sim is True.
-        :return sim_mx: tensor, similarity matrix, (v, v)
-        """
-        return self.encoder.s_sim_mx.cpu()
-    
+        return None
+
     def fetch_temporal_sim(self):
-        return self.encoder.t_sim_mx.cpu()
+        return None
 
     def set_tail_thresholds(self, thresholds):
         if thresholds.dim() == 2:
             thresholds = thresholds.unsqueeze(0).unsqueeze(0)
+        elif thresholds.dim() == 3:
+            thresholds = thresholds.unsqueeze(0)
         self.tail_u.copy_(thresholds.to(device=self.tail_u.device, dtype=self.tail_u.dtype))
+
+    def set_tail_mean_excess(self, mean_excess):
+        if mean_excess.dim() == 2:
+            mean_excess = mean_excess.unsqueeze(0).unsqueeze(0)
+        elif mean_excess.dim() == 3:
+            mean_excess = mean_excess.unsqueeze(0)
+        self.tail_mean_excess.copy_(mean_excess.to(device=self.tail_mean_excess.device, dtype=self.tail_mean_excess.dtype))
 
     def set_tail_classifier_stats(self, stats):
         self.tail_base_pos_weight = float(stats.get("base_pos_weight", 1.0))
@@ -258,37 +247,55 @@ class STSSL(nn.Module):
         self.tail_negative_count = int(stats.get("negative_count", 0))
 
     def predict_base(self, z1):
-        return self.mlp(z1)
+        if self._cached_last_flow is None:
+            raise RuntimeError("PEMS04 persistence skip requires a forward pass before predict_base.")
+        learned_residual = self.mlp(z1)
+        persistence = self._cached_last_flow.repeat(1, self.output_length, 1, 1)
+        return persistence + learned_residual
 
     def predict_o_tilde(self, z1):
         return self.predict_base(z1).detach()
 
     def get_classifier_logits(self, z1):
-        return self.mlp_cls(self.ff_to_cls(z1))
+        return self.mlp_cls(z1)
 
     def classify_evs(self, z1, z1_cls=None):
+        del z1_cls
         return torch.sigmoid(self.get_classifier_logits(z1))
 
     def get_tail_raw_params(self, z1):
-        projected = self.ff_to_gpd(z1)
-        params = torch.matmul(projected, self.learnable_vectors_gpd)
-        raw_sigma = params[..., :self.args.d_output]
-        raw_xi = params[..., self.args.d_output:]
+        raw_sigma = self.ff_to_gpd(z1)
+        raw_xi = torch.zeros_like(raw_sigma)
         return raw_sigma, raw_xi
 
     def get_tail_params(self, z1):
         raw_sigma, raw_xi = self.get_tail_raw_params(z1)
         sigma = F.softplus(raw_sigma) + 1.0e-4
         xi = self.tail_xi_min + (self.tail_xi_max - self.tail_xi_min) * torch.sigmoid(raw_xi)
-        return raw_sigma, raw_xi, sigma, xi
+        normal_mu = F.softplus(raw_xi)
+        return raw_sigma, raw_xi, sigma, xi, normal_mu
+
+    def get_expected_excess(self, sigma, xi, normal_mu):
+        if self.tail_magnitude_mode == "gpd":
+            return sigma / torch.clamp(1 - xi, min=self.tail_eps)
+        if self.tail_magnitude_mode == "normal_excess":
+            return normal_mu
+        if self.tail_magnitude_mode == "point_excess":
+            return sigma
+        if self.tail_magnitude_mode == "fixed_mean_excess":
+            return self.tail_mean_excess
+        if self.tail_magnitude_mode == "threshold_only":
+            return torch.zeros_like(self.tail_u)
+        raise ValueError(f"Unsupported tail_magnitude_mode: {self.tail_magnitude_mode}")
 
     def get_tail_prediction_components(self, z1, scaler):
         y_hat = self.predict_base(z1)
         y_hat_orig = scaler.inverse_transform(y_hat)
         logit_q = self.get_classifier_logits(z1)
         q = torch.sigmoid(logit_q)
-        raw_sigma, raw_xi, sigma, xi = self.get_tail_params(z1)
-        delta = q * (self.tail_u + sigma / torch.clamp(1 - xi, min=self.tail_eps))
+        raw_sigma, raw_xi, sigma, xi, normal_mu = self.get_tail_params(z1)
+        expected_excess = self.get_expected_excess(sigma, xi, normal_mu)
+        delta = q * (self.tail_u + expected_excess)
         y_corr = torch.clamp_min(y_hat_orig + delta, 0.0)
         return {
             "y_hat": y_hat,
@@ -299,6 +306,8 @@ class STSSL(nn.Module):
             "raw_xi": raw_xi,
             "sigma": sigma,
             "xi": xi,
+            "normal_mu": normal_mu,
+            "expected_excess": expected_excess,
             "delta": delta,
             "y_corr": y_corr,
         }
@@ -312,6 +321,7 @@ class STSSL(nn.Module):
         return indicator, exceedance, positive_residual
 
     def predict(self, z1, z1_cls, phase, scaler=None, t=None):
+        del z1_cls
         if phase == "pred":
             return self.predict_base(z1)
         if phase == "tail":
@@ -320,15 +330,23 @@ class STSSL(nn.Module):
             components = self.get_tail_prediction_components(z1, scaler)
             if t is not None:
                 gate = (components["q"] > t).float()
-                delta = gate * (self.tail_u + components["sigma"] / torch.clamp(1 - components["xi"], min=self.tail_eps))
+                delta = gate * (self.tail_u + components["expected_excess"])
                 return torch.clamp_min(components["y_hat_orig"] + delta, 0.0)
             return components["y_corr"]
         raise ValueError("phase not recognized")
 
     def weighted_reconstruction_loss(self, y_pred, y_true, val=False):
         loss_fn = self.loss_fun_val if val else self.loss_fun
-        return self.args.yita * loss_fn(y_pred[..., 0], y_true[..., 0]) + \
-            (1 - self.args.yita) * loss_fn(y_pred[..., 1], y_true[..., 1])
+        num_outputs = y_pred.size(-1)
+        if num_outputs == 1:
+            return loss_fn(y_pred[..., 0], y_true[..., 0])
+        if num_outputs == 2:
+            return self.args.yita * loss_fn(y_pred[..., 0], y_true[..., 0]) + (1 - self.args.yita) * loss_fn(
+                y_pred[..., 1],
+                y_true[..., 1],
+            )
+        channel_losses = [loss_fn(y_pred[..., idx], y_true[..., idx]) for idx in range(num_outputs)]
+        return torch.stack(channel_losses).mean()
 
     @staticmethod
     def _interpolate_segment(progress, start_progress, end_progress, start_value, end_value):
@@ -372,28 +390,10 @@ class STSSL(nn.Module):
             cls_multiplier = 1.0
             gpd_multiplier = 0.0
         elif progress < mixed_end:
-            cls_multiplier = self._interpolate_segment(
-                progress,
-                warmup_end,
-                mixed_end,
-                1.0,
-                mixed_cls_end,
-            )
-            gpd_multiplier = self._interpolate_segment(
-                progress,
-                warmup_end,
-                mixed_end,
-                0.0,
-                1.0,
-            )
+            cls_multiplier = self._interpolate_segment(progress, warmup_end, mixed_end, 1.0, mixed_cls_end)
+            gpd_multiplier = self._interpolate_segment(progress, warmup_end, mixed_end, 0.0, 1.0)
         else:
-            cls_multiplier = self._interpolate_segment(
-                progress,
-                mixed_end,
-                final_end,
-                final_cls_start,
-                final_cls_end,
-            )
+            cls_multiplier = self._interpolate_segment(progress, mixed_end, final_end, final_cls_start, final_cls_end)
             gpd_multiplier = 1.0
 
         return {
@@ -410,6 +410,7 @@ class STSSL(nn.Module):
             "lambda_gpd": tail_loss_weights["lambda_gpd"],
             "lambda_mae": float(self.tail_mae_weight),
             "selection_metric_name": "corrected_mae",
+            "tail_magnitude_mode": self.tail_magnitude_mode,
             "classifier_loss_type": self.tail_classifier_loss_type,
             "effective_pos_weight": float(self.tail_effective_pos_weight),
             "focal_gamma": float(self.tail_focal_gamma),
@@ -444,11 +445,7 @@ class STSSL(nn.Module):
         exceedance_count = int(exceedance_mask.sum().item())
         zero = sigma.new_zeros(())
         if exceedance_count == 0:
-            return zero, {
-                "exceedance_count": 0,
-                "valid_exceedance_count": 0,
-                "invalid_support_count": 0,
-            }
+            return zero, {"exceedance_count": 0, "valid_exceedance_count": 0, "invalid_support_count": 0}
 
         safe_sigma = torch.clamp(sigma, min=self.tail_eps)
         term = 1 + xi * exceedance / safe_sigma
@@ -462,14 +459,65 @@ class STSSL(nn.Module):
                 "invalid_support_count": invalid_support_count,
             }
 
-        loss = torch.log(safe_sigma[valid_mask]) + (1 / xi[valid_mask] + 1) * torch.log(torch.clamp(term[valid_mask], min=self.tail_eps))
+        loss = torch.log(safe_sigma[valid_mask]) + (1 / xi[valid_mask] + 1) * torch.log(
+            torch.clamp(term[valid_mask], min=self.tail_eps)
+        )
         return loss.mean(), {
             "exceedance_count": exceedance_count,
             "valid_exceedance_count": valid_exceedance_count,
             "invalid_support_count": invalid_support_count,
         }
 
+    def point_excess_loss(self, exceedance, indicator, predicted_excess):
+        exceedance_mask = indicator > 0.5
+        exceedance_count = int(exceedance_mask.sum().item())
+        zero = predicted_excess.new_zeros(())
+        if exceedance_count == 0:
+            return zero, {"exceedance_count": 0, "valid_exceedance_count": 0, "invalid_support_count": 0}
+        return F.l1_loss(predicted_excess[exceedance_mask], exceedance[exceedance_mask]), {
+            "exceedance_count": exceedance_count,
+            "valid_exceedance_count": exceedance_count,
+            "invalid_support_count": 0,
+        }
+
+    def normal_excess_loss(self, exceedance, indicator, mean_excess, std_excess):
+        exceedance_mask = indicator > 0.5
+        exceedance_count = int(exceedance_mask.sum().item())
+        zero = std_excess.new_zeros(())
+        if exceedance_count == 0:
+            return zero, {"exceedance_count": 0, "valid_exceedance_count": 0, "invalid_support_count": 0}
+        safe_std = torch.clamp(std_excess, min=self.tail_eps)
+        residual = exceedance[exceedance_mask] - mean_excess[exceedance_mask]
+        nll = (
+            torch.log(safe_std[exceedance_mask])
+            + 0.5 * (residual / safe_std[exceedance_mask]) ** 2
+            + 0.5 * np.log(2.0 * np.pi)
+        )
+        return nll.mean(), {
+            "exceedance_count": exceedance_count,
+            "valid_exceedance_count": exceedance_count,
+            "invalid_support_count": 0,
+        }
+
+    def magnitude_loss(self, exceedance, indicator, components):
+        if self.tail_magnitude_mode == "gpd":
+            return self.gpd_loss(exceedance, indicator, components["xi"], components["sigma"])
+        if self.tail_magnitude_mode == "normal_excess":
+            return self.normal_excess_loss(exceedance, indicator, components["normal_mu"], components["sigma"])
+        if self.tail_magnitude_mode == "point_excess":
+            return self.point_excess_loss(exceedance, indicator, components["expected_excess"])
+        if self.tail_magnitude_mode in {"fixed_mean_excess", "threshold_only"}:
+            exceedance_count = int((indicator > 0.5).sum().item())
+            zero = components["q"].new_zeros(())
+            return zero, {
+                "exceedance_count": exceedance_count,
+                "valid_exceedance_count": exceedance_count,
+                "invalid_support_count": 0,
+            }
+        raise ValueError(f"Unsupported tail_magnitude_mode: {self.tail_magnitude_mode}")
+
     def loss(self, z1, z1_cls, evs, y_true, scaler, objective_config, phase, val=False):
+        del z1_cls
         del evs
         y_true_orig = scaler.inverse_transform(y_true)
 
@@ -502,7 +550,7 @@ class STSSL(nn.Module):
         components = self.get_tail_prediction_components(z1, scaler)
         indicator, exceedance, _ = self.build_tail_targets(components["y_hat_orig"].detach(), y_true_orig)
         cls_loss = self.classification_loss(components["logit_q"], indicator, tail_objective)
-        gpd_loss, gpd_stats = self.gpd_loss(exceedance, indicator, components["xi"], components["sigma"])
+        gpd_loss, gpd_stats = self.magnitude_loss(exceedance, indicator, components)
         corrected_mae = self.weighted_reconstruction_loss(components["y_corr"], y_true_orig, val=val)
         tail_loss = (
             tail_objective["lambda_cls"] * cls_loss
@@ -511,8 +559,10 @@ class STSSL(nn.Module):
         )
         selection_metric_name = tail_objective.get("selection_metric_name", "corrected_mae")
         selection_metric_map = {
+            "loss": tail_loss.item(),
             "corrected_mae": corrected_mae.item(),
             "cls_loss": cls_loss.item(),
+            "gpd_loss": gpd_loss.item(),
         }
         if selection_metric_name not in selection_metric_map:
             raise ValueError(f"Unsupported selection metric: {selection_metric_name}")
@@ -529,15 +579,8 @@ class STSSL(nn.Module):
             "lambda_gpd": float(tail_objective["lambda_gpd"]),
             "lambda_mae": float(tail_objective.get("lambda_mae", 0.0)),
             "tail_schedule": tail_objective["schedule"],
+            "tail_magnitude_mode": tail_objective.get("tail_magnitude_mode", self.tail_magnitude_mode),
             "classifier_loss_type": tail_objective.get("classifier_loss_type", self.tail_classifier_loss_type),
             "effective_pos_weight": float(tail_objective.get("effective_pos_weight", self.tail_effective_pos_weight)),
         }
         return tail_loss, metrics
-    
-    
-    def temporal_loss(self, z1, z2):
-        return self.thm(z1, z2)
-
-    def spatial_loss(self, z1, z2):
-        return self.shm(z1, z2)
-    

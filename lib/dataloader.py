@@ -1,12 +1,11 @@
 import os
-import time
-import torch 
-import numpy as np 
+
+import numpy as np
+import torch
+
 
 class StandardScaler:
-    """
-    Standard the input
-    """
+    """Standardize inputs with a single mean/std pair."""
 
     def __init__(self, mean, std):
         self.mean = mean
@@ -16,15 +15,14 @@ class StandardScaler:
         return (data - self.mean) / self.std
 
     def inverse_transform(self, data):
-        if type(data) == torch.Tensor and type(self.mean) == np.ndarray:
+        if isinstance(data, torch.Tensor) and isinstance(self.mean, np.ndarray):
             self.std = torch.from_numpy(self.std).to(data.device).type(data.dtype)
             self.mean = torch.from_numpy(self.mean).to(data.device).type(data.dtype)
         return (data * self.std) + self.mean
 
+
 class MinMax01Scaler:
-    """
-    Standard the input
-    """
+    """Scale inputs to [0, 1]."""
 
     def __init__(self, min, max):
         self.min = min
@@ -34,56 +32,92 @@ class MinMax01Scaler:
         return (data - self.min) / (self.max - self.min)
 
     def inverse_transform(self, data):
-        if type(data) == torch.Tensor and type(self.min) == np.ndarray:
+        if isinstance(data, torch.Tensor) and isinstance(self.min, np.ndarray):
             self.min = torch.from_numpy(self.min).to(data.device).type(data.dtype)
             self.max = torch.from_numpy(self.max).to(data.device).type(data.dtype)
-        return (data * (self.max - self.min) + self.min)
+        return (data * (self.max - self.min)) + self.min
+
 
 class MinMax11Scaler:
-    """
-    Standard the input
-    """
+    """Scale inputs to [-1, 1]."""
 
     def __init__(self, min, max):
         self.min = min
         self.max = max
 
     def transform(self, data):
-        return ((data - self.min) / (self.max - self.min)) * 2. - 1.
+        return ((data - self.min) / (self.max - self.min)) * 2.0 - 1.0
 
     def inverse_transform(self, data):
-        if type(data) == torch.Tensor and type(self.min) == np.ndarray:
+        if isinstance(data, torch.Tensor) and isinstance(self.min, np.ndarray):
             self.min = torch.from_numpy(self.min).to(data.device).type(data.dtype)
             self.max = torch.from_numpy(self.max).to(data.device).type(data.dtype)
-        return ((data + 1.) / 2.) * (self.max - self.min) + self.min
+        return ((data + 1.0) / 2.0) * (self.max - self.min) + self.min
+
+
+class PEMS04FlowScaler:
+    """Scale only the flow channel; keep time-of-week untouched."""
+
+    def __init__(self, flow_mean, flow_std):
+        self.flow_mean = np.asarray(flow_mean, dtype=np.float32)
+        self.flow_std = np.asarray(max(float(flow_std), 1.0e-6), dtype=np.float32)
+
+    def _get_stats(self, data):
+        if isinstance(data, torch.Tensor):
+            flow_mean = torch.as_tensor(self.flow_mean, device=data.device, dtype=data.dtype)
+            flow_std = torch.as_tensor(self.flow_std, device=data.device, dtype=data.dtype)
+            return flow_mean, flow_std
+        return self.flow_mean, self.flow_std
+
+    def transform_inputs(self, data):
+        flow_mean, flow_std = self._get_stats(data)
+        scaled = data.copy() if isinstance(data, np.ndarray) else data.clone()
+        scaled[..., 0] = (scaled[..., 0] - flow_mean) / flow_std
+        return scaled
+
+    def transform_targets(self, data):
+        flow_mean, flow_std = self._get_stats(data)
+        scaled = data.copy() if isinstance(data, np.ndarray) else data.clone()
+        scaled[..., 0] = (scaled[..., 0] - flow_mean) / flow_std
+        return scaled
+
+    def inverse_transform(self, data):
+        flow_mean, flow_std = self._get_stats(data)
+        restored = data.clone() if isinstance(data, torch.Tensor) else data.copy()
+        if restored.shape[-1] == 1:
+            restored = restored * flow_std + flow_mean
+        else:
+            restored[..., 0] = restored[..., 0] * flow_std + flow_mean
+        return restored
+
 
 def STDataloader(X, Y, evs, bias, batch_size, shuffle=True, drop_last=True):
-    ## Note: bias is only used when we use the fixed bias. A tensor for the fixed bias is passed to the model.
-    cuda = True if torch.cuda.is_available() else False
-    # cuda = False
-    TensorFloat = torch.cuda.FloatTensor if cuda else torch.FloatTensor
-    X, Y, evs, bias = TensorFloat(X), TensorFloat(Y), TensorFloat(evs), TensorFloat(bias)
+    """Construct a tensor dataloader on CPU or CUDA tensors."""
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    X = torch.as_tensor(X, dtype=torch.float32, device=device)
+    Y = torch.as_tensor(Y, dtype=torch.float32, device=device)
+    evs = torch.as_tensor(evs, dtype=torch.float32, device=device)
+    bias = torch.as_tensor(bias, dtype=torch.float32, device=device)
     data = torch.utils.data.TensorDataset(X, Y, evs, bias)
-    dataloader = torch.utils.data.DataLoader(
-        data, 
+    return torch.utils.data.DataLoader(
+        data,
         batch_size=batch_size,
-        shuffle=shuffle, 
+        shuffle=shuffle,
         drop_last=drop_last,
     )
-    return dataloader
 
-def normalize_data(data, scalar_type='Standard'):
+
+def normalize_data(data, scalar_type="Standard"):
     scalar = None
-    if scalar_type == 'MinMax01':
+    if scalar_type == "MinMax01":
         scalar = MinMax01Scaler(min=data.min(), max=data.max())
-    elif scalar_type == 'MinMax11':
+    elif scalar_type == "MinMax11":
         scalar = MinMax11Scaler(min=data.min(), max=data.max())
-    elif scalar_type == 'Standard':
+    elif scalar_type == "Standard":
         scalar = StandardScaler(mean=data.mean(), std=data.std())
     else:
-        raise ValueError('scalar_type is not supported in data_normalization.')
-    # print('{} scalar is used!!!'.format(scalar_type))
-    # time.sleep(3)
+        raise ValueError("scalar_type is not supported in data_normalization.")
     return scalar
 
 
@@ -100,77 +134,106 @@ def _get_extreme_value_tensor(cat_data, dataset_path, evs_key):
 
     return cat_data[evs_key]
 
-def get_dataloader(data_dir, dataset, batch_size, test_batch_size, evs_key, scalar_type='Standard'):
+
+def _slice_pems04_samples(data_array, index_array):
+    inputs = []
+    targets = []
+    for start_idx, split_idx, end_idx in index_array:
+        inputs.append(data_array[start_idx:split_idx, :, :])
+        targets.append(data_array[split_idx:end_idx, :, [0]])
+    return np.stack(inputs, axis=0), np.stack(targets, axis=0)
+
+
+def _load_pems04_dataset(dataset_dir):
+    raw_data = np.load(os.path.join(dataset_dir, "data.npz"))["data"].astype(np.float32)
+    index_data = np.load(os.path.join(dataset_dir, "index.npz"))
+
+    split_payload = {}
+    for category in ["train", "val", "test"]:
+        x_split, y_split = _slice_pems04_samples(raw_data, index_data[category])
+        split_payload[f"x_{category}"] = x_split.astype(np.float32)
+        split_payload[f"y_{category}"] = y_split.astype(np.float32)
+        split_payload[f"evs_{category}"] = np.zeros_like(y_split, dtype=np.float32)
+        split_payload[f"bias_{category}"] = np.zeros_like(y_split, dtype=np.float32)
+    return split_payload
+
+
+def get_dataloader(
+    data_dir,
+    dataset,
+    batch_size,
+    test_batch_size,
+    evs_key,
+    scalar_type="Standard",
+    pems04_evs_quantile=0.95,
+):
+    del pems04_evs_quantile
     data = {}
-    
-    # print("input_dataset_context: ", input_dataset_context, input_sequence_type)
-    # if input_dataset_context == 19:
-    #     print("\n\n in first if\n\n")
-    #     input_sequence_dict = {"A":[-4, 19], "B":[-9, -4], "C":[-14, -9], "D":[-19, -14]}
-    #     input_sequence = input_sequence_dict[input_sequence_type]
-    # elif input_dataset_context == 35:
-    #     input_sequence_dict = {"A":[-8, 35], "B":[-17, -8], "C":[-26, -17], "D":[-35, -26]}
-    #     input_sequence = input_sequence_dict[input_sequence_type]
+    dataset_dir = os.path.join(data_dir, dataset)
 
-    for category in ['train', 'val', 'test']:
-        dataset_path = os.path.join(data_dir, dataset, category + '.npz')
-        cat_data = np.load(dataset_path)
-        # skip = cat_data['x'].shape[1] - input_length
-        # print(f"cat_data['x'].shape: {cat_data['x'].shape}, cat_data['y'].shape: {cat_data['y'].shape}, cat_data['evs_90'].shape: {cat_data['evs_90'].shape}")
-        
-        
-        # if dataset == 'NYCBike1':
-        #     data['x_' + category] = cat_data['x'][:, -9:19, :, :]  # cat_data['x'].shape: (1912, 35, 200, 2)
-        # else:
-        #     data['x_' + category] = cat_data['x'][:, -17:35, :, :]  # cat_data['x'].shape: (1912, 35, 200, 2)
-        # print("indexing")
+    if dataset == "PEMS04":
+        data.update(_load_pems04_dataset(dataset_dir))
+        flow_mean = float(data["x_train"][..., 0].mean())
+        flow_std = float(data["x_train"][..., 0].std())
+        scaler = PEMS04FlowScaler(flow_mean=flow_mean, flow_std=flow_std)
+        for category in ["train", "val", "test"]:
+            data[f"x_{category}"] = scaler.transform_inputs(data[f"x_{category}"])
+            data[f"y_{category}"] = scaler.transform_targets(data[f"y_{category}"])
+        print(
+            "Loaded PEMS04 indexed dataset from {} with full 12-step targets. "
+            "Flow-only normalization mean={:.4f}, std={:.4f}".format(
+                dataset_dir,
+                flow_mean,
+                flow_std,
+            )
+        )
+    else:
+        for category in ["train", "val", "test"]:
+            dataset_path = os.path.join(dataset_dir, category + ".npz")
+            cat_data = np.load(dataset_path)
+            evs_tensor = _get_extreme_value_tensor(cat_data, dataset_path, evs_key)
+            data["x_" + category] = cat_data["x"]
+            data["y_" + category] = cat_data["y"]
+            data["evs_" + category] = evs_tensor
+            data["bias_" + category] = evs_tensor
+            print(f"Loaded {category} EV labels from {dataset_path} using key '{evs_key}'")
+        scaler = normalize_data(np.concatenate([data["x_train"], data["x_val"]], axis=0), scalar_type)
+        for category in ["train", "val", "test"]:
+            data["x_" + category] = scaler.transform(data["x_" + category])
+            data["y_" + category] = scaler.transform(data["y_" + category])
 
-        # print("not indexing")
-        evs_tensor = _get_extreme_value_tensor(cat_data, dataset_path, evs_key)
-        data['x_' + category] = cat_data['x']
-        data['y_' + category] = cat_data['y']
-        data['evs_' + category] = evs_tensor
-        data['bias_' + category] = evs_tensor  ## This is a placeholder for the bias, which is not used in the current implementation.
-        print(f"Loaded {category} EV labels from {dataset_path} using key '{evs_key}'")
-    scaler = normalize_data(np.concatenate([data['x_train'], data['x_val']], axis=0), scalar_type)
-    # print("skip: ", skip)
-    # Data format
-    # print("\n\n!!Scaling is NOT off!!\n\n")
-    for category in ['train', 'val', 'test']:
-        data['x_' + category] = scaler.transform(data['x_' + category])
-        data['y_' + category] = scaler.transform(data['y_' + category])
-    print("data['x_train'].shape: ", data['x_train'].shape, data['y_train'].shape)
-    # Construct dataloader
+    print("data['x_train'].shape: ", data["x_train"].shape, data["y_train"].shape)
     dataloader = {}
-    dataloader['train'] = STDataloader(
-        data['x_train'], 
-        data['y_train'], 
-        data['evs_train'], 
-        data['bias_train'], 
-        batch_size, 
-        shuffle=True
+    dataloader["train"] = STDataloader(
+        data["x_train"],
+        data["y_train"],
+        data["evs_train"],
+        data["bias_train"],
+        batch_size,
+        shuffle=True,
     )
-    dataloader['val'] = STDataloader(
-        data['x_val'], 
-        data['y_val'], 
-        data['evs_val'], 
-        data['bias_val'], 
-        test_batch_size, 
-        shuffle=False
+    dataloader["val"] = STDataloader(
+        data["x_val"],
+        data["y_val"],
+        data["evs_val"],
+        data["bias_val"],
+        test_batch_size,
+        shuffle=False,
     )
-    dataloader['test'] = STDataloader(
-        data['x_test'], 
-        data['y_test'], 
-        data['evs_test'], 
-        data['bias_test'], 
-        test_batch_size, 
-        shuffle=False, 
-        drop_last=False
+    dataloader["test"] = STDataloader(
+        data["x_test"],
+        data["y_test"],
+        data["evs_test"],
+        data["bias_test"],
+        test_batch_size,
+        shuffle=False,
+        drop_last=False,
     )
-    dataloader['scaler'] = scaler
+    dataloader["scaler"] = scaler
     return dataloader
 
-if __name__ == '__main__':
-    loader = get_dataloader('../data/', 'NYCBike1', batch_size=64, test_batch_size=64, evs_key='evs_90')
+
+if __name__ == "__main__":
+    loader = get_dataloader("../data/", "NYCBike1", batch_size=64, test_batch_size=64, evs_key="evs_90")
     for key in loader.keys():
         print(key)
