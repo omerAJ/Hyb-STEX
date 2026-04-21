@@ -11,6 +11,10 @@ def get_logger(root, name=None, debug=True):
     logger = logging.getLogger(name)
     #critical > error > warning > info > debug > notset
     logger.setLevel(logging.DEBUG)
+    logger.propagate = False
+
+    if logger.handlers:
+        logger.handlers.clear()
 
     # define the formate
     formatter = logging.Formatter('%(asctime)s: %(message)s', "%Y-%m-%d %H:%M:%S")
@@ -22,7 +26,6 @@ def get_logger(root, name=None, debug=True):
         console_handler.setLevel(logging.INFO)
         # create a handler for write log to file
         logfile = os.path.join(root, 'run.log')
-        print('Creat Log File in: ', logfile)
         file_handler = logging.FileHandler(logfile, mode='w')
         file_handler.setLevel(logging.DEBUG)
         file_handler.setFormatter(formatter)

@@ -109,6 +109,27 @@ def _write_results_file(args, results):
     with open(results_path, "w", encoding="utf-8") as results_file:
         json.dump(_build_results_payload(args, results), results_file, indent=2)
 
+
+def _summarize_run_config(args):
+    summary_parts = [
+        f"dataset={args.dataset}",
+        f"seed={args.seed}",
+        f"device={args.device}",
+        f"recipe={getattr(args, 'training_recipe', 'full')}",
+        f"context={getattr(args, 'input_length', 'na')}->{getattr(args, 'output_length', 'na')}",
+        f"batch={args.batch_size}/{args.test_batch_size}",
+        f"lr={args.lr_init}",
+    ]
+    if args.dataset == "PEMS04":
+        summary_parts.extend(
+            [
+                f"tail={getattr(args, 'tail_schedule', 'static')}",
+                f"mag={getattr(args, 'tail_magnitude_mode', 'gpd')}",
+                f"q={getattr(args, 'tail_threshold_q', 'na')}",
+            ]
+        )
+    return " | ".join(summary_parts)
+
 def model_supervisor(args):
     init_seed(args.seed)
     if not torch.cuda.is_available():
@@ -233,8 +254,7 @@ if __name__=='__main__':
     # parser.add_argument('--input_length', default=0, type=int, help='# of samples to use for context')
     args = parser.parse_args()
     print(f'Starting experiment with configurations in {args.config_filename}...')
-    
-    time.sleep(3)
+    time.sleep(1)
     configs = yaml.load(
         open(args.config_filename), 
         Loader=yaml.FullLoader
@@ -279,6 +299,6 @@ if __name__=='__main__':
     experimentName += f"_seed={args.seed}"
     
     configs["experimentName"] = experimentName
-    print(f'Starting experiment with configurations {configs}...')
     args = argparse.Namespace(**configs)
+    print(_summarize_run_config(args))
     model_supervisor(args)

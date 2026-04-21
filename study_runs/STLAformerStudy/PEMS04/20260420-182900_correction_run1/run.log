@@ -1,0 +1,22 @@
+2026-04-20 18:29:00 | Dataset=PEMS04 device=cuda:0 seed=42
+2026-04-20 18:29:00 | Data path=D:\omer\Hyb-STEX\external\STLAformer-data\data\PEMS04
+2026-04-20 18:29:00 | Baseline checkpoint=D:\omer\Hyb-STEX\external\STLAformer\pre-trained\PEMS04.pt
+2026-04-20 18:29:00 | Correction config: q=0.9 epochs=40 patience=10 lr=0.001 lambda_mae=1.0 lambda_cls=0.05 lambda_mag=0.1
+2026-04-20 18:29:01 | Loaded official baseline checkpoint.
+2026-04-20 18:29:23 | Baseline test | RMSE=29.9010 MAE=18.0637 MAPE=11.8272
+2026-04-20 18:29:56 | Signed thresholds | up_rate=0.099990 down_rate=0.099990 up_pos_weight=9.0010 down_pos_weight=9.0010
+2026-04-20 18:30:48 | Correction e001 | train loss=16.4481 mae=16.0553 cls=2.3680 mag=2.7440 | val corrected MAE=18.2737 delta MAE=0.0497
+2026-04-20 18:31:37 | Correction e002 | train loss=16.4265 mae=16.0480 cls=2.3618 mag=2.6041 | val corrected MAE=18.2522 delta MAE=0.0281
+2026-04-20 18:32:27 | Correction e003 | train loss=16.4278 mae=16.0505 cls=2.3653 mag=2.5896 | val corrected MAE=18.2755 delta MAE=0.0515
+2026-04-20 18:33:17 | Correction e004 | train loss=16.4231 mae=16.0467 cls=2.3663 mag=2.5813 | val corrected MAE=18.2586 delta MAE=0.0345
+2026-04-20 18:34:07 | Correction e005 | train loss=16.4232 mae=16.0470 cls=2.3673 mag=2.5787 | val corrected MAE=18.2626 delta MAE=0.0386
+2026-04-20 18:34:56 | Correction e006 | train loss=16.4164 mae=16.0407 cls=2.3681 mag=2.5734 | val corrected MAE=18.2645 delta MAE=0.0405
+2026-04-20 18:35:46 | Correction e007 | train loss=16.4214 mae=16.0455 cls=2.3697 mag=2.5739 | val corrected MAE=18.2757 delta MAE=0.0516
+2026-04-20 18:36:36 | Correction e008 | train loss=16.4136 mae=16.0382 cls=2.3684 mag=2.5705 | val corrected MAE=18.2567 delta MAE=0.0326
+2026-04-20 18:37:26 | Correction e009 | train loss=16.4202 mae=16.0446 cls=2.3683 mag=2.5716 | val corrected MAE=18.2778 delta MAE=0.0538
+2026-04-20 18:38:16 | Correction e010 | train loss=16.4146 mae=16.0393 cls=2.3677 mag=2.5692 | val corrected MAE=18.2626 delta MAE=0.0386
+2026-04-20 18:39:06 | Correction e011 | train loss=16.4165 mae=16.0412 cls=2.3675 mag=2.5688 | val corrected MAE=18.2608 delta MAE=0.0368
+2026-04-20 18:39:56 | Correction e012 | train loss=16.4151 mae=16.0399 cls=2.3681 mag=2.5688 | val corrected MAE=18.2611 delta MAE=0.0371
+2026-04-20 18:39:56 | Early stopping correction at epoch 12 after 10 stale epochs.
+2026-04-20 18:40:21 | Corrected test | RMSE=29.9497 MAE=18.0949 MAPE=11.8319 | delta MAE=0.0312
+2026-04-20 18:40:21 | Saved results to D:\omer\Hyb-STEX\study_runs\STLAformerStudy\PEMS04\20260420-182900_correction_run1\results.json

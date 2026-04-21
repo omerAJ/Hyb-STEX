@@ -57,10 +57,40 @@ class Trainer(object):
             os.path.join(args.log_dir, "stats.pkl"),
             ["epoch", "train_loss", "val_loss"],
         )
-        self.logger.info("\nModel has {} M trainable parameters".format(self.num_params / (1e6)))
-        self.logger.info("Experiment log path in: {}".format(args.log_dir))
-        self.logger.info("Experiment configs are: {}".format(args))
-        self.logger.info("\nModel has {} M trainable parameters".format(self.num_params / (1e6)))
+        self.logger.info("Run dir: {}".format(args.log_dir))
+        self.logger.info("Model params: {:.3f}M".format(self.num_params / (1e6)))
+        self.logger.info(
+            "Setup | dataset={} seed={} device={} recipe={} batches(train/val/test)={}/{}/{}".format(
+                args.dataset,
+                args.seed,
+                args.device,
+                getattr(args, "training_recipe", "full"),
+                len(self.train_loader),
+                len(self.val_loader) if self.val_loader is not None else 0,
+                len(self.test_loader),
+            )
+        )
+        self.logger.info(
+            "Config | context={} -> {} | batch={} | lr={} | graph={} | comment={}".format(
+                getattr(args, "input_length", "na"),
+                getattr(args, "output_length", "na"),
+                args.batch_size,
+                args.lr_init,
+                os.path.basename(getattr(args, "graph_file", "na")),
+                args.comment,
+            )
+        )
+        if args.dataset == "PEMS04":
+            self.logger.info(
+                "PEMS04 | tail_schedule={} | magnitude={} | q={} | base_epochs={} | tail_stage1_epochs={} | joint_epochs={}".format(
+                    getattr(args, "tail_schedule", "static"),
+                    getattr(args, "tail_magnitude_mode", "gpd"),
+                    getattr(args, "tail_threshold_q", "na"),
+                    getattr(args, "base_epochs", args.epochs),
+                    getattr(args, "tail_stage1_epochs", args.epochs),
+                    getattr(args, "joint_refine_epochs", args.epochs),
+                )
+            )
         self.logger.info(format_param_group_counts(self.model))
         self.tail_target_stats = {
             "positive_count": 0,
@@ -90,7 +120,7 @@ class Trainer(object):
         shutil.copy(layers_file_path, save_dir)
         shutil.copy(trainer_file_path, save_dir)
         shutil.copy(main_file_path, save_dir)
-        self.logger.info("Model code files saved in: {}".format(save_dir))
+        self.logger.info("Saved source snapshot to run dir")
 
     def _load_checkpoint(self, path, strict=False, checkpoint_label="checkpoint"):
         checkpoint = torch.load(path, map_location=torch.device(self.args.device))
@@ -109,7 +139,7 @@ class Trainer(object):
         self.best_path = os.path.join(self.args.log_dir, f"best_model_{phase}.pth")
         if not self.args.debug:
             torch.save(save_dict, self.best_path)
-            self.logger.info("**************Current best model saved to {}".format(self.best_path))
+            self.logger.info("Best {} checkpoint @ epoch {} -> {}".format(phase, epoch, self.best_path))
         return save_dict
 
     def _set_trainable_params(self, params_to_train, params_to_freeze):
@@ -239,6 +269,21 @@ class Trainer(object):
             "invalid_support_count": 0,
         }
 
+    def _magnitude_label(self, objective_config=None):
+        mode = (
+            objective_config.get("tail_magnitude_mode")
+            if objective_config is not None
+            else getattr(self.args, "tail_magnitude_mode", "gpd")
+        )
+        label_map = {
+            "gpd": "gpd",
+            "normal_excess": "normal_excess",
+            "point_excess": "point_excess",
+            "fixed_mean_excess": "fixed_mean_excess",
+            "threshold_only": "threshold_only",
+        }
+        return label_map.get(mode, str(mode))
+
     def _build_tail_objective(self, epoch, phase_label, total_epochs=None):
         if phase_label == "tail":
             objective = self.model.get_default_tail_objective(
@@ -325,29 +370,29 @@ class Trainer(object):
         return stats
 
     def _log_epoch_stats(self, split, epoch, phase, stats, objective_config=None):
+        magnitude_label = self._magnitude_label(objective_config=objective_config)
         message = (
-            f"*******{split} Epoch {epoch} [{phase}]: "
-            f"loss={stats['loss']:.5f}, "
-            f"mae={stats['pred_mae']:.5f}, "
-            f"cls_loss={stats['cls_loss']:.5f}, "
-            f"gpd_loss={stats['gpd_loss']:.5f}"
+            f"{split:<5} e{epoch:03d} [{phase}] "
+            f"loss={stats['loss']:.5f} | "
+            f"mae={stats['pred_mae']:.5f} | "
+            f"cls={stats['cls_loss']:.5f} | "
+            f"{magnitude_label}={stats['gpd_loss']:.5f}"
         )
         if phase.startswith("tail"):
             message += (
-                f", exceedances={stats['exceedance_count']}, "
-                f"valid_exceedances={stats['valid_exceedance_count']}, "
-                f"invalid_support={stats['invalid_support_count']}, "
-                f"invalid_rate={stats['invalid_support_rate']:.5f}"
+                f" | exc={stats['exceedance_count']}"
+                f" valid={stats['valid_exceedance_count']}"
+                f" invalid={stats['invalid_support_count']}"
+                f" invalid_rate={stats['invalid_support_rate']:.5f}"
             )
             if objective_config is not None:
                 message += (
-                    f", lambda_cls={objective_config['lambda_cls']:.5f}, "
-                    f"lambda_gpd={objective_config['lambda_gpd']:.5f}, "
-                    f"lambda_mae={objective_config.get('lambda_mae', 0.0):.5f}, "
-                    f"schedule={objective_config['schedule']}, "
-                    f"magnitude={objective_config.get('tail_magnitude_mode', getattr(self.args, 'tail_magnitude_mode', 'gpd'))}, "
-                    f"clf_loss={objective_config.get('classifier_loss_type', 'bce')}, "
-                    f"selection={stats['selection_metric_name']}"
+                    f" | lambda_cls={objective_config['lambda_cls']:.5f}"
+                    f" lambda_{magnitude_label}={objective_config['lambda_gpd']:.5f}"
+                    f" lambda_mae={objective_config.get('lambda_mae', 0.0):.5f}"
+                    f" | schedule={objective_config['schedule']}"
+                    f" clf={objective_config.get('classifier_loss_type', 'bce')}"
+                    f" selection={stats['selection_metric_name']}"
                 )
         self.logger.info(message)
 
@@ -809,8 +854,9 @@ class Trainer(object):
         if phase.startswith("tail"):
             plt.plot(history["train_cls_loss"], label="Train BCE")
             plt.plot(history["val_cls_loss"], label="Val BCE")
-            plt.plot(history["train_gpd_loss"], label="Train Magnitude")
-            plt.plot(history["val_gpd_loss"], label="Val Magnitude")
+            magnitude_label = self._magnitude_label()
+            plt.plot(history["train_gpd_loss"], label=f"Train {magnitude_label}")
+            plt.plot(history["val_gpd_loss"], label=f"Val {magnitude_label}")
         plt.xlabel("Epochs")
         plt.ylabel("Loss")
         plt.title(f"Losses [{phase}]")

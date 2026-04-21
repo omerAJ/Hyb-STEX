@@ -1,0 +1,7 @@
+2026-04-20 18:28:27 | Dataset=PEMS04 device=cuda:0 seed=42
+2026-04-20 18:28:27 | Data path=D:\omer\Hyb-STEX\external\STLAformer-data\data\PEMS04
+2026-04-20 18:28:27 | Baseline checkpoint=D:\omer\Hyb-STEX\external\STLAformer\pre-trained\PEMS04.pt
+2026-04-20 18:28:27 | Correction config: q=0.9 epochs=40 patience=10 lr=0.001 lambda_mae=1.0 lambda_cls=0.05 lambda_mag=0.1
+2026-04-20 18:28:28 | Loaded official baseline checkpoint.
+2026-04-20 18:28:51 | Baseline test | RMSE=29.9010 MAE=18.0637 MAPE=11.8272
+2026-04-20 18:28:51 | Saved results to D:\omer\Hyb-STEX\study_runs\STLAformerStudy\PEMS04\20260420-182827_baseline_eval\results.json
