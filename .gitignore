@@ -1,6 +1,13 @@
-/experiments/*
-!/experiments/*.csv
+/experiments/
 /data
 /logs
 /preprocessed_data
 /preprocessed_data.zip
+/external/
+/scripts/
+/study_runs/
+/plots/
+/stssl_eee_results/
+__pycache__/
+*.py[cod]
+*$py.class
