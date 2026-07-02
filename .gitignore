@@ -7,6 +7,7 @@
 /scripts/*
 !/scripts/run_nyctaxi_drift_experiment.py
 !/scripts/run_nyctaxi_ungated_residual_ablation.py
+!/scripts/run_nyctaxi_three_phase_residual_comparison.py
 !/scripts/run_stssl_eee_multi.py
 !/scripts/create_ev_labels.py
 !/scripts/compute_event_prevalence.py
@@ -17,6 +18,7 @@
 /nyctaxi_drift_smoke/
 /nyctaxi_ungated_residual_results/
 /nyctaxi_ungated_residual_smoke/
+/nyctaxi_three_phase_residual_results/
 /event_prevalence_results/
 __pycache__/
 *.py[cod]
