@@ -143,6 +143,8 @@ if __name__=='__main__':
     parser.add_argument('--loss', "-l", default="mae", type=str, help='mae/mse')
     parser.add_argument('--load_path', "-lp", default=None, type=str, help='path to load pretrained model from')
     parser.add_argument('--variant', "-v", default=None, type=str, help='which variant of model to use. pred/cls/bias')
+    parser.add_argument('--phase3_mode', default="original", choices=["original", "joint_separated"],
+                    type=str, help='phase-3 training mode')
 
     # parser.add_argument('--input_length', default=0, type=int, help='# of samples to use for context')
     args = parser.parse_args()
@@ -177,6 +179,7 @@ if __name__=='__main__':
     configs['loss'] = args.loss
     configs['load_path'] = args.load_path
     configs['variant'] = args.variant
+    configs['phase3_mode'] = args.phase3_mode
     
     # configs['input_length'] = args.input_length
     # experimentName = "pred_" + str(args.input_length) + "_"
@@ -186,6 +189,8 @@ if __name__=='__main__':
 
     if args.T_Loss == 1:
         experimentName += "+T"
+    if args.phase3_mode != "original":
+        experimentName += f"_{args.phase3_mode}"
     experimentName += f"_seed={args.seed}"
     
     configs["experimentName"] = experimentName

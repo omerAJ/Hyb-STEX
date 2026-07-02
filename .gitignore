@@ -4,10 +4,15 @@
 /preprocessed_data
 /preprocessed_data.zip
 /external/
-/scripts/
+/scripts/*
+!/scripts/run_nyctaxi_drift_experiment.py
+!/scripts/compute_event_prevalence.py
 /study_runs/
 /plots/
 /stssl_eee_results/
+/nyctaxi_drift_results/
+/nyctaxi_drift_smoke/
+/event_prevalence_results/
 __pycache__/
 *.py[cod]
 *$py.class

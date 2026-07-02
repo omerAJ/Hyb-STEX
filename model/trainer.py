@@ -203,7 +203,6 @@ class Trainer(object):
         np.save(save_path, weights)
     
     def train_component(self, params_to_train, other_params, component_name, esp):
-        import keyboard
         if params_to_train is not None:
             for param in params_to_train:
                 param.requires_grad = True
@@ -228,7 +227,11 @@ class Trainer(object):
             key_pressed = True
             print("Ctrl+Shift+K pressed. Ending training...")
 
-        keyboard.add_hotkey('ctrl+shift+k', end_training)
+        try:
+            import keyboard
+            keyboard.add_hotkey('ctrl+shift+k', end_training)
+        except ImportError:
+            self.logger.info("Optional keyboard hotkey support is unavailable; continuing without it.")
         cls_w = 1
         loss_weights = np.array([1, cls_w])
 
@@ -370,8 +373,19 @@ class Trainer(object):
             pred_params, classifier_params, bias_params = get_model_params_grouped(self.model)
         
         # Phase-3 training:
-        results = self.train_component(
-            pred_params+bias_params, classifier_params, 'bias', esp=30)
+        phase3_mode = getattr(self.args, "phase3_mode", "original")
+        if phase3_mode == "original":
+            results = self.train_component(
+                pred_params+bias_params, classifier_params, 'bias', esp=30)
+        elif phase3_mode == "joint_separated":
+            self.logger.info(
+                "Phase-3 joint_separated: classifier fine-tunes on BCE while "
+                "encoder/prediction/bias train on MAE with detached classifier gate."
+            )
+            results = self.train_component(
+                pred_params+bias_params+classifier_params, None, 'bias', esp=30)
+        else:
+            raise ValueError(f"Unsupported phase3_mode: {phase3_mode}")
         
         load_from = self.best_path
         if load_from is not None:

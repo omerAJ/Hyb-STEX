@@ -275,7 +275,7 @@ class STSSL(nn.Module):
         """
         return torch.sigmoid(self.mlp_cls(self.ff_to_cls(z1)))
 
-    def predict(self, z1, z1_cls, phase, t=None):
+    def predict(self, z1, z1_cls, phase, t=None, detach_gate=False):
         '''Predicting future traffic flow.
         :param z1, z2 (tensor): shape nvc
         :return: nlvc, l=1, c=2
@@ -287,6 +287,8 @@ class STSSL(nn.Module):
         # bias = scaler.inverse_transform(bias)
         # evs = self.classify_evs(z1, z1_cls).detach()
         evs = self.classify_evs(z1, z1_cls)
+        if detach_gate:
+            evs = evs.detach()
         if t is not None:
             evs = (evs > t).float()
         ## which repr to use to calculate the bias, maybe both
@@ -313,7 +315,9 @@ class STSSL(nn.Module):
     #     evs = self.classify_evs(z1, z1_cls)
     #     return self.focal_loss(evs, evs_gt)
     
-    def classification_loss(self, z1, z1_cls, evs_gt, y_true):
+    def classification_loss(self, z1, z1_cls, evs_gt, y_true, detach_repr=False):
+        if detach_repr:
+            z1 = z1.detach()
         evs = self.classify_evs(z1, z1_cls)
         return F.binary_cross_entropy(evs, evs_gt)
     
@@ -338,8 +342,8 @@ class STSSL(nn.Module):
             
     #     return F.binary_cross_entropy(evs_masked, evs_gt_masked)
     
-    def pred_loss(self, z1, z1_cls, evs_gt, y_true, scaler, phase, val=False):
-        preds = self.predict(z1, z1_cls, phase)
+    def pred_loss(self, z1, z1_cls, evs_gt, y_true, scaler, phase, val=False, detach_gate=False):
+        preds = self.predict(z1, z1_cls, phase, detach_gate=detach_gate)
         y_pred = scaler.inverse_transform(preds)
         y_true = scaler.inverse_transform(y_true)
 
@@ -356,9 +360,28 @@ class STSSL(nn.Module):
     
 
     def loss(self, z1, z1_cls, evs, y_true, scaler, loss_weights, phase, val=False):
-        l_pred = self.pred_loss(z1, z1_cls, evs, y_true, scaler, phase, val=val)
+        joint_separated = (
+            phase == "bias"
+            and getattr(self.args, "phase3_mode", "original") == "joint_separated"
+        )
+        l_pred = self.pred_loss(
+            z1,
+            z1_cls,
+            evs,
+            y_true,
+            scaler,
+            phase,
+            val=val,
+            detach_gate=joint_separated,
+        )
         
-        l_class = self.classification_loss(z1, z1_cls, evs, y_true)
+        l_class = self.classification_loss(
+            z1,
+            z1_cls,
+            evs,
+            y_true,
+            detach_repr=joint_separated,
+        )
         # total_loss = l_pred + l_class
         # pred_weight = l_class / total_loss
         # cls_weight = l_pred / total_loss

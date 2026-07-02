@@ -1,0 +1,707 @@
+"""
+Run the NYCTaxi classifier-drift experiment.
+
+Default command from the repo root:
+  C:\\Users\\PCF\\.conda\\envs\\sds-test\\python.exe scripts\\run_nyctaxi_drift_experiment.py
+
+The script trains two Hyb-STEX variants on NYCTaxi for seeds 1, 2, 3:
+  - original
+  - joint_separated
+
+It writes per-seed and summary tables under nyctaxi_drift_results/<timestamp>/.
+"""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import importlib.util
+import json
+import os
+import random
+import sys
+from collections import defaultdict
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+import torch
+import yaml
+
+
+REQUIRED_DATA_FILES = ("train.npz", "val.npz", "test.npz", "adj_mx.npz")
+FLOW_NAMES = ("inflow", "outflow")
+FORECAST_NAMES = ("base", "soft", "oracle", "always_on")
+VARIANT_CHOICES = ("original", "joint_separated")
+
+
+DEFAULT_MAIN_OPTIONS = {
+    "S_Loss": 0,
+    "T_Loss": 0,
+    "comment": "nyctaxi_drift_experiment",
+    "cheb_order": 3,
+    "graph_init": "8_neighbours",
+    "self_attention_flag": True,
+    "cross_attention_flag": False,
+    "feedforward_flag": False,
+    "layer_norm_flag": False,
+    "additional_sa_flag": False,
+    "learnable_flag": False,
+    "pos_emb_flag": False,
+    "rank": 0,
+    "add_8": False,
+    "add_eye": False,
+    "add_x_encoder": False,
+    "freeze_encoder": False,
+    "threshold_adj_mx": False,
+    "affinity_conv": False,
+    "loss": "mae",
+    "load_path": None,
+    "variant": None,
+}
+
+
+class StandardScaler:
+    def __init__(self, mean: float, std: float):
+        self.mean = float(mean)
+        self.std = float(std)
+
+    def transform(self, data: np.ndarray) -> np.ndarray:
+        return (data - self.mean) / self.std
+
+    def inverse_transform(self, data: torch.Tensor) -> torch.Tensor:
+        return (data * self.std) + self.mean
+
+
+def repo_root() -> Path:
+    return Path(__file__).resolve().parents[1]
+
+
+def parse_csv_list(raw: str) -> list[str]:
+    return [item.strip() for item in raw.split(",") if item.strip()]
+
+
+def parse_seed_list(raw: str) -> list[int]:
+    seeds = [int(item) for item in parse_csv_list(raw)]
+    if not seeds:
+        raise ValueError("At least one seed is required.")
+    return seeds
+
+
+def import_required(name: str) -> None:
+    if importlib.util.find_spec(name) is None:
+        raise RuntimeError(f"Missing required package: {name}")
+
+
+def preflight_environment(data_dir: Path, device: str) -> None:
+    print(f"Python: {sys.executable}")
+    print(f"NumPy: {np.__version__}")
+    print(f"Torch: {torch.__version__}")
+    print(f"CUDA available: {torch.cuda.is_available()}")
+
+    for package in ("yaml", "pandas", "matplotlib", "sklearn"):
+        import_required(package)
+
+    try:
+        tensor = torch.as_tensor(np.asarray([1.0], dtype=np.float32))
+        if tensor.dtype != torch.float32:
+            raise RuntimeError(f"unexpected tensor dtype {tensor.dtype}")
+    except Exception as exc:
+        raise RuntimeError(
+            "NumPy-to-Torch conversion failed. Use the working sds-test environment, "
+            "not the incompatible Python310 environment."
+        ) from exc
+
+    if device == "cuda" and not torch.cuda.is_available():
+        raise RuntimeError("CUDA was requested, but torch.cuda.is_available() is false.")
+
+    missing = [
+        data_dir / "NYCTaxi" / filename
+        for filename in REQUIRED_DATA_FILES
+        if not (data_dir / "NYCTaxi" / filename).is_file()
+    ]
+    if missing:
+        raise FileNotFoundError(
+            "Missing NYCTaxi data files:\n"
+            + "\n".join(f"  - {path}" for path in missing)
+        )
+
+
+def add_repo_to_path(root: Path) -> None:
+    root_text = str(root)
+    if root_text not in sys.path:
+        sys.path.insert(0, root_text)
+
+
+def load_config(path: Path) -> dict[str, Any]:
+    with path.open("r", encoding="utf-8") as handle:
+        configs = yaml.load(handle, Loader=yaml.FullLoader)
+    for key, value in DEFAULT_MAIN_OPTIONS.items():
+        configs.setdefault(key, value)
+    return configs
+
+
+def init_seed(seed: int, device: str) -> None:
+    torch.cuda.cudnn_enabled = False
+    torch.backends.cudnn.deterministic = True
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if device == "cuda":
+        torch.cuda.manual_seed(seed)
+
+
+def make_evs(y: np.ndarray, percentile: float = 90.0) -> np.ndarray:
+    evs = np.zeros_like(y, dtype=np.float32)
+    for node_index in range(y.shape[2]):
+        for direction_index in range(y.shape[3]):
+            series = y[:, 0, node_index, direction_index]
+            threshold = np.percentile(series, percentile)
+            evs[series > threshold, 0, node_index, direction_index] = 1.0
+    return evs
+
+
+def load_arrays(data_dir: Path, percentile: float) -> dict[str, np.ndarray]:
+    arrays: dict[str, np.ndarray] = {}
+    for split in ("train", "val", "test"):
+        npz_path = data_dir / "NYCTaxi" / f"{split}.npz"
+        loaded = np.load(npz_path)
+        arrays[f"x_{split}"] = loaded["x"].astype(np.float32)
+        arrays[f"y_{split}"] = loaded["y"].astype(np.float32)
+        if "evs_90" in loaded.files:
+            arrays[f"evs_{split}"] = loaded["evs_90"].astype(np.float32)
+        else:
+            arrays[f"evs_{split}"] = make_evs(arrays[f"y_{split}"], percentile)
+    return arrays
+
+
+def build_dataloaders(
+    arrays: dict[str, np.ndarray],
+    batch_size: int,
+    test_batch_size: int,
+    device: str,
+) -> tuple[dict[str, Any], StandardScaler]:
+    train_val_x = np.concatenate([arrays["x_train"], arrays["x_val"]], axis=0)
+    scaler = StandardScaler(train_val_x.mean(), train_val_x.std())
+
+    normalized: dict[str, np.ndarray] = {}
+    for split in ("train", "val", "test"):
+        normalized[f"x_{split}"] = scaler.transform(arrays[f"x_{split}"]).astype(np.float32)
+        normalized[f"y_{split}"] = scaler.transform(arrays[f"y_{split}"]).astype(np.float32)
+
+    def make_loader(split: str, batch: int, shuffle: bool, drop_last: bool) -> torch.utils.data.DataLoader:
+        x = torch.as_tensor(normalized[f"x_{split}"], dtype=torch.float32, device=device)
+        y = torch.as_tensor(normalized[f"y_{split}"], dtype=torch.float32, device=device)
+        evs = torch.as_tensor(arrays[f"evs_{split}"], dtype=torch.float32, device=device)
+        bias_placeholder = evs.clone()
+        dataset = torch.utils.data.TensorDataset(x, y, evs, bias_placeholder)
+        return torch.utils.data.DataLoader(
+            dataset,
+            batch_size=batch,
+            shuffle=shuffle,
+            drop_last=drop_last,
+        )
+
+    dataloaders = {
+        "train": make_loader("train", batch_size, True, True),
+        "val": make_loader("val", test_batch_size, False, True),
+        "test": make_loader("test", test_batch_size, False, False),
+        "scaler": scaler,
+    }
+    return dataloaders, scaler
+
+
+def get_model_params_grouped(model: torch.nn.Module) -> tuple[list[torch.nn.Parameter], list[torch.nn.Parameter], list[torch.nn.Parameter]]:
+    pred_params: list[torch.nn.Parameter] = []
+    classifier_params: list[torch.nn.Parameter] = []
+    bias_params: list[torch.nn.Parameter] = []
+    for name, param in model.named_parameters():
+        if "cls" in name:
+            classifier_params.append(param)
+        elif "bias" in name:
+            bias_params.append(param)
+        else:
+            pred_params.append(param)
+    return pred_params, classifier_params, bias_params
+
+
+def build_optimizer(model: torch.nn.Module, lr: float) -> torch.optim.Optimizer:
+    pred_params, classifier_params, bias_params = get_model_params_grouped(model)
+    return torch.optim.Adam(
+        [
+            {
+                "params": pred_params,
+                "lr": lr,
+                "eps": 1.0e-8,
+                "weight_decay": 0,
+                "amsgrad": False,
+            },
+            {
+                "params": classifier_params,
+                "lr": lr,
+                "eps": 1.0e-8,
+                "weight_decay": 0,
+                "amsgrad": True,
+            },
+            {
+                "params": bias_params,
+                "lr": lr,
+                "eps": 1.0e-8,
+                "weight_decay": 1.0e-8,
+                "amsgrad": True,
+            },
+        ]
+    )
+
+
+def load_graph(adj_file: Path, device: str) -> torch.Tensor:
+    graph = np.load(adj_file)["adj_mx"]
+    return torch.tensor(graph, device=device, dtype=torch.float32)
+
+
+def build_run_args(
+    configs: dict[str, Any],
+    data_dir: Path,
+    seed: int,
+    phase3_mode: str,
+    device: str,
+    max_epochs: int | None,
+) -> argparse.Namespace:
+    run_configs = dict(configs)
+    run_configs["seed"] = seed
+    run_configs["mode"] = "train"
+    run_configs["device"] = device
+    run_configs["data_dir"] = str(data_dir)
+    run_configs["dataset"] = "NYCTaxi"
+    run_configs["graph_file"] = str(data_dir / "NYCTaxi" / "adj_mx.npz")
+    run_configs["best_path"] = None
+    run_configs["debug"] = False
+    run_configs["phase3_mode"] = phase3_mode
+    run_configs["comment"] = f"nyctaxi_drift_{phase3_mode}"
+    run_configs["experimentName"] = f"nyctaxi_drift_{phase3_mode}_seed={seed}"
+    if max_epochs is not None:
+        run_configs["epochs"] = max_epochs
+        run_configs["num_epochs"] = max_epochs
+    return argparse.Namespace(**run_configs)
+
+
+def masked_mae(pred: torch.Tensor, true: torch.Tensor, mask_value: float = 5.0) -> float:
+    mask = true > mask_value
+    if not torch.any(mask):
+        return float("nan")
+    return torch.mean(torch.abs(true[mask] - pred[mask])).item()
+
+
+def event_mae(pred: torch.Tensor, true: torch.Tensor, evs: torch.Tensor) -> float:
+    mask = evs == 1
+    if not torch.any(mask):
+        return float("nan")
+    return torch.mean(torch.abs(true[mask] - pred[mask])).item()
+
+
+def collect_outputs(
+    model: torch.nn.Module,
+    dataloader: torch.utils.data.DataLoader,
+    scaler: StandardScaler,
+    graph: torch.Tensor,
+) -> dict[str, Any]:
+    model.eval()
+    collected: dict[str, list[torch.Tensor]] = {
+        "true": [],
+        "evs": [],
+        "probs": [],
+        "base": [],
+        "soft": [],
+        "oracle": [],
+        "always_on": [],
+    }
+    with torch.no_grad():
+        for data, target, evs, _ in dataloader:
+            repr1, repr1_cls = model(data, graph)
+            base = model.mlp(repr1)
+            bias = model.get_bias(repr1)
+            probs = model.classify_evs(repr1, repr1_cls)
+
+            collected["true"].append(target)
+            collected["evs"].append(evs)
+            collected["probs"].append(probs)
+            collected["base"].append(base)
+            collected["soft"].append(base + bias * probs)
+            collected["oracle"].append(base + bias * evs)
+            collected["always_on"].append(base + bias)
+
+    outputs: dict[str, Any] = {
+        "true": scaler.inverse_transform(torch.cat(collected["true"], dim=0)),
+        "evs": torch.cat(collected["evs"], dim=0),
+        "probs": torch.cat(collected["probs"], dim=0),
+    }
+    for name in FORECAST_NAMES:
+        outputs[name] = scaler.inverse_transform(torch.cat(collected[name], dim=0))
+    return outputs
+
+
+def f1_counts(probs: np.ndarray, labels: np.ndarray, threshold: float) -> dict[str, float | int]:
+    pred = probs >= threshold
+    truth = labels.astype(bool)
+    tp = int(np.logical_and(pred, truth).sum())
+    fp = int(np.logical_and(pred, ~truth).sum())
+    fn = int(np.logical_and(~pred, truth).sum())
+    tn = int(np.logical_and(~pred, ~truth).sum())
+    denom = (2 * tp) + fp + fn
+    f1 = (2 * tp / denom) if denom else 0.0
+    precision = (tp / (tp + fp)) if (tp + fp) else 0.0
+    recall = (tp / (tp + fn)) if (tp + fn) else 0.0
+    return {
+        "f1": float(f1),
+        "precision": float(precision),
+        "recall": float(recall),
+        "tp": tp,
+        "fp": fp,
+        "fn": fn,
+        "tn": tn,
+    }
+
+
+def best_f1_threshold(probs: np.ndarray, labels: np.ndarray) -> tuple[float, float]:
+    best_f1 = -1.0
+    best_threshold = 0.5
+    for threshold in np.linspace(0.0, 1.0, 1001):
+        score = f1_counts(probs, labels, float(threshold))["f1"]
+        if score > best_f1:
+            best_f1 = float(score)
+            best_threshold = float(threshold)
+    return best_f1, best_threshold
+
+
+def evaluate_model(
+    model: torch.nn.Module,
+    dataloaders: dict[str, Any],
+    scaler: StandardScaler,
+    graph: torch.Tensor,
+    phase3_mode: str,
+    seed: int,
+    train_results: dict[str, Any],
+    checkpoint: Path,
+    log_dir: Path,
+) -> list[dict[str, Any]]:
+    val_outputs = collect_outputs(model, dataloaders["val"], scaler, graph)
+    test_outputs = collect_outputs(model, dataloaders["test"], scaler, graph)
+
+    rows: list[dict[str, Any]] = []
+    for flow_index, flow_name in enumerate(FLOW_NAMES):
+        val_probs = val_outputs["probs"][..., flow_index].detach().cpu().numpy().reshape(-1)
+        val_labels = val_outputs["evs"][..., flow_index].detach().cpu().numpy().reshape(-1)
+        test_probs = test_outputs["probs"][..., flow_index].detach().cpu().numpy().reshape(-1)
+        test_labels = test_outputs["evs"][..., flow_index].detach().cpu().numpy().reshape(-1)
+
+        val_best_f1, threshold = best_f1_threshold(val_probs, val_labels)
+        tuned = f1_counts(test_probs, test_labels, threshold)
+        fixed = f1_counts(test_probs, test_labels, 0.5)
+        prevalence = float(test_labels.mean())
+        always_positive_f1 = (2.0 * prevalence / (1.0 + prevalence)) if prevalence else 0.0
+
+        row: dict[str, Any] = {
+            "phase3_mode": phase3_mode,
+            "seed": seed,
+            "flow": flow_name,
+            "threshold": threshold,
+            "val_best_f1": val_best_f1,
+            "test_f1_tuned": tuned["f1"],
+            "test_precision_tuned": tuned["precision"],
+            "test_recall_tuned": tuned["recall"],
+            "test_tp_tuned": tuned["tp"],
+            "test_fp_tuned": tuned["fp"],
+            "test_fn_tuned": tuned["fn"],
+            "test_tn_tuned": tuned["tn"],
+            "test_f1_05": fixed["f1"],
+            "test_precision_05": fixed["precision"],
+            "test_recall_05": fixed["recall"],
+            "test_tp_05": fixed["tp"],
+            "test_fp_05": fixed["fp"],
+            "test_fn_05": fixed["fn"],
+            "test_tn_05": fixed["tn"],
+            "test_prevalence": prevalence,
+            "random_stratified_f1": prevalence,
+            "always_positive_f1": always_positive_f1,
+            "best_val_loss": float(train_results["best_val_loss"]),
+            "best_val_epoch": int(train_results["best_val_epoch"]),
+            "checkpoint": str(checkpoint),
+            "log_dir": str(log_dir),
+        }
+
+        true = test_outputs["true"][..., flow_index]
+        evs = test_outputs["evs"][..., flow_index]
+        for forecast_name in FORECAST_NAMES:
+            pred = test_outputs[forecast_name][..., flow_index]
+            row[f"{forecast_name}_mae"] = masked_mae(pred, true)
+            row[f"{forecast_name}_eee"] = event_mae(pred, true, evs)
+        rows.append(row)
+    return rows
+
+
+def run_one(
+    root: Path,
+    configs: dict[str, Any],
+    data_dir: Path,
+    seed: int,
+    phase3_mode: str,
+    device: str,
+    percentile: float,
+    max_epochs: int | None,
+) -> list[dict[str, Any]]:
+    from model.models import STSSL
+    from model.trainer import Trainer
+
+    init_seed(seed, device)
+    arrays = load_arrays(data_dir, percentile)
+    run_args = build_run_args(configs, data_dir, seed, phase3_mode, device, max_epochs)
+    dataloaders, scaler = build_dataloaders(
+        arrays,
+        batch_size=int(run_args.batch_size),
+        test_batch_size=int(run_args.test_batch_size),
+        device=device,
+    )
+    graph = load_graph(Path(run_args.graph_file), device)
+    run_args.num_nodes = len(graph)
+    run_args.ipe = len(dataloaders["train"])
+
+    model = STSSL(run_args).to(device)
+    optimizer = build_optimizer(model, float(run_args.lr_init))
+    trainer = Trainer(
+        model=model,
+        optimizer=optimizer,
+        dataloader=dataloaders,
+        graph=graph,
+        args=run_args,
+    )
+    train_results = trainer.train()
+    checkpoint = Path(trainer.best_path).resolve()
+    state = torch.load(checkpoint, map_location=torch.device(device))
+    model.load_state_dict(state["model"])
+
+    rows = evaluate_model(
+        model=model,
+        dataloaders=dataloaders,
+        scaler=scaler,
+        graph=graph,
+        phase3_mode=phase3_mode,
+        seed=seed,
+        train_results=train_results,
+        checkpoint=checkpoint,
+        log_dir=Path(trainer.args.log_dir).resolve(),
+    )
+
+    del trainer, optimizer, model, graph, dataloaders
+    if device == "cuda":
+        torch.cuda.empty_cache()
+    return rows
+
+
+def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
+    if not rows:
+        return
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(rows[0].keys()))
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def summarize(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    key_metrics = [
+        "base_mae",
+        "soft_mae",
+        "oracle_mae",
+        "always_on_mae",
+        "base_eee",
+        "soft_eee",
+        "oracle_eee",
+        "always_on_eee",
+        "test_f1_tuned",
+        "test_f1_05",
+        "test_precision_tuned",
+        "test_recall_tuned",
+    ]
+    grouped: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        grouped[(str(row["phase3_mode"]), str(row["flow"]))].append(row)
+
+    summary: list[dict[str, Any]] = []
+    for (phase3_mode, flow), group in sorted(grouped.items()):
+        item: dict[str, Any] = {
+            "phase3_mode": phase3_mode,
+            "flow": flow,
+            "n": len(group),
+        }
+        for metric in key_metrics:
+            values = np.asarray([float(row[metric]) for row in group], dtype=np.float64)
+            item[f"{metric}_mean"] = float(np.nanmean(values))
+            item[f"{metric}_std"] = float(np.nanstd(values, ddof=1)) if len(values) > 1 else 0.0
+        summary.append(item)
+    return summary
+
+
+def fmt(value: Any) -> str:
+    if isinstance(value, float):
+        return f"{value:.4f}"
+    return str(value)
+
+
+def markdown_table(rows: list[dict[str, Any]], columns: list[str]) -> str:
+    lines = [
+        "| " + " | ".join(columns) + " |",
+        "| " + " | ".join("---" for _ in columns) + " |",
+    ]
+    for row in rows:
+        lines.append("| " + " | ".join(fmt(row[column]) for column in columns) + " |")
+    return "\n".join(lines)
+
+
+def write_markdown(path: Path, rows: list[dict[str, Any]], summary: list[dict[str, Any]]) -> None:
+    per_seed_cols = [
+        "phase3_mode",
+        "seed",
+        "flow",
+        "soft_mae",
+        "soft_eee",
+        "test_f1_tuned",
+        "test_f1_05",
+        "test_prevalence",
+        "random_stratified_f1",
+        "always_positive_f1",
+        "base_mae",
+        "oracle_mae",
+        "always_on_mae",
+        "threshold",
+    ]
+    summary_cols = [
+        "phase3_mode",
+        "flow",
+        "n",
+        "soft_mae_mean",
+        "soft_mae_std",
+        "soft_eee_mean",
+        "soft_eee_std",
+        "test_f1_tuned_mean",
+        "test_f1_tuned_std",
+        "test_f1_05_mean",
+        "test_f1_05_std",
+        "oracle_mae_mean",
+        "always_on_mae_mean",
+    ]
+    with path.open("w", encoding="utf-8") as handle:
+        handle.write("# NYCTaxi Classifier Drift Experiment\n\n")
+        handle.write("## Per Seed\n\n")
+        handle.write(markdown_table(rows, per_seed_cols))
+        handle.write("\n\n## Summary\n\n")
+        handle.write(markdown_table(summary, summary_cols))
+        handle.write("\n")
+
+
+def save_outputs(output_dir: Path, rows: list[dict[str, Any]], args: argparse.Namespace) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    summary = summarize(rows)
+    write_csv(output_dir / "results.csv", rows)
+    write_csv(output_dir / "summary.csv", summary)
+    write_markdown(output_dir / "results.md", rows, summary)
+    with (output_dir / "results.json").open("w", encoding="utf-8") as handle:
+        json.dump({"results": rows, "summary": summary}, handle, indent=2)
+    with (output_dir / "run_config.json").open("w", encoding="utf-8") as handle:
+        json.dump(vars(args), handle, indent=2)
+
+
+def preflight_model(root: Path, configs: dict[str, Any], data_dir: Path, device: str, percentile: float) -> None:
+    from model.models import STSSL
+
+    arrays = load_arrays(data_dir, percentile)
+    args = build_run_args(configs, data_dir, seed=1, phase3_mode="joint_separated", device=device, max_epochs=1)
+    graph = load_graph(Path(args.graph_file), device)
+    args.num_nodes = len(graph)
+    model = STSSL(args).to(device)
+    pred_params, classifier_params, bias_params = get_model_params_grouped(model)
+    print("Preflight model constructed.")
+    print(f"NYCTaxi train x shape: {arrays['x_train'].shape}")
+    print(f"NYCTaxi train y shape: {arrays['y_train'].shape}")
+    print(f"NYCTaxi train event prevalence: {arrays['evs_train'].mean():.6f}")
+    print(f"Parameter groups: pred={len(pred_params)}, cls={len(classifier_params)}, bias={len(bias_params)}")
+    del model, graph
+    if device == "cuda":
+        torch.cuda.empty_cache()
+
+
+def main() -> int:
+    root = repo_root()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", default=str(root / "configs" / "NYCTaxi.yaml"))
+    parser.add_argument("--data-dir", default=str(root / "external" / "ST-SSL_Dataset"))
+    parser.add_argument("--output-dir", default=str(root / "nyctaxi_drift_results"))
+    parser.add_argument("--seeds", default="1,2,3")
+    parser.add_argument("--variants", default="original,joint_separated")
+    parser.add_argument("--device", default="auto", choices=["auto", "cuda", "cpu"])
+    parser.add_argument("--event-percentile", default=90.0, type=float)
+    parser.add_argument("--max-epochs", default=None, type=int, help="Optional smoke-test epoch cap for each phase.")
+    parser.add_argument("--preflight-only", action="store_true", help="Validate environment/data/model and exit.")
+    args = parser.parse_args()
+
+    data_dir = Path(args.data_dir).resolve()
+    config_path = Path(args.config).resolve()
+    device = args.device
+    if device == "auto":
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    preflight_environment(data_dir, device)
+    add_repo_to_path(root)
+    configs = load_config(config_path)
+    preflight_model(root, configs, data_dir, device, args.event_percentile)
+    if args.preflight_only:
+        print("Preflight complete. No training was run.")
+        return 0
+
+    seeds = parse_seed_list(args.seeds)
+    variants = parse_csv_list(args.variants)
+    invalid = [variant for variant in variants if variant not in VARIANT_CHOICES]
+    if invalid:
+        raise ValueError(f"Unsupported variants: {invalid}. Choices: {VARIANT_CHOICES}")
+
+    output_dir = Path(args.output_dir).resolve() / datetime.now().strftime("%Y%m%d-%H%M%S")
+    rows: list[dict[str, Any]] = []
+    for phase3_mode in variants:
+        for seed in seeds:
+            print(f"\n=== NYCTaxi phase3_mode={phase3_mode} seed={seed} device={device} ===")
+            run_rows = run_one(
+                root=root,
+                configs=configs,
+                data_dir=data_dir,
+                seed=seed,
+                phase3_mode=phase3_mode,
+                device=device,
+                percentile=args.event_percentile,
+                max_epochs=args.max_epochs,
+            )
+            rows.extend(run_rows)
+            save_outputs(output_dir, rows, args)
+            print(
+                markdown_table(
+                    run_rows,
+                    [
+                        "phase3_mode",
+                        "seed",
+                        "flow",
+                        "soft_mae",
+                        "soft_eee",
+                        "test_f1_tuned",
+                        "test_f1_05",
+                        "base_mae",
+                        "oracle_mae",
+                    ],
+                )
+            )
+
+    save_outputs(output_dir, rows, args)
+    print(f"\nSaved results to: {output_dir}")
+    print((output_dir / "results.md").read_text(encoding="utf-8"))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
