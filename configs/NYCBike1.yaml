@@ -1,20 +1,20 @@
 ## global
 seed: 1
 device: cuda
-mode: test
-best_path: E:\estudy\hybstex-code\Hyb-STEX\saved_weights\NYCBike1-p4.pth
+mode: train
+best_path: null
 debug: False  
 experimentName: pred+T+S
 S_Loss: 0
 T_Loss: 0
 
 ## data 
-data_dir: data
+data_dir: preprocessed_data
 dataset: NYCBike1  
 input_length: 9 # 4+5*3
 batch_size: 32
 test_batch_size: 32
-graph_file: data/NYCBike1/adj_mx.npz # 128 x 128
+graph_file: preprocessed_data/NYCBike1/adj_mx.npz # 128 x 128
 num_nodes: 128
 row: 16
 col: 8

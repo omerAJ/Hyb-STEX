@@ -125,6 +125,17 @@ class STSSL(nn.Module):
         self.ff_to_cls = PositionwiseFeedForward(d_model=128, d_ff=128*4)
         # self.learnable_vectors_bias = nn.Parameter(torch.zeros(1, 1, args.num_nodes, 128, 2), requires_grad=True)
         self.learnable_vectors_bias = nn.Parameter(torch.zeros(1, 1, 128, 2), requires_grad=True)
+        if getattr(args, "ablation_mode", "original") == "node_bias_only":
+            self.node_bias = nn.Parameter(torch.zeros(1, 1, args.num_nodes, args.d_output))
+        if getattr(args, "ablation_mode", "original") == "flow_bias_only":
+            self.flow_bias = nn.Parameter(torch.zeros(1, 1, 1, args.d_output))
+        if getattr(args, "ablation_mode", "original") in {
+            "dual_event_residual",
+            "event_weighted_dual_residual",
+            "event_weighted_dual_ungated",
+        }:
+            self.ff_key_projection_event_bias = PositionwiseFeedForward(d_model=128, d_ff=64*4)
+            self.learnable_vectors_event_bias = nn.Parameter(torch.zeros(1, 1, 128, 2), requires_grad=True)
         # self.learnable_bias_bias = nn.Parameter(torch.zeros(1, 1, args.num_nodes, 2), requires_grad=True)
         # self.xavier_uniform_init(self.learnable_vectors) 
 
@@ -246,6 +257,10 @@ class STSSL(nn.Module):
         """
         get the bias for each node and timestep 
         """
+        if getattr(self.args, "ablation_mode", "original") == "node_bias_only":
+            return self.node_bias
+        if getattr(self.args, "ablation_mode", "original") == "flow_bias_only":
+            return self.flow_bias
         ## z1.shape: torch.Size([32, 1, 200, 128])
         k = self.ff_key_projection_bias(z1)
         # k = k.unsqueeze(-2)  ## z1.shape: torch.Size([32, 1, 200, 1, 128])
@@ -257,6 +272,10 @@ class STSSL(nn.Module):
         # bias = bias.squeeze(-2)
         # bias = self.mlp_bias(k)
         return bias
+
+    def get_event_bias(self, z1):
+        k = self.ff_key_projection_event_bias(z1)
+        return torch.matmul(k, self.learnable_vectors_event_bias)
 
     def classify_evs(self, z1, z1_cls):
         """
@@ -275,28 +294,79 @@ class STSSL(nn.Module):
         """
         return torch.sigmoid(self.mlp_cls(self.ff_to_cls(z1)))
 
+    def uses_ungated_bias_ablation(self):
+        return getattr(self.args, "ablation_mode", "original") in {
+            "ungated_bias",
+            "event_weighted_ungated_end_to_end",
+            "event_weighted_ungated_residual",
+            "event_weighted_dual_ungated",
+            "node_bias_only",
+            "flow_bias_only",
+        }
+
+    def uses_floor_gated_ablation(self):
+        return getattr(self.args, "ablation_mode", "original") == "floor_gated"
+
+    def uses_boosted_gate_ablation(self):
+        return getattr(self.args, "ablation_mode", "original") in {
+            "boosted_gate",
+            "event_weighted_boosted_gate",
+        }
+
+    def uses_dual_event_residual_ablation(self):
+        return getattr(self.args, "ablation_mode", "original") in {
+            "dual_event_residual",
+            "event_weighted_dual_residual",
+            "event_weighted_dual_ungated",
+        }
+
+    def uses_event_weighted_loss(self):
+        return getattr(self.args, "ablation_mode", "original") in {
+            "event_weighted_base",
+            "event_weighted_ungated_end_to_end",
+            "event_weighted_ungated_residual",
+            "event_weighted_original",
+            "event_weighted_dual_residual",
+            "event_weighted_dual_ungated",
+            "event_weighted_boosted_gate",
+        }
+
+    def uses_expanded_base_additive_ablation(self):
+        return getattr(self.args, "ablation_mode", "original") == "expanded_base_additive"
+
     def predict(self, z1, z1_cls, phase, t=None, detach_gate=False):
         '''Predicting future traffic flow.
         :param z1, z2 (tensor): shape nvc
         :return: nlvc, l=1, c=2
         '''
-        # print("z1.shape: ", z1.shape)
         o_tilde = self.mlp(z1)
-        bias = self.get_bias(z1)
-        # o_tilde = scaler.inverse_transform(o_tilde)
-        # bias = scaler.inverse_transform(bias)
-        # evs = self.classify_evs(z1, z1_cls).detach()
-        evs = self.classify_evs(z1, z1_cls)
-        if detach_gate:
-            evs = evs.detach()
-        if t is not None:
-            evs = (evs > t).float()
-        ## which repr to use to calculate the bias, maybe both
         if phase == "pred":
+            if getattr(self.args, "ablation_mode", "original") == "event_weighted_ungated_end_to_end":
+                return o_tilde + self.get_bias(z1)
+            if self.uses_expanded_base_additive_ablation():
+                return o_tilde + self.get_bias(z1)
             return o_tilde
         elif phase == "cls":
             return o_tilde
         elif phase == "bias" or phase == "pred_2":
+            bias = self.get_bias(z1)
+            if getattr(self.args, "ablation_mode", "original") == "event_weighted_dual_ungated":
+                return o_tilde + bias + self.get_event_bias(z1)
+            if self.uses_ungated_bias_ablation():
+                return o_tilde + bias
+            evs = self.classify_evs(z1, z1_cls)
+            if detach_gate:
+                evs = evs.detach()
+            if t is not None:
+                evs = (evs > t).float()
+            if self.uses_dual_event_residual_ablation():
+                return o_tilde + bias + self.get_event_bias(z1) * evs
+            if self.uses_boosted_gate_ablation():
+                boost_scale = max(0.0, float(getattr(self.args, "boost_gate_scale", 1.0)))
+                return o_tilde + bias * (1.0 + boost_scale * evs)
+            if self.uses_floor_gated_ablation():
+                gate_floor = max(0.0, min(1.0, float(getattr(self.args, "gate_floor", 0.0))))
+                evs = gate_floor + (1.0 - gate_floor) * evs
             return o_tilde + bias * evs
         else:
             raise ValueError("phase not recognized")
@@ -342,6 +412,20 @@ class STSSL(nn.Module):
             
     #     return F.binary_cross_entropy(evs_masked, evs_gt_masked)
     
+    def event_mae_loss(self, y_pred, y_true, evs_gt):
+        losses = []
+        for flow_idx in range(y_pred.shape[-1]):
+            event_mask = evs_gt[..., flow_idx] == 1
+            if event_mask.any():
+                errors = torch.abs(
+                    y_true[..., flow_idx][event_mask]
+                    - y_pred[..., flow_idx][event_mask]
+                )
+                losses.append(torch.mean(errors))
+        if not losses:
+            return torch.zeros((), device=y_pred.device, dtype=y_pred.dtype)
+        return sum(losses) / len(losses)
+
     def pred_loss(self, z1, z1_cls, evs_gt, y_true, scaler, phase, val=False, detach_gate=False):
         preds = self.predict(z1, z1_cls, phase, detach_gate=detach_gate)
         y_pred = scaler.inverse_transform(preds)
@@ -353,6 +437,27 @@ class STSSL(nn.Module):
         else:
             pred_loss = self.args.yita * self.loss_fun(y_pred[..., 0], y_true[..., 0]) + \
                     (1 - self.args.yita) * self.loss_fun(y_pred[..., 1], y_true[..., 1])
+
+        event_loss_weight = float(getattr(self.args, "event_loss_weight", 0.0))
+        if (
+            self.uses_event_weighted_loss()
+            and event_loss_weight > 0
+            and (
+                phase in {"bias", "pred_2"}
+                or (
+                    phase == "pred"
+                    and getattr(self.args, "ablation_mode", "original") in {
+                        "event_weighted_base",
+                        "event_weighted_ungated_end_to_end",
+                    }
+                )
+            )
+        ):
+            pred_loss = pred_loss + event_loss_weight * self.event_mae_loss(
+                y_pred,
+                y_true,
+                evs_gt,
+            )
 
         loss = pred_loss
         return loss
@@ -374,6 +479,9 @@ class STSSL(nn.Module):
             val=val,
             detach_gate=joint_separated,
         )
+
+        if phase == "pred" or self.uses_ungated_bias_ablation():
+            return l_pred, l_pred.item(), 0.0, loss_weights
         
         l_class = self.classification_loss(
             z1,
@@ -393,10 +501,11 @@ class STSSL(nn.Module):
 
         # loss_weights = [pred_weight.item(), cls_weight.item()]
         # loss_weights = [1.0, 1.0]
-        if phase == "pred":
-            loss = loss_weights[0]*l_pred
+        cls_weight = float(getattr(self.args, "classification_loss_weight", 1.0))
+        if phase == "cls":
+            loss = cls_weight * l_class
         else:
-            loss = loss_weights[0]*l_pred + loss_weights[1]*l_class
+            loss = loss_weights[0]*l_pred + cls_weight*loss_weights[1]*l_class
         # loss = loss_weights[0]*l_pred
 
         l_pred=l_pred.item()

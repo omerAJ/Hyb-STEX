@@ -6,6 +6,9 @@ Default plan:
   - NYCTaxi:  seeds 1, 2, 3
   - BJTaxi:   seeds 1, 2
 
+Pass ``--datasets NYCBike1 --nycbike1-seeds 1,2,3`` to run the
+NYCBike1 baseline only.
+
 The script expects ST-SSL-format data at:
   preprocessed_data/<DATASET>/{train,val,test,adj_mx}.npz
 
@@ -40,6 +43,7 @@ import yaml
 
 
 DEFAULT_SEEDS = {
+    "NYCBike1": [1, 2, 3],
     "NYCBike2": [1, 2, 3],
     "NYCTaxi": [1, 2, 3],
     "BJTaxi": [1, 2],
@@ -483,6 +487,14 @@ def main() -> int:
     parser.add_argument("--data-dir", default=str(root / "preprocessed_data"))
     parser.add_argument("--output-dir", default=str(root / "stssl_eee_results"))
     parser.add_argument("--device", default="auto", choices=["auto", "cuda", "cpu"])
+    parser.add_argument(
+        "--datasets",
+        nargs="+",
+        choices=tuple(DEFAULT_SEEDS),
+        default=["NYCBike2", "NYCTaxi", "BJTaxi"],
+        help="Datasets to run. Defaults to the original NYCBike2, NYCTaxi, and BJTaxi plan.",
+    )
+    parser.add_argument("--nycbike1-seeds", default="1,2,3")
     parser.add_argument("--nycbike2-seeds", default="1,2,3")
     parser.add_argument("--nyctaxi-seeds", default="1,2,3")
     parser.add_argument("--bjtaxi-seeds", default="1,2")
@@ -497,10 +509,15 @@ def main() -> int:
 
     ensure_stssl_repo(stssl_dir)
 
+    seed_values = {
+        "NYCBike1": args.nycbike1_seeds,
+        "NYCBike2": args.nycbike2_seeds,
+        "NYCTaxi": args.nyctaxi_seeds,
+        "BJTaxi": args.bjtaxi_seeds,
+    }
     seed_plan = {
-        "NYCBike2": parse_seed_list(args.nycbike2_seeds, DEFAULT_SEEDS["NYCBike2"]),
-        "NYCTaxi": parse_seed_list(args.nyctaxi_seeds, DEFAULT_SEEDS["NYCTaxi"]),
-        "BJTaxi": parse_seed_list(args.bjtaxi_seeds, DEFAULT_SEEDS["BJTaxi"]),
+        dataset: parse_seed_list(seed_values[dataset], DEFAULT_SEEDS[dataset])
+        for dataset in args.datasets
     }
     datasets = list(seed_plan.keys())
     missing = missing_data_files(data_dir, datasets)

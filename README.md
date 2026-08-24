@@ -1,121 +1,166 @@
-# **Hyb-STEX: A Hybrid Model for Spatio-Temporal Traffic Flow Forecasting with Extreme Event Modeling**
+# Hyb-STEX
 
-This repository contains the official PyTorch implementation of **Hyb-STEX**, a hybrid model designed for accurate spatio-temporal traffic flow forecasting with a focus on extreme event modeling. The work is based on our work:
+Official PyTorch implementation of **Hyb-STEX**, a spatiotemporal traffic-flow
+forecasting model designed to reduce error during rare high-flow events.
 
-> **[Hyb-STEX: A Hybrid Model for Spatio-Temporal Traffic Flow Forecasting with Extreme Event Modeling](<https://drive.google.com/file/d/17r1Dv8AVi2Ztdl5DECMqtFV_PDsMwNhm/view?usp=sharing>)**  
-> (Manuscript uploaded on Google Drive)  
+The submission model is the same across all four datasets:
 
-![framework](assets/Hyb-STEX_Architecture.png)
+1. train the STE-Base predictor with ordinary MAE;
+2. freeze the base predictor;
+3. train one always-on residual head with event-weighted MAE;
+4. define events independently for every horizon, node, and flow direction
+   using the 90th percentile of training targets.
 
-<sub>
-This figure illustrates the architecture of the proposed model, which consists of a shared backbone with three specialized heads: a prediction head, a classification head, and a bias head. The input to the network is G_context, which consists of two sequences of past traffic flow graphs—one representing recent traffic flow (G_t, G_{t-1}, ..., G_{t-k}) and the other capturing periodic traffic flow (G_{t-(T-m)}, ..., G_{t-(T+n)})—that provide the context. The prediction head forecasts the future traffic flow G_{t+1}, the classification head outputs the probability of the traffic flow at each node at t+1 being an extreme event C_{t+1}, and the bias head outputs B_{t+1}, the magnitude of the required correction in the model's prediction. The outputs of the bias and classification heads are combined using Hadamard product (⊙) to generate B̂_{t+1}, which is added to G̃_{t+1} to obtain Ĝ_{t+1}. Ĝ_{t+1} is passed to a Mean Absolute Error (MAE) block, where it is compared with the ground truth G_{t+1}. Simultaneously, Ĉ_{t+1} is passed to a Binary Cross-Entropy (BCE) block to be compared with the ground truth C_{t+1}.
-</sub>
-
----
-**🚀 [Download Preprocessed Datasets and Trained Model Weights (Google Drive)](https://drive.google.com/drive/folders/1ji-ph5ZBNuHjyq0i2kVpRUzDpkQmEdAn?usp=sharing) 🚀**
+In the experiment code this configuration is named
+`D_frozen_residual_event_weighted`. The event-loss weight is `0.25`. The
+classifier-gated and dual-residual models remain available as ablations but
+are not the default Hyb-STEX model reported by the submission.
 
 ## Datasets
 
-The datasets range from `{NYCBike1, NYCBike2, NYCTaxi, BJTaxi}`. These dataset links and preprocessing steps are reused from the original ST-SSL implementation. You can download them from [GitHub repo](https://github.com/Echo-Ji/ST-SSL_Dataset), [Beihang Cloud Drive](https://bhpan.buaa.edu.cn/link/AAF30DD8F4A2D942F7A4992959335C2780), or [Google Drive](https://drive.google.com/file/d/1n0y6X8pWNVwHxtFUuY8WsTYZHwBe9GeS/view?usp=sharing).
+Experiments use `NYCBike1`, `NYCBike2`, `NYCTaxi`, and `BJTaxi`, following the
+data layout of [ST-SSL](https://github.com/Echo-Ji/ST-SSL):
 
-Each dataset is composed of 4 files, namely `train.npz`, `val.npz`, `test.npz`, and `adj_mx.npz`.
-
-```
-|----NYCBike1\
-|    |----train.npz    # training data
-|    |----adj_mx.npz   # predefined graph structure
-|    |----test.npz     # test data
-|    |----val.npz      # validation data
-```
-
-The `train/val/test` data is composed of 4 `numpy.ndarray` objects:
-
-* `X`: input data. It is a 4D tensor of shape `(#samples, #lookback_window, #nodes, #flow_types)`, where `#` denotes the number sign. 
-* `Y`: data to be predicted. It is a 4D tensor of shape `(#samples, #predict_horizon, #nodes, #flow_types)`. Note that `X` and `Y` are paired in the sample dimension. For instance, `(X_i, Y_i)` is the `i`-the data sample with `i` indexing the sample dimension.
-* `X_offset`: a list indicating offsets of `X`'s lookback window relative to the current time with offset `0`.  
-* `Y_offset`: a list indicating offsets of `Y`'s prediction horizon relative to the current time with offset `0`.
-
-For all datasets, previous 2-hour flows as well as previous 3-day flows around the predicted time are used to forecast flows for the next time step.
-
-`adj_mx.npz` is the graph adjacency matrix that indicates the spatial relation of every two regions/nodes in the studied area. 
-
-⚠️ Note that all datasets are processed as a sliding window view. Raw data of **NYCBike1** and **BJTaxi** are collected from [STResNet](https://ojs.aaai.org/index.php/AAAI/article/view/10735). Raw data of **NYCBike2** and **NYCTaxi** are collected from [STDN](https://ojs.aaai.org/index.php/AAAI/article/view/4511).
-
-### Additional Preprocessing Steps
-
-For this project, the datasets were further preprocessed to include binary extreme values tensors. This preprocessing was conducted using the `createDataWithEVLabels.ipynb` file. To create the final datasets, follow the complete steps outlined in the `createDataWithEVLabels.ipynb` notebook. The key saving line in this preprocessing is as follows:
-
-```python
-np.savez(data_path, x=x_train, y=y_train, evs_90=extreme_values_binary_tensor)
+```text
+preprocessed_data/
+  NYCBike1/
+    train.npz
+    val.npz
+    test.npz
+    adj_mx.npz
+  NYCBike2/
+  NYCTaxi/
+  BJTaxi/
 ```
 
-This process adds an additional binary tensor (`evs_90`) representing extreme values to the original sliding window datasets.
+Each split contains `x`, `y`, and `evs_90`. Event labels are fitted from
+training targets only, separately for every forecast horizon, node, and flow
+direction. Valid high-flow events satisfy `y > 5` and `y > training p90`.
 
----
-## **Model Training and Evaluation**
-
-### **Training**
-To run experiments across multiple seeds and datasets, use the provided `run_experiments.bat` script:
-```bash
-run_experiments.bat
-```
-This script automates the training process for reproducibility and consistency.
-
-For advanced configurations and command-line arguments, refer to the main.py file. Key options include:
-
-* config_filename: Specify the config file to use, includes alll configuration including the dataset to be used.
-* comment: Comment for the experiment, included in the save directory.
-
-Example usage:
+Download the original datasets from the
+[ST-SSL dataset repository](https://github.com/Echo-Ji/ST-SSL_Dataset), then
+generate the verified event-label copies:
 
 ```bash
-Copy code
-python main.py -c "example run on NYCBike1" -s 1 -cf configs/NYCBike1.yaml
+python scripts/create_ev_labels.py \
+  --data-dir external/ST-SSL_Dataset \
+  --output-dir preprocessed_data
 ```
 
-### **Evaluation**
-You can evaluate the trained model using one of the following methods:
+Data, checkpoints, and generated results are intentionally excluded from Git.
 
-1. Using the Mode Argument in Configs:
+## Installation
 
-  > Set the mode argument in the configs.yaml file to 'test'.
-  > Run the script to evaluate the model with the desired settings. Provide 'load_path' to the trained model.
+Python 3.10 or newer is recommended.
 
-2. Using the EvaluateModel.ipynb Notebook:
+```bash
+python -m venv .venv
+# Linux/macOS
+source .venv/bin/activate
+# Windows PowerShell: .venv\Scripts\Activate.ps1
 
-  Open the EvaluateModel.ipynb notebook for detailed evaluation capabilities:
-  * Evaluate a list of trained models.
-  * Plot predictions (with and without bias correction).
-  * Independently evaluate the model’s classifier and generate a confusion matrix.
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+```
 
-  Example evaluation features:
+Install the appropriate CUDA-enabled PyTorch wheel separately if the default
+package index does not match your CUDA runtime.
 
-  * Generate visual comparisons of predicted vs. actual values.
-  * Quantify prediction errors and metrics (e.g., MAE, EEE).
-  * Analyze classification performance using confusion matrix and f1-score.
+## Run the final Hyb-STEX model
 
-  #### Results Visualization
+The canonical runner trains both stages, evaluates the test split after model
+selection on validation data, resumes compatible interrupted runs, and writes
+Hyb-STEX-only result tables.
 
-   The figure below demonstrates **the motivation**, **performance improvements**, and **remaining challenges** of Hyb-STEX:
+```bash
+python scripts/run_hybstex.py \
+  --data-dir preprocessed_data \
+  --output-dir results/hybstex \
+  --datasets NYCBike1 NYCBike2 NYCTaxi BJTaxi \
+  --seeds 1 2 3 \
+  --device cuda
+```
 
-   ![results](assets/NYCTaxi_flow_annotated.png)
-   
-   <sub>
-   This figure illustrates the performance of our model on the validation and test split of NYCTaxi dataset. The plot is for the total city wide inflow i.e., inflow summed over all nodes. Green circles highlight regions where the bias correction significantly improved the predictions, particularly in cases where the base model under-predicted. Red circle indicates the area where the model over-corrected due to false positives of the extreme event classifier. Blue circles mark instances of missed corrections, where highly local extreme values or left extreme values were not addressed by the model due to the limitation of how we currently define extreme values, these insights guide our future work.
-   </sub>
+Equivalent main entry point:
 
----
+```bash
+python main.py --submission-run --data-dir preprocessed_data --device cuda
+```
 
-## **Acknowledgment**
+On Windows, `run_experiments.bat` forwards its arguments to the same runner:
 
-This work builds upon the foundation of **ST-SSL**, implemented in the paper:
+```powershell
+.\run_experiments.bat --data-dir preprocessed_data --device cuda
+```
 
-> **J. Ji**, J. Wang, C. Huang, et al.  
-> "[Spatio-Temporal Self-Supervised Learning for Traffic Flow Prediction](https://ojs.aaai.org/index.php/AAAI/article/view/25555)"  
-> *Proceedings of the AAAI Conference on Artificial Intelligence, 2023.*
+Before a full run, use the CPU smoke test:
 
-We have utilized the **ST-SSL** codebase and data pipeline as the starting point for this research, and we extend it with additional functionalities and methodologies to develop **Hyb-STEX**. We sincerely thank the authors of **ST-SSL** for making their implementation and datasets publicly available, which enabled our work.
+```bash
+python scripts/run_hybstex.py \
+  --datasets NYCTaxi \
+  --seeds 1 \
+  --device cpu \
+  --smoke-test \
+  --output-dir results/smoke
+```
 
-You can find the original implementation of **ST-SSL** here:  
-🔗 [ST-SSL GitHub Repository](https://github.com/Echo-Ji/ST-SSL)
+Use `--dry-run` to inspect the exact two commands without creating results.
+Re-running the same command resumes completed seeds. Use `--restart` only when
+you intentionally want to replace the selected output run.
 
+## Outputs
+
+The canonical output root contains:
+
+```text
+results/hybstex/
+  base/                 # reusable STE-Base checkpoints and metrics
+  final/                # residual-stage checkpoints and complete metrics
+  per_seed_metrics.csv  # final Hyb-STEX rows only
+  summary_metrics.csv   # mean and standard deviation across seeds
+  run_info.json         # public configuration and protocol
+```
+
+The result tables report inflow, outflow, and mean values for ordinary MAE and
+extreme-event error (EEE). Checkpoint paths and detailed training artifacts are
+recorded by the underlying resumable runners.
+
+## Evaluation protocol
+
+- Event threshold: training-target p90, fitted per horizon/node/flow.
+- Valid-flow rule: `target > 5`.
+- Event comparison: strict `target > p90`.
+- Model selection: validation loss only.
+- Reported metrics: chronological test split only.
+- Seeds: 1, 2, and 3.
+- Final prediction: frozen residual-stage output `pred_2`.
+- Residual: always on; no classifier gate at inference.
+
+See [docs/REPRODUCIBILITY.md](docs/REPRODUCIBILITY.md) for exact commands,
+stage definitions, output interpretation, and plotting instructions.
+
+## Tests
+
+```bash
+python -m pip install -r requirements-dev.txt
+pytest -q
+```
+
+## Repository structure
+
+```text
+configs/       Dataset-specific architecture and optimization settings
+lib/           Data loading, event masks, metrics, and utilities
+model/         Hyb-STEX architecture and phase-wise trainer
+scripts/       Canonical runner, ablations, evaluation, and plotting tools
+tests/         Protocol and evaluation regression tests
+```
+
+## Acknowledgment
+
+Hyb-STEX builds on the ST-SSL data pipeline and base implementation:
+
+> J. Ji, J. Wang, C. Huang, et al. “Spatio-Temporal Self-Supervised Learning
+> for Traffic Flow Prediction.” AAAI, 2023.
+
+Please cite the accompanying Hyb-STEX manuscript when using this repository.

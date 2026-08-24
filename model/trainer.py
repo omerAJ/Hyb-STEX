@@ -16,23 +16,134 @@ from lib.utils import (
     get_model_params, 
     dwa,  
 )
-from lib.metrics import test_metrics
+from lib.metrics import corrected_event_metrics, test_metrics
 
 def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
-def get_model_params_grouped(model):
+def is_residual_bias_param(name):
+    return (
+        name == "learnable_vectors_bias"
+        or name == "learnable_vectors_event_bias"
+        or name == "node_bias"
+        or name == "flow_bias"
+        or name.startswith("ff_key_projection_bias.")
+        or name.startswith("ff_key_projection_event_bias.")
+    )
+
+
+def is_active_residual_bias_param(name, args):
+    mode = getattr(args, "ablation_mode", "original")
+    if mode == "node_bias_only":
+        return name == "node_bias"
+    if mode == "flow_bias_only":
+        return name == "flow_bias"
+    if mode in {
+        "dual_event_residual",
+        "event_weighted_dual_residual",
+        "event_weighted_dual_ungated",
+    }:
+        return (
+            name == "learnable_vectors_bias"
+            or name == "learnable_vectors_event_bias"
+            or name.startswith("ff_key_projection_bias.")
+            or name.startswith("ff_key_projection_event_bias.")
+        )
+    return (
+        name == "learnable_vectors_bias"
+        or name.startswith("ff_key_projection_bias.")
+    )
+
+
+def get_model_params_grouped(model, args=None):
+    if args is None:
+        args = getattr(model, "args", None)
+    bias_param_scope = getattr(args, "bias_param_scope", "legacy")
     pred_params = []
     classifier_params = []
     bias_params = []
     for name, param in model.named_parameters():
         if 'cls' in name:
             classifier_params.append(param)
-        elif "bias" in name:    
+        elif bias_param_scope == "head_only" and is_active_residual_bias_param(name, args):
+            bias_params.append(param)
+        elif bias_param_scope != "head_only" and "bias" in name:
             bias_params.append(param)
         else:
             pred_params.append(param)
     return pred_params, classifier_params, bias_params
+
+def uses_ungated_bias_ablation(args):
+    return getattr(args, "ablation_mode", "original") in {
+        "ungated_bias",
+        "event_weighted_ungated_end_to_end",
+        "event_weighted_ungated_residual",
+        "event_weighted_dual_ungated",
+        "node_bias_only",
+        "flow_bias_only",
+    }
+
+
+def uses_expanded_base_additive_ablation(args):
+    return getattr(args, "ablation_mode", "original") == "expanded_base_additive"
+
+
+def build_evaluation_details(prediction, target, event, capture_predictions=False, valid_min=5.0):
+    """Build corrected per-flow evaluation details and optional CPU artifacts."""
+    if prediction.shape != target.shape or prediction.shape != event.shape:
+        raise ValueError("prediction, target, and event must share a shape")
+    if prediction.ndim < 1:
+        raise ValueError("prediction, target, and event must include a flow dimension")
+
+    prediction_cpu = prediction.detach().to(device="cpu")
+    target_cpu = target.detach().to(device="cpu")
+    event_cpu = event.detach().to(device="cpu")
+    if event_cpu.dtype != torch.bool:
+        integer_dtypes = {
+            torch.uint8,
+            torch.int8,
+            torch.int16,
+            torch.int32,
+            torch.int64,
+        }
+        is_real_numeric = not event_cpu.is_complex() and (
+            event_cpu.is_floating_point() or event_cpu.dtype in integer_dtypes
+        )
+        is_binary = is_real_numeric and bool(
+            torch.all((event_cpu == 0) | (event_cpu == 1)).item()
+        )
+        if not is_binary:
+            raise ValueError("event must contain only bool or exact binary 0/1 values")
+    valid = target_cpu > valid_min
+    # Legacy labels can include invalid points. Evaluation details always use the
+    # corrected valid/event partition, while legacy headline metrics remain intact.
+    corrected_event = event_cpu.to(dtype=torch.bool) & valid
+
+    details = [
+        corrected_event_metrics(
+            prediction_cpu[..., flow_idx],
+            target_cpu[..., flow_idx],
+            corrected_event[..., flow_idx],
+            valid_min=valid_min,
+        )
+        for flow_idx in range(prediction_cpu.shape[-1])
+    ]
+    artifacts = None
+    if capture_predictions:
+        artifacts = {
+            "prediction": prediction_cpu.to(dtype=torch.float32),
+            "target": target_cpu.to(dtype=torch.float32),
+            "event": corrected_event.to(dtype=torch.float32),
+            "valid": valid.to(dtype=torch.float32),
+        }
+    return details, artifacts
+
+
+def phase_index(name):
+    phases = {"pred": 0, "cls": 1, "bias": 2, "pred_2": 3}
+    if name not in phases:
+        raise ValueError(f"Unsupported training phase: {name}")
+    return phases[name]
 
 class Trainer(object):
     def __init__(self, model, optimizer, dataloader, graph, args):
@@ -63,7 +174,7 @@ class Trainer(object):
             print("loading pretrained model from: ", path_to_load)
             print("\nmsg: ", msg)
             # Extract parameter groups
-            pred_params, classifier_params, bias_params = get_model_params_grouped(self.model)
+            pred_params, classifier_params, bias_params = get_model_params_grouped(self.model, self.args)
 
             # Freeze classification and prediction parameters
             for param in classifier_params + pred_params:
@@ -76,6 +187,7 @@ class Trainer(object):
         self.val_loader = dataloader['val']
         self.test_loader = dataloader['test']
         self.scaler = dataloader['scaler']
+        self.load_path_baseline_used = False
         
 
         self.train_per_epoch = len(self.train_loader)
@@ -126,7 +238,11 @@ class Trainer(object):
         total_loss = 0
         total_loss_pred = 0 
         total_loss_class = 0 
+        max_train_batches = getattr(self.args, "max_train_batches", None)
+        batches_seen = 0
         for batch_idx, (data, target, evs, _) in enumerate(self.train_loader):
+            if max_train_batches is not None and batch_idx >= max_train_batches:
+                break
             # print("data.shape: ", data.shape, target.shape)
             self.optimizer.zero_grad()
             
@@ -150,11 +266,14 @@ class Trainer(object):
             total_loss += loss.item()
             total_loss_pred += loss_pred
             total_loss_class += loss_class
+            batches_seen += 1
         
-                
-        train_epoch_loss = total_loss/self.train_per_epoch
-        train_epoch_loss_pred = total_loss_pred/self.train_per_epoch
-        train_epoch_loss_class = total_loss_class/self.train_per_epoch
+        if batches_seen == 0:
+            raise ValueError("No training batches were processed.")
+
+        train_epoch_loss = total_loss/batches_seen
+        train_epoch_loss_pred = total_loss_pred/batches_seen
+        train_epoch_loss_class = total_loss_class/batches_seen
         # Save losses for plotting
         epoch_losses.append(train_epoch_loss)
         epoch_losses_pred.append(train_epoch_loss_pred)
@@ -173,22 +292,31 @@ class Trainer(object):
         evs_pred = []
         targets = []
         with torch.no_grad():
+            max_eval_batches = getattr(self.args, "max_eval_batches", None)
+            batches_seen = 0
             for batch_idx, (data, target, evs, _) in enumerate(val_dataloader):
+                if max_eval_batches is not None and batch_idx >= max_eval_batches:
+                    break
                 repr1, repr1_cls = self.model(data, self.graph)
                 loss, loss_pred, loss_class, _ = self.model.loss(repr1, repr1_cls, evs, target, self.scaler, loss_weights, phase, val=True)
                 evs_true.append(evs)
-                evs_pred.append(self.model.classify_evs(repr1, repr1_cls))
+                if not uses_ungated_bias_ablation(self.args):
+                    evs_pred.append(self.model.classify_evs(repr1, repr1_cls))
                 targets.append(self.scaler.inverse_transform(target))
                 if not torch.isnan(loss):
                     total_val_loss += loss.item()
                     total_val_loss_pred += loss_pred
                     total_val_loss_class += loss_class
+                batches_seen += 1
+        if batches_seen == 0:
+            raise ValueError("No validation batches were processed.")
         evs_true = torch.cat(evs_true, dim=0).cpu()
-        evs_pred = torch.cat(evs_pred, dim=0).cpu()
+        if evs_pred:
+            evs_pred = torch.cat(evs_pred, dim=0).cpu()
         targets = torch.cat(targets, dim=0).cpu()
-        val_loss = total_val_loss / len(val_dataloader)
-        val_loss_pred = total_val_loss_pred / len(val_dataloader)
-        val_loss_class = total_val_loss_class / len(val_dataloader)
+        val_loss = total_val_loss / batches_seen
+        val_loss_pred = total_val_loss_pred / batches_seen
+        val_loss_class = total_val_loss_class / batches_seen
         self.logger.info(f'*******Val Epoch {epoch}: averaged Loss : {val_loss:.5f}, loss_pred: {val_loss_pred:.5f}, loss_class: {val_loss_class:.5f}')
         # cm = plot_cm(evs_pred, evs_true, gt=None)
         # self.logger.info(f"Confusion Matrix: \n{cm}")
@@ -241,7 +369,13 @@ class Trainer(object):
                 break
 
             self.logger.info('loss weights: {}'.format(loss_weights))
-            if epoch == 1 and self.args.load_path is not None:
+            use_loaded_baseline = (
+                epoch == 1
+                and self.args.load_path is not None
+                and not self.load_path_baseline_used
+                and component_name == getattr(self.args, "start_phase", "pred")
+            )
+            if use_loaded_baseline:
                 self.logger.info('validating pretrained model')
                 val_dataloader = self.val_loader if self.val_loader != None else self.test_loader
                 val_loss_pred, val_loss_cls = self.val_epoch(epoch, val_dataloader, loss_weights, component_name)       
@@ -249,6 +383,7 @@ class Trainer(object):
                 val_epoch_losses.append(val_epoch_loss)
                 best_loss = val_epoch_loss  
                 self.best_path = self.args.load_path
+                self.load_path_baseline_used = True
 
             train_epoch_loss, train_epoch_losses, train_epoch_losses_pred, train_epoch_losses_class, loss_weights = self.train_epoch(epoch, loss_weights, train_epoch_losses, train_epoch_losses_pred, train_epoch_losses_class, component_name)
             if train_epoch_loss > 1e6:
@@ -301,7 +436,18 @@ class Trainer(object):
         state_dict = save_dict if self.args.debug else torch.load(self.best_path, map_location=torch.device(self.args.device))
         self.model.load_state_dict(state_dict['model'])
         self.logger.info("== Test results.")
-        test_results = self.test(self.model, self.test_loader, self.scaler, self.graph, self.logger, self.args, component_name)
+        evaluation_phase = (
+            getattr(self.args, "evaluation_phase", None)
+            or getattr(self.args, "stop_after_phase", "bias")
+        )
+        capture_predictions = (
+            getattr(self.args, "capture_predictions", False)
+            and component_name == evaluation_phase
+        )
+        test_results = self.test(
+            self.model, self.test_loader, self.scaler, self.graph, self.logger,
+            self.args, component_name, capture_predictions=capture_predictions,
+        )
         results = {
             'best_val_loss': best_loss, 
             'best_val_epoch': best_epoch, 
@@ -342,65 +488,98 @@ class Trainer(object):
         val_loss_pred, val_loss_cls = self.val_epoch(epoch, val_dataloader, loss_weights, component_name)       
         self.logger.info("testing")
         test_results = self.test(self.model, self.test_loader, self.scaler, self.graph, self.logger, self.args, component_name)
-        pred_params, classifier_params, bias_params = get_model_params_grouped(self.model)
+        pred_params, classifier_params, bias_params = get_model_params_grouped(self.model, self.args)
 
         
         ## phase wise training. Load the saved model after every phase so we use the best model (best val loss) and not the latest model.
+        start_phase = getattr(self.args, "start_phase", "pred")
+        stop_after_phase = getattr(self.args, "stop_after_phase", "pred_2")
+        start_idx = phase_index(start_phase)
+        stop_idx = phase_index(stop_after_phase)
+        if start_idx > stop_idx:
+            raise ValueError(f"start_phase {start_phase} is after stop_after_phase {stop_after_phase}")
+
         # Phase-1 training:
-        results = self.train_component(
-            pred_params, bias_params+classifier_params, 'pred', esp=30)
-        load_from = self.best_path
-        if load_from is not None:
-            state_dict = torch.load(
-                load_from, map_location=torch.device(self.args.device))
-            msg = self.model.load_state_dict(state_dict['model']) 
-            print("loading pretrained model from: ", load_from)
-            print("\nmsg: ", msg)
-            # Extract parameter groups
-            pred_params, classifier_params, bias_params = get_model_params_grouped(self.model)
+        results = None
+        if start_idx <= 0 <= stop_idx:
+            phase1_train_params = pred_params
+            phase1_other_params = bias_params + classifier_params
+            if (
+                uses_expanded_base_additive_ablation(self.args)
+                or getattr(self.args, "ablation_mode", "original")
+                == "event_weighted_ungated_end_to_end"
+            ):
+                self.logger.info(
+                    "Training the prediction path and residual head together "
+                    "in the prediction phase."
+                )
+                phase1_train_params = pred_params + bias_params
+                phase1_other_params = classifier_params
+            results = self.train_component(
+                phase1_train_params, phase1_other_params, 'pred', esp=30)
+            load_from = self.best_path
+            if load_from is not None:
+                state_dict = torch.load(
+                    load_from, map_location=torch.device(self.args.device))
+                msg = self.model.load_state_dict(state_dict['model'])
+                print("loading pretrained model from: ", load_from)
+                print("\nmsg: ", msg)
+                # Extract parameter groups
+                pred_params, classifier_params, bias_params = get_model_params_grouped(self.model, self.args)
         
         # Phase-2 training:
-        results = self.train_component(
-            classifier_params, pred_params+bias_params, 'cls', esp=10)
-        load_from = self.best_path
-        if load_from is not None:
-            state_dict = torch.load(
-                load_from, map_location=torch.device(self.args.device))
-            msg = self.model.load_state_dict(state_dict['model']) 
-            print("loading pretrained model from: ", load_from)
-            print("\nmsg: ", msg)
-            # Extract parameter groups
-            pred_params, classifier_params, bias_params = get_model_params_grouped(self.model)
+        if uses_ungated_bias_ablation(self.args):
+            self.logger.info(
+                "Ablation ungated_bias: skipping classifier phase and BCE loss; "
+                "bias correction is added at every point."
+            )
+        elif start_idx <= 1 <= stop_idx:
+            results = self.train_component(
+                classifier_params, pred_params+bias_params, 'cls', esp=10)
+            load_from = self.best_path
+            if load_from is not None:
+                state_dict = torch.load(
+                    load_from, map_location=torch.device(self.args.device))
+                msg = self.model.load_state_dict(state_dict['model'])
+                print("loading pretrained model from: ", load_from)
+                print("\nmsg: ", msg)
+                # Extract parameter groups
+                pred_params, classifier_params, bias_params = get_model_params_grouped(self.model, self.args)
         
         # Phase-3 training:
         phase3_mode = getattr(self.args, "phase3_mode", "original")
-        if phase3_mode == "original":
-            results = self.train_component(
-                pred_params+bias_params, classifier_params, 'bias', esp=30)
-        elif phase3_mode == "joint_separated":
-            self.logger.info(
-                "Phase-3 joint_separated: classifier fine-tunes on BCE while "
-                "encoder/prediction/bias train on MAE with detached classifier gate."
-            )
-            results = self.train_component(
-                pred_params+bias_params+classifier_params, None, 'bias', esp=30)
-        else:
-            raise ValueError(f"Unsupported phase3_mode: {phase3_mode}")
-        
-        load_from = self.best_path
-        if load_from is not None:
-            state_dict = torch.load(
-                load_from, map_location=torch.device(self.args.device))
-            msg = self.model.load_state_dict(state_dict['model']) 
-            print("loading pretrained model from: ", load_from)
-            print("\nmsg: ", msg)
-            # Extract parameter groups
-            pred_params, classifier_params, bias_params = get_model_params_grouped(self.model)
+        if start_idx <= 2 <= stop_idx:
+            if uses_ungated_bias_ablation(self.args):
+                results = self.train_component(
+                    pred_params+bias_params, classifier_params, 'bias', esp=30)
+            elif phase3_mode == "original":
+                results = self.train_component(
+                    pred_params+bias_params, classifier_params, 'bias', esp=30)
+            elif phase3_mode == "joint_separated":
+                self.logger.info(
+                    "Phase-3 joint_separated: classifier fine-tunes on BCE while "
+                    "encoder/prediction/bias train on MAE with detached classifier gate."
+                )
+                results = self.train_component(
+                    pred_params+bias_params+classifier_params, None, 'bias', esp=30)
+            else:
+                raise ValueError(f"Unsupported phase3_mode: {phase3_mode}")
+
+            load_from = self.best_path
+            if load_from is not None:
+                state_dict = torch.load(
+                    load_from, map_location=torch.device(self.args.device))
+                msg = self.model.load_state_dict(state_dict['model'])
+                print("loading pretrained model from: ", load_from)
+                print("\nmsg: ", msg)
+                # Extract parameter groups
+                pred_params, classifier_params, bias_params = get_model_params_grouped(self.model, self.args)
 
         
         # Phase-4 training
-        results = self.train_component(
-            bias_params, classifier_params + pred_params, 'pred_2', esp=30)
+        if start_idx <= 3 <= stop_idx:
+            results = self.train_component(
+                bias_params, classifier_params + pred_params, 'pred_2', esp=30)
         
         return results
 
@@ -418,36 +597,43 @@ class Trainer(object):
             plt.savefig(os.path.join(self.args.log_dir, f'losses_{component_name}.png'))
 
     @staticmethod
-    def test(model, dataloader, scaler, graph, logger, args, phase):
+    def test(model, dataloader, scaler, graph, logger, args, phase, capture_predictions=False):
         model.eval()
         y_pred = []
         y_true = []
         evs_true = []
-        evs_pred = []
         with torch.no_grad():
+            max_eval_batches = getattr(args, "max_eval_batches", None)
             for batch_idx, (data, target, evs, _) in enumerate(dataloader):
+                if max_eval_batches is not None and batch_idx >= max_eval_batches:
+                    break
                 repr1, repr1_cls = model(data, graph)                
                 pred_output = model.predict(repr1, repr1_cls, phase)
-                pred_evs = model.classify_evs(repr1, repr1_cls)
                 y_true.append(target)
                 y_pred.append(pred_output)
                 evs_true.append(evs)
-                evs_pred.append(pred_evs)
+        if not y_true:
+            raise ValueError("No test batches were processed.")
         y_true = scaler.inverse_transform(torch.cat(y_true, dim=0))
         y_pred = scaler.inverse_transform(torch.cat(y_pred, dim=0))
         # y_pred = torch.cat(y_pred, dim=0)
         evs_true = torch.cat(evs_true, dim=0).cpu()
-        evs_pred = torch.cat(evs_pred, dim=0).cpu()
 
         test_results = []
-        # inflow
-        mae, eee = test_metrics(y_pred[..., 0], y_true[..., 0], evs=evs_true[..., 0])
-        logger.info("INFLOW, MAE: {:.2f}, EEE: {:.4f}".format(mae, eee))
-        test_results.append([mae, eee])
-        # outflow 
-        mae, eee = test_metrics(y_pred[..., 1], y_true[..., 1], evs=evs_true[..., 1])
-        logger.info("OUTFLOW, MAE: {:.2f}, EEE: {:.4f}".format(mae, eee))
-        test_results.append([mae, eee]) 
+        detailed_results, artifacts = build_evaluation_details(
+            y_pred, y_true, evs_true, capture_predictions=capture_predictions
+        )
+        flow_names = ("INFLOW", "OUTFLOW")
+        for flow_idx in range(y_pred.shape[-1]):
+            mae, eee = test_metrics(
+                y_pred[..., flow_idx].cpu(),
+                y_true[..., flow_idx].cpu(),
+                evs=evs_true[..., flow_idx],
+            )
+            logger.info("{}, MAE: {:.2f}, EEE: {:.4f}".format(flow_names[flow_idx], mae, eee))
+            test_results.append([mae, eee])
+        model.last_test_details = detailed_results
+        model.last_test_artifacts = artifacts
         return np.stack(test_results, axis=0)
 
 

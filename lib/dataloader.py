@@ -3,6 +3,8 @@ import time
 import torch 
 import numpy as np 
 
+from lib.event_masks import build_event_masks, corrected_p90_spec, fit_event_thresholds
+
 class StandardScaler:
     """
     Standard the input
@@ -57,12 +59,18 @@ class MinMax11Scaler:
             self.max = torch.from_numpy(self.max).to(data.device).type(data.dtype)
         return ((data + 1.) / 2.) * (self.max - self.min) + self.min
 
-def STDataloader(X, Y, evs, bias, batch_size, shuffle=True, drop_last=True):
+def STDataloader(X, Y, evs, bias, batch_size, shuffle=True, drop_last=True, device=None):
     ## Note: bias is only used when we use the fixed bias. A tensor for the fixed bias is passed to the model.
-    cuda = True if torch.cuda.is_available() else False
-    # cuda = False
-    TensorFloat = torch.cuda.FloatTensor if cuda else torch.FloatTensor
-    X, Y, evs, bias = TensorFloat(X), TensorFloat(Y), TensorFloat(evs), TensorFloat(bias)
+    if device is None:
+        cuda = True if torch.cuda.is_available() else False
+        TensorFloat = torch.cuda.FloatTensor if cuda else torch.FloatTensor
+        X, Y, evs, bias = TensorFloat(X), TensorFloat(Y), TensorFloat(evs), TensorFloat(bias)
+    else:
+        target_device = torch.device(device)
+        X = torch.as_tensor(X, dtype=torch.float32, device=target_device)
+        Y = torch.as_tensor(Y, dtype=torch.float32, device=target_device)
+        evs = torch.as_tensor(evs, dtype=torch.float32, device=target_device)
+        bias = torch.as_tensor(bias, dtype=torch.float32, device=target_device)
     data = torch.utils.data.TensorDataset(X, Y, evs, bias)
     dataloader = torch.utils.data.DataLoader(
         data, 
@@ -86,8 +94,20 @@ def normalize_data(data, scalar_type='Standard'):
     # time.sleep(3)
     return scalar
 
-def get_dataloader(data_dir, dataset, batch_size, test_batch_size, scalar_type='Standard'):
+def get_dataloader(
+    data_dir,
+    dataset,
+    batch_size,
+    test_batch_size,
+    scalar_type='Standard',
+    scaler_fit='train_val',
+    event_percentile=None,
+    event_mask_protocol='legacy_raw_p90_v1',
+    event_label_source='legacy_file_unverified',
+    device=None,
+):
     data = {}
+    _validate_event_options(event_mask_protocol, event_label_source, event_percentile)
     
     # print("input_dataset_context: ", input_dataset_context, input_sequence_type)
     # if input_dataset_context == 19:
@@ -116,7 +136,43 @@ def get_dataloader(data_dir, dataset, batch_size, test_batch_size, scalar_type='
         data['evs_' + category] = cat_data['evs_90']
         data['bias_' + category] = cat_data['evs_90']  ## This is a placeholder for the bias, which is not used in the current implementation.
         # print("using 90percent evs")
-    scaler = normalize_data(np.concatenate([data['x_train'], data['x_val']], axis=0), scalar_type)
+    event_metadata = None
+    if event_mask_protocol == 'train_all_node_flow_p90_valid_v2':
+        spec = corrected_p90_spec()
+        thresholds = fit_event_thresholds(data['y_train'], spec)
+        fingerprints = {}
+        for category in ['train', 'val', 'test']:
+            raw_labels = data['evs_' + category] if event_label_source == 'file_verified' else None
+            masks = build_event_masks(
+                data['y_' + category], thresholds, spec, raw_labels=raw_labels
+            )
+            labels = masks.event.astype(np.float32)
+            data['evs_' + category] = labels
+            data['bias_' + category] = labels
+            fingerprints[category] = masks.fingerprint
+        event_metadata = {
+            'protocol': spec.to_dict(),
+            'protocol_fingerprint': spec.fingerprint(),
+            'thresholds': thresholds.values.copy(),
+            'mask_fingerprints': fingerprints,
+        }
+    elif event_percentile is not None:
+        if not 0.0 < float(event_percentile) < 100.0:
+            raise ValueError("event_percentile must be between 0 and 100")
+        thresholds = np.percentile(
+            data['y_train'], float(event_percentile), axis=0
+        )
+        for category in ['train', 'val', 'test']:
+            labels = (data['y_' + category] > thresholds).astype(np.float32)
+            data['evs_' + category] = labels
+            data['bias_' + category] = labels
+    if scaler_fit == 'train':
+        scaler_data = data['x_train']
+    elif scaler_fit == 'train_val':
+        scaler_data = np.concatenate([data['x_train'], data['x_val']], axis=0)
+    else:
+        raise ValueError("scaler_fit must be 'train' or 'train_val'")
+    scaler = normalize_data(scaler_data, scalar_type)
     # print("skip: ", skip)
     # Data format
     # print("\n\n!!Scaling is NOT off!!\n\n")
@@ -132,7 +188,8 @@ def get_dataloader(data_dir, dataset, batch_size, test_batch_size, scalar_type='
         data['evs_train'], 
         data['bias_train'], 
         batch_size, 
-        shuffle=True
+        shuffle=True,
+        device=device,
     )
     dataloader['val'] = STDataloader(
         data['x_val'], 
@@ -140,7 +197,8 @@ def get_dataloader(data_dir, dataset, batch_size, test_batch_size, scalar_type='
         data['evs_val'], 
         data['bias_val'], 
         test_batch_size, 
-        shuffle=False
+        shuffle=False,
+        device=device,
     )
     dataloader['test'] = STDataloader(
         data['x_test'], 
@@ -149,10 +207,42 @@ def get_dataloader(data_dir, dataset, batch_size, test_batch_size, scalar_type='
         data['bias_test'], 
         test_batch_size, 
         shuffle=False, 
-        drop_last=False
+        drop_last=False,
+        device=device,
     )
     dataloader['scaler'] = scaler
+    dataloader['event_mask_protocol'] = event_mask_protocol
+    dataloader['event_label_source'] = event_label_source
+    if event_metadata is not None:
+        dataloader['event_thresholds'] = event_metadata['thresholds']
+        dataloader['event_mask_metadata'] = event_metadata
     return dataloader
+
+
+def _validate_event_options(event_mask_protocol, event_label_source, event_percentile):
+    supported_protocols = {
+        'legacy_raw_p90_v1',
+        'train_all_node_flow_p90_valid_v2',
+    }
+    supported_label_sources = {
+        'legacy_file_unverified',
+        'file_verified',
+        'generated',
+    }
+    if event_mask_protocol not in supported_protocols:
+        raise ValueError("event_mask_protocol is not supported")
+    if event_label_source not in supported_label_sources:
+        raise ValueError("event_label_source is not supported")
+    allowed_label_sources = {
+        'legacy_raw_p90_v1': {'legacy_file_unverified'},
+        'train_all_node_flow_p90_valid_v2': {'file_verified', 'generated'},
+    }
+    if event_label_source not in allowed_label_sources[event_mask_protocol]:
+        raise ValueError(
+            "event_label_source is not supported for event_mask_protocol"
+        )
+    if event_mask_protocol == 'train_all_node_flow_p90_valid_v2' and event_percentile is not None:
+        raise ValueError("event_percentile is not supported with train_all_node_flow_p90_valid_v2")
 
 if __name__ == '__main__':
     loader = get_dataloader('../data/', 'NYCBike1', batch_size=64, test_batch_size=64)

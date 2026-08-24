@@ -1,13 +1,16 @@
-"""
-Compute high-flow event prevalence for Hyb-STEX datasets.
+"""Report protocol-v2 high-flow prevalence with an explicit denominator.
 
-Default command from the repo root:
-  C:\\Users\\PCF\\.conda\\envs\\sds-test\\python.exe scripts\\compute_event_prevalence.py
+This script is the source of the high-flow prevalence rows for the revised
+paper.  It deliberately does *not* read the legacy ``evs_90`` arrays: those
+arrays represent raw p90 exceedances and can include targets excluded from the
+ordinary MAE population.  Instead it rebuilds the canonical v2 masks:
 
-The reported table uses corrected evs_90 labels by default. These labels are
-created from node/flow-specific thresholds learned from the training targets,
-then applied unchanged to train/val/test targets. Use --label-source train to
-recompute the same labels from y instead of reading evs_90 from disk.
+    V = 1[Y > 5]
+    E = V & 1[Y > q_train,0.90]
+
+where one q is fitted from all training targets for each horizon, region, and
+flow channel.  Reported shares are therefore |E| / |V|, not |E| divided by
+all grid-time observations.
 """
 
 from __future__ import annotations
@@ -15,20 +18,30 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
 
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from lib.event_masks import build_event_masks, corrected_p90_spec, fit_event_thresholds
+
+
 DEFAULT_DATASETS = ("NYCBike1", "NYCBike2", "NYCTaxi", "BJTaxi")
 FLOW_NAMES = ("inflow", "outflow")
 SPLITS = ("train", "val", "test")
-LABEL_SOURCE_CHOICES = ("file", "train")
+# The published benchmark aggregation intervals.  They are needed only to
+# convert a count over a split to a 24-hour-equivalent rate.
+SLOTS_PER_DAY = {"NYCBike1": 24, "NYCBike2": 48, "NYCTaxi": 48, "BJTaxi": 48}
 
 
 def repo_root() -> Path:
-    return Path(__file__).resolve().parents[1]
+    return ROOT
 
 
 def parse_csv(raw: str) -> list[str]:
@@ -45,106 +58,72 @@ def load_y(data_dir: Path, dataset: str, split: str) -> np.ndarray:
         return loaded["y"].astype(np.float32)
 
 
-def load_evs(data_dir: Path, dataset: str, split: str, label_name: str) -> np.ndarray:
-    path = data_dir / dataset / f"{split}.npz"
-    if not path.is_file():
-        raise FileNotFoundError(path)
-    with np.load(path) as loaded:
-        if label_name not in loaded.files:
-            raise KeyError(f"{path} does not contain a '{label_name}' array")
-        return loaded[label_name].astype(np.float32)
+def count_masked_targets(valid: np.ndarray, event: np.ndarray, slots_per_day: int) -> dict[str, Any]:
+    """Count v2 valid targets and events, including their exact denominators."""
+    if valid.shape != event.shape:
+        raise ValueError("valid and event masks must have the same shape")
+    if valid.ndim < 2 or valid.shape[-1] != len(FLOW_NAMES):
+        raise ValueError("expected a target array whose final axis is inflow/outflow")
+    if np.any(event & ~valid):
+        raise ValueError("event mask must be a subset of the valid-target mask")
 
+    # Every target time point in the split contributes one region-channel
+    # observation.  This remains well-defined when a chronological split
+    # starts or ends mid-day, yielding a fractional number of day equivalents.
+    # The dimensions before the region/flow axes are [sample, horizon].
+    # Their product is the number of target temporal slots represented by the
+    # split (one horizon in the present benchmark files).
+    target_time_points = int(np.prod(valid.shape[:-2]))
+    region_count = int(valid.shape[-2])
+    temporal_slots = target_time_points
+    day_equivalents = temporal_slots / slots_per_day
+    if day_equivalents <= 0:
+        raise ValueError("split must contain at least one temporal target slot")
 
-def train_thresholds(y_train: np.ndarray, percentile: float) -> np.ndarray:
-    # Threshold per prediction horizon, node, and flow direction.
-    return np.percentile(y_train, percentile, axis=0)
-
-
-def count_events(y: np.ndarray, thresholds: np.ndarray) -> dict[str, Any]:
-    events = y > thresholds
-    total = int(events.size)
-    positives = int(events.sum())
     result: dict[str, Any] = {
-        "positives": positives,
-        "total": total,
-        "prevalence": positives / total if total else float("nan"),
+        "all_target_observations": int(valid.size),
+        "valid_observations": int(valid.sum()),
+        "event_observations": int(event.sum()),
+        "event_share_of_valid": float(event.sum() / valid.sum()) if valid.any() else float("nan"),
+        "regions": region_count,
+        "target_temporal_slots": temporal_slots,
+        "slots_per_day": slots_per_day,
+        "day_equivalents": day_equivalents,
     }
     for flow_index, flow_name in enumerate(FLOW_NAMES):
-        flow_events = events[..., flow_index]
-        flow_total = int(flow_events.size)
-        flow_positives = int(flow_events.sum())
-        result[f"{flow_name}_positives"] = flow_positives
-        result[f"{flow_name}_total"] = flow_total
-        result[f"{flow_name}_prevalence"] = flow_positives / flow_total if flow_total else float("nan")
+        flow_valid = valid[..., flow_index]
+        flow_event = event[..., flow_index]
+        valid_count = int(flow_valid.sum())
+        event_count = int(flow_event.sum())
+        result[f"{flow_name}_all_target_observations"] = int(flow_valid.size)
+        result[f"{flow_name}_valid_observations"] = valid_count
+        result[f"{flow_name}_event_observations"] = event_count
+        result[f"{flow_name}_event_share_of_valid"] = (
+            event_count / valid_count if valid_count else float("nan")
+        )
+        result[f"{flow_name}_valid_observations_per_day"] = valid_count / day_equivalents
+        result[f"{flow_name}_events_per_day"] = event_count / day_equivalents
     return result
 
 
-def count_labels(events: np.ndarray) -> dict[str, Any]:
-    total = int(events.size)
-    positives = int(events.sum())
-    result: dict[str, Any] = {
-        "positives": positives,
-        "total": total,
-        "prevalence": positives / total if total else float("nan"),
-    }
-    for flow_index, flow_name in enumerate(FLOW_NAMES):
-        flow_events = events[..., flow_index]
-        flow_total = int(flow_events.size)
-        flow_positives = int(flow_events.sum())
-        result[f"{flow_name}_positives"] = flow_positives
-        result[f"{flow_name}_total"] = flow_total
-        result[f"{flow_name}_prevalence"] = flow_positives / flow_total if flow_total else float("nan")
-    return result
-
-
-def combine_counts(items: list[dict[str, Any]]) -> dict[str, Any]:
-    result: dict[str, Any] = {}
-    positives = sum(int(item["positives"]) for item in items)
-    total = sum(int(item["total"]) for item in items)
-    result["positives"] = positives
-    result["total"] = total
-    result["prevalence"] = positives / total if total else float("nan")
-    for flow_name in FLOW_NAMES:
-        flow_positives = sum(int(item[f"{flow_name}_positives"]) for item in items)
-        flow_total = sum(int(item[f"{flow_name}_total"]) for item in items)
-        result[f"{flow_name}_positives"] = flow_positives
-        result[f"{flow_name}_total"] = flow_total
-        result[f"{flow_name}_prevalence"] = flow_positives / flow_total if flow_total else float("nan")
-    return result
-
-
-def compute_dataset(
-    data_dir: Path,
-    dataset: str,
-    percentile: float,
-    label_source: str,
-    label_name: str,
-) -> dict[str, Any]:
-    if label_source == "file":
-        split_counts = {
-            split: count_labels(load_evs(data_dir, dataset, split, label_name))
-            for split in SPLITS
-        }
-        y_train = load_y(data_dir, dataset, "train")
-    elif label_source == "train":
-        y_by_split = {split: load_y(data_dir, dataset, split) for split in SPLITS}
-        thresholds = train_thresholds(y_by_split["train"], percentile)
-        split_counts = {
-            split: count_events(y_by_split[split], thresholds)
-            for split in SPLITS
-        }
-        y_train = y_by_split["train"]
-    else:
-        raise ValueError(f"Unsupported label_source={label_source!r}. Choices: {LABEL_SOURCE_CHOICES}")
-    split_counts["val_test"] = combine_counts([split_counts["val"], split_counts["test"]])
-    split_counts["all"] = combine_counts([split_counts["train"], split_counts["val"], split_counts["test"]])
+def compute_dataset(data_dir: Path, dataset: str) -> dict[str, Any]:
+    if dataset not in SLOTS_PER_DAY:
+        raise ValueError(f"No published sampling interval is configured for {dataset!r}")
+    y_by_split = {split: load_y(data_dir, dataset, split) for split in SPLITS}
+    spec = corrected_p90_spec()
+    thresholds = fit_event_thresholds(y_by_split["train"], spec)
+    split_counts = {}
+    for split, targets in y_by_split.items():
+        masks = build_event_masks(targets, thresholds, spec)
+        split_counts[split] = count_masked_targets(
+            masks.valid, masks.event, SLOTS_PER_DAY[dataset]
+        )
     return {
         "dataset": dataset,
-        "percentile": percentile,
-        "label_source": label_source,
-        "label_name": label_name if label_source == "file" else None,
+        "protocol": spec.to_dict(),
         "threshold_source_split": "train",
-        "target_shape_train": list(y_train.shape),
+        "evaluation_split_for_paper_table": "test",
+        "split_target_shapes": {split: list(values.shape) for split, values in y_by_split.items()},
         "counts": split_counts,
     }
 
@@ -155,21 +134,13 @@ def flatten_rows(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
         for split_name, counts in result["counts"].items():
             row = {
                 "dataset": result["dataset"],
-                "label_source": result["label_source"],
-                "label_name": result["label_name"],
-                "threshold_source_split": result["threshold_source_split"],
-                "percentile": result["percentile"],
                 "evaluated_split": split_name,
-                "positives": counts["positives"],
-                "total": counts["total"],
-                "prevalence": counts["prevalence"],
-                "prevalence_percent": 100.0 * counts["prevalence"],
+                "threshold_source_split": result["threshold_source_split"],
+                "event_mask_protocol": result["protocol"]["protocol_id"],
+                "valid_rule": "Y > 5",
+                "event_rule": "(Y > 5) and (Y > train-channel-p90)",
             }
-            for flow_name in FLOW_NAMES:
-                row[f"{flow_name}_positives"] = counts[f"{flow_name}_positives"]
-                row[f"{flow_name}_total"] = counts[f"{flow_name}_total"]
-                row[f"{flow_name}_prevalence"] = counts[f"{flow_name}_prevalence"]
-                row[f"{flow_name}_prevalence_percent"] = 100.0 * counts[f"{flow_name}_prevalence"]
+            row.update(counts)
             rows.append(row)
     return rows
 
@@ -190,6 +161,38 @@ def markdown_table(rows: list[dict[str, Any]], columns: list[str]) -> str:
     return "\n".join(lines)
 
 
+def paper_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    result = []
+    for row in rows:
+        if row["evaluated_split"] != "test":
+            continue
+        result.append(
+            {
+                "dataset": row["dataset"],
+                "test target slots / 24-h equivalents": (
+                    f"{row['target_temporal_slots']:.0f} / {row['day_equivalents']:.3f}"
+                ),
+                "valid targets/day, IN / OUT": (
+                    f"{row['inflow_valid_observations_per_day']:.2f} / "
+                    f"{row['outflow_valid_observations_per_day']:.2f}"
+                ),
+                "|V| / |E|, IN; OUT": (
+                    f"{row['inflow_valid_observations']:,} / {row['inflow_event_observations']:,}; "
+                    f"{row['outflow_valid_observations']:,} / {row['outflow_event_observations']:,}"
+                ),
+                "high-flow share of valid targets, IN / OUT": (
+                    f"{100 * row['inflow_event_share_of_valid']:.2f}% / "
+                    f"{100 * row['outflow_event_share_of_valid']:.2f}%"
+                ),
+                "high-flow events per 24-h equivalent, IN / OUT": (
+                    f"{row['inflow_events_per_day']:.2f} / "
+                    f"{row['outflow_events_per_day']:.2f}"
+                ),
+            }
+        )
+    return result
+
+
 def write_outputs(output_dir: Path, results: list[dict[str, Any]]) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     rows = flatten_rows(results)
@@ -200,19 +203,17 @@ def write_outputs(output_dir: Path, results: list[dict[str, Any]]) -> None:
         writer.writeheader()
         writer.writerows(rows)
 
-    paper_rows = [row for row in rows if row["evaluated_split"] == "val_test"]
-    columns = [
-        "dataset",
-        "prevalence_percent",
-        "inflow_prevalence_percent",
-        "outflow_prevalence_percent",
-        "positives",
-        "total",
-    ]
+    columns = list(paper_rows(rows)[0].keys())
     with (output_dir / "event_prevalence.md").open("w", encoding="utf-8") as handle:
-        handle.write("# Train-Threshold High-Flow Event Prevalence\n\n")
-        handle.write("Evaluation split is validation + test. Thresholds are the training-set 90th percentile per horizon, node, and flow direction.\n\n")
-        handle.write(markdown_table(paper_rows, columns))
+        handle.write("# Protocol-v2 high-flow prevalence\n\n")
+        handle.write(
+            "Paper table uses the chronological test split only. Thresholds are fitted once from "
+            "all training targets per horizon, region, and flow channel. A valid target satisfies "
+            "`Y > 5`; an event satisfies `Y > 5` and `Y > q_train,0.90`. Shares use valid targets "
+            "as their denominator. Rates use 24-hour equivalents, so non-day-aligned split boundaries "
+            "can yield fractional day counts.\n\n"
+        )
+        handle.write(markdown_table(paper_rows(rows), columns))
         handle.write("\n")
 
 
@@ -221,45 +222,17 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--data-dir", default=str(root / "preprocessed_data"))
     parser.add_argument("--datasets", default=",".join(DEFAULT_DATASETS))
-    parser.add_argument("--percentile", default=90.0, type=float)
-    parser.add_argument("--label-source", default="file", choices=LABEL_SOURCE_CHOICES)
-    parser.add_argument("--label-name", default="evs_90")
     parser.add_argument("--output-dir", default=str(root / "event_prevalence_results"))
     parser.add_argument("--no-write", action="store_true")
     args = parser.parse_args()
 
     data_dir = Path(args.data_dir).resolve()
-    datasets = parse_csv(args.datasets)
-    results = [
-        compute_dataset(data_dir, dataset, args.percentile, args.label_source, args.label_name)
-        for dataset in datasets
-    ]
+    results = [compute_dataset(data_dir, dataset) for dataset in parse_csv(args.datasets)]
     rows = flatten_rows(results)
-    paper_rows = [row for row in rows if row["evaluated_split"] == "val_test"]
-    paper_columns = [
-        "dataset",
-        "prevalence_percent",
-        "inflow_prevalence_percent",
-        "outflow_prevalence_percent",
-        "positives",
-        "total",
-    ]
-    diagnostic_columns = [
-        "dataset",
-        "evaluated_split",
-        "prevalence_percent",
-        "inflow_prevalence_percent",
-        "outflow_prevalence_percent",
-        "positives",
-        "total",
-    ]
-
-    print(f"\nData dir: {data_dir}")
-    print(f"Label source: {args.label_source}")
-    print("\nPaper table metric: val+test prevalence using train-derived high-flow labels\n")
-    print(markdown_table(paper_rows, paper_columns))
-    print("\nDiagnostics by split\n")
-    print(markdown_table(rows, diagnostic_columns))
+    table_rows = paper_rows(rows)
+    columns = list(table_rows[0].keys())
+    print("\nPaper table metric: protocol-v2 high-flow share and rate on the test split\n")
+    print(markdown_table(table_rows, columns))
 
     if not args.no_write:
         output_dir = Path(args.output_dir).resolve()

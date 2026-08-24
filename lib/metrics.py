@@ -1,6 +1,92 @@
 import numpy as np
 import torch
 
+
+def corrected_event_metrics(pred, true, event, valid_min=5.0):
+    """Summarize corrected event-mask errors over valid target values.
+
+    The returned values are Python scalars so they can be safely serialized
+    alongside training results.  Signed error uses ``pred - true``: positive
+    values therefore represent over-prediction.
+    """
+    _validate_corrected_metric_inputs(pred, true, event)
+    if isinstance(pred, np.ndarray):
+        valid = true > valid_min
+        event_mask = event.astype(bool)
+        abs_error = np.abs(pred - true)
+        signed_error = pred - true
+        any_invalid_event = np.any(event_mask & ~valid)
+    else:
+        valid = true > valid_min
+        event_mask = event.to(dtype=torch.bool)
+        abs_error = torch.abs(pred - true)
+        signed_error = pred - true
+        any_invalid_event = bool(torch.any(event_mask & ~valid).item())
+    if any_invalid_event:
+        raise ValueError("event mask must be a subset of valid targets")
+
+    normal = valid & ~event_mask
+    detail = {}
+    _add_corrected_metric_group(detail, "valid", valid, abs_error, signed_error)
+    _add_corrected_metric_group(detail, "event", event_mask, abs_error, signed_error)
+    _add_corrected_metric_group(detail, "normal", normal, abs_error, signed_error)
+    return detail
+
+
+def _validate_corrected_metric_inputs(pred, true, event):
+    supported = (np.ndarray, torch.Tensor)
+    if not isinstance(pred, supported) or not isinstance(true, supported) or not isinstance(event, supported):
+        raise TypeError("pred, true, and event must all be numpy arrays or torch tensors")
+    if type(pred) is not type(true) or type(pred) is not type(event):
+        raise TypeError("pred, true, and event must have the same array type")
+    if pred.shape != true.shape or pred.shape != event.shape:
+        raise ValueError("pred, true, and event must share a shape")
+    if isinstance(pred, torch.Tensor) and (
+        pred.device != true.device or pred.device != event.device
+    ):
+        raise ValueError("pred, true, and event must be on the same device")
+    if isinstance(event, np.ndarray):
+        if np.issubdtype(event.dtype, np.bool_):
+            return
+        is_real_numeric = np.issubdtype(event.dtype, np.number) and not np.issubdtype(
+            event.dtype, np.complexfloating
+        )
+        is_binary = is_real_numeric and np.all((event == 0) | (event == 1))
+    else:
+        if event.dtype == torch.bool:
+            return
+        is_real_numeric = not event.is_complex() and (
+            event.is_floating_point() or event.dtype in {
+                torch.uint8,
+                torch.int8,
+                torch.int16,
+                torch.int32,
+                torch.int64,
+            }
+        )
+        is_binary = is_real_numeric and bool(torch.all((event == 0) | (event == 1)).item())
+    if not is_binary:
+        raise ValueError("event must contain only bool or exact binary 0/1 values")
+
+
+def _add_corrected_metric_group(detail, name, mask, abs_error, signed_error):
+    if isinstance(abs_error, np.ndarray):
+        count = int(np.count_nonzero(mask))
+        abs_error_sum = float(abs_error[mask].sum())
+        signed_error_sum = float(signed_error[mask].sum())
+    else:
+        count = int(mask.sum().item())
+        abs_error_sum = float(abs_error[mask].sum().item())
+        signed_error_sum = float(signed_error[mask].sum().item())
+    mae = float("nan") if count == 0 else abs_error_sum / count
+    signed_error_mean = float("nan") if count == 0 else signed_error_sum / count
+    detail[f"{name}_count"] = count
+    detail[f"{name}_abs_error_sum"] = abs_error_sum
+    detail[f"{name}_signed_error_sum"] = signed_error_sum
+    detail[f"{name}_mae"] = mae
+    detail[f"{name}_mean_abs_error"] = mae
+    detail[f"{name}_signed_error"] = signed_error_mean
+
 """
 def mae_torch(pred, true, mask_value=None):
     if mask_value != None:
